@@ -1,0 +1,603 @@
+<style>
+  :root {
+    --primary-color: #4285f4;
+    --primary-dark: #3367d6; 
+    --success-color: #34a853;
+    --success-dark: #2d7a3f;
+    --danger-color: #ea4335;
+    --danger-dark: #d33b2c;
+    --warning-color: #fbbc04;
+    --warning-dark: #ea8600;
+    --background-color: #f7f9fc;
+    --surface-color: #ffffff;
+    --text-color: #202124;
+    --text-secondary: #5f6368;
+    --text-disabled: #9aa0a6;
+    --border-color: #dadce0;
+    --border-hover: #c4c7c5;
+    --shadow-light: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06);
+    --shadow-medium: 0 2px 6px rgba(0,0,0,0.08);
+    --font-family: 'Roboto', 'Arial', sans-serif;
+    --border-radius: 8px;
+    --border-radius-small: 6px;
+    --transition: 0.2s ease-in-out;
+  }
+
+  /* Base Styles */
+  body, html {
+    font-family: var(--font-family);
+    background-color: var(--background-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 20px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  h3 {
+    font-size: 20px;
+    font-weight: 500;
+    margin: 0 0 20px 0;
+    color: var(--text-color);
+  }
+
+  .container {
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  /* Form Styles */
+  .form-group {
+    margin-bottom: 16px;
+  }
+
+  .form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--text-color);
+  }
+
+  .input, select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    box-sizing: border-box;
+    font-size: 14px;
+    background-color: var(--surface-color);
+    color: var(--text-color);
+    transition: border-color var(--transition), box-shadow var(--transition);
+  }
+
+  .input:focus, select:focus {
+    border-color: var(--primary-color);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.1);
+  }
+
+  .input:disabled, select:disabled {
+    background-color: #f8f9fa;
+    color: var(--text-disabled);
+    cursor: not-allowed;
+  }
+
+  .description {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+
+  /* Checkbox Styles */
+  .checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    cursor: pointer;
+    gap: 8px;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  .checkbox {
+    margin-top: 2px;
+    margin-bottom: 0;
+    flex-shrink: 0;
+    accent-color: var(--primary-color);
+  }
+
+  .checkbox:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+
+  /* Button Styles */
+  .button-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+  }
+
+  .button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 14px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 20px;
+    transition: background-color var(--transition), box-shadow var(--transition), transform var(--transition);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .button:active {
+    transform: translateY(1px);
+  }
+
+  .button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .button-primary {
+    background-color: var(--primary-color);
+    color: var(--surface-color);
+  }
+
+  .button-primary:hover:not(:disabled) {
+    background-color: var(--primary-dark);
+    box-shadow: var(--shadow-light);
+  }
+
+  .button-secondary {
+    background-color: #e8eaed;
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+  }
+
+  .button-secondary:hover:not(:disabled) {
+    background-color: #dadce0;
+    border-color: var(--border-hover);
+  }
+
+  .button-success {
+    background-color: var(--success-color);
+    color: var(--surface-color);
+  }
+
+  .button-success:hover:not(:disabled) {
+    background-color: var(--success-dark);
+    box-shadow: var(--shadow-light);
+  }
+
+  .button-danger {
+    background-color: var(--danger-color);
+    color: var(--surface-color);
+  }
+
+  .button-danger:hover:not(:disabled) {
+    background-color: var(--danger-dark);
+    box-shadow: var(--shadow-light);
+  }
+
+  .button-warning {
+    background-color: var(--warning-color);
+    color: var(--text-color);
+  }
+
+  .button-warning:hover:not(:disabled) {
+    background-color: var(--warning-dark);
+    color: var(--surface-color);
+  }
+
+  /* Check Button Specifics */
+  #check-connection-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+  }
+
+  #check-connection-btn {
+    flex-shrink: 0;
+  }
+
+  #connection-status { 
+    font-size: 14px; 
+    font-weight: 500; 
+    transition: color 0.3s;
+  }
+  #connection-status.success { color: #1e8e3e; }
+  #connection-status.error { color: #d93025; }
+
+
+  /* Store List Styles */
+  #store-list { margin-top: 30px; }
+  .store-item { 
+    display: flex; 
+    align-items: center; 
+    justify-content: space-between; 
+    padding: 15px; 
+    border-radius: 8px; 
+    border: 1px solid #dadce0; 
+    margin-bottom: 10px; 
+    background-color: white;
+  }
+  .store-info { display: flex; flex-direction: column; }
+  .store-name { font-weight: 500; }
+  .store-marketplace { font-size: 12px; color: #5f6368; }
+  .store-actions { display: flex; align-items: center; gap: 8px; }
+
+  /* Toggle Switch */
+  .switch {
+    position: relative;
+    display: inline-block;
+    width: 38px;
+    height: 20px;
+  }
+  .switch input { 
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .4s;
+    border-radius: 34px;
+  }
+  .slider:before {
+    position: absolute;
+    content: "";
+    height: 14px;
+    width: 14px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+  }
+  input:checked + .slider {
+    background-color: #4285f4;
+  }
+  input:checked + .slider:before {
+    transform: translateX(18px);
+  }
+
+  /* Utility */
+  .hidden { display: none; }
+  .spinner { display: inline-block; border: 2px solid #f3f3f3; border-top: 2px solid #4285f4; border-radius: 50%; width: 14px; height: 14px; animation: spin 1s linear infinite; margin-right: 8px; }
+  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+</style>
+
+<div class="container">
+  <h3>🏪 Управление магазинами</h3>
+
+  <!-- FORM FOR ADDING/EDITING A STORE -->
+  <div id="store-form" class="hidden">
+    <input type="hidden" id="store-id">
+    
+    <div class="form-group">
+      <label for="store-name-input">Название магазина</label>
+      <input type="text" id="store-name-input" class="input" placeholder="Например, 'Мой магазин на Ozon'">
+    </div>
+
+    <div class="form-group">
+      <label for="marketplace-select">Маркетплейс</label>
+      <select id="marketplace-select" class="input" onchange="toggleApiKeys()">
+        <option value="">-- Выберите --</option>
+        <option value="Wildberries">Wildberries</option>
+        <option value="Ozon">Ozon</option>
+      </select>
+    </div>
+
+    <!-- API Key Fields -->
+    <div id="wb-keys" class="api-keys hidden">
+       <div class="form-group">
+        <label for="wb-api-key">API Ключ Wildberries</label>
+        <input type="password" id="wb-api-key" class="input">
+        <p class="description">Новый ключ для работы с отзывами (x64).</p>
+      </div>
+    </div>
+
+    <div id="ozon-keys" class="api-keys hidden">
+      <div class="form-group">
+        <label for="ozon-client-id">Client ID</label>
+        <input type="text" id="ozon-client-id" class="input">
+      </div>
+      <div class="form-group">
+        <label for="ozon-api-key">Api-Key</label>
+        <input type="password" id="ozon-api-key" class="input">
+      </div>
+    </div>
+
+    <!-- Date Filter Settings -->
+    <div class="form-group">
+      <label for="start-date-input">Дата начала поиска отзывов</label>
+      <input type="date" id="start-date-input" class="input">
+      <p class="description">Отзывы старше этой даты не будут обрабатываться. Оставьте пустым для обработки всех отзывов.</p>
+    </div>
+
+    <!-- Include Answered Reviews Setting -->
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="include-answered-input" class="checkbox">
+        Включать отвеченные отзывы
+      </label>
+      <p class="description">Если включено, система будет обрабатывать ВСЕ отзывы (включая уже отвеченные). Если выключено - только неотвеченные.</p>
+    </div>
+    
+    <!-- Second Row for Check Button -->
+    <div id="check-connection-row">
+      <button id="check-connection-btn" class="button" onclick="checkConnection()">Проверить</button>
+      <span id="connection-status"></span>
+    </div>
+
+    <!-- Form Action Buttons -->
+    <div class="button-row">
+      <button class="button button-primary" onclick="saveStore()">Сохранить</button>
+      <button class="button button-secondary" onclick="hideForm()">Отмена</button>
+    </div>
+  </div>
+
+  <!-- BUTTON TO SHOW THE FORM -->
+  <div id="add-store-button-container">
+      <button class="button button-primary" onclick="showForm()">+ Добавить магазин</button>
+  </div>
+
+  <!-- LIST OF EXISTING STORES -->
+  <div id="store-list"></div>
+
+</div>
+
+<script>
+  // ============ ON LOAD ============
+  document.addEventListener('DOMContentLoaded', loadStores);
+
+  // ============ STATE & DATA ============
+  let stores = [];
+
+  function loadStores() {
+    google.script.run.withSuccessHandler(renderStores).getStores();
+    hideForm();
+  }
+
+  // ============ RENDERING ============
+  function renderStores(currentStores) {
+    stores = currentStores;
+    const list = document.getElementById('store-list');
+    list.innerHTML = ''; // Clear list
+
+    if (stores.length === 0) {
+        list.innerHTML = '<p>Магазины еще не добавлены.</p>';
+        return;
+    }
+
+    stores.forEach(store => {
+      const item = document.createElement('div');
+      item.className = 'store-item';
+      item.innerHTML = `
+        <div class="store-info">
+          <span class="store-name">${store.name}</span>
+          <span class="store-marketplace">(${store.marketplace})</span>
+        </div>
+        <div class="store-actions">
+          <label class="switch">
+            <input type="checkbox" onchange="toggleStoreActivity('${store.id}', this.checked)" ${store.isActive ? 'checked' : ''}>
+            <span class="slider"></span>
+          </label>
+          <button class="button button-secondary" onclick="editStore('${store.id}')">✏️</button>
+          <button class="button button-secondary" onclick="deleteStore('${store.id}')">🗑️</button>
+        </div>
+      `;
+      list.appendChild(item);
+    });
+  }
+  
+  // ============ FORM HANDLING ============
+  function showForm(store) {
+    clearForm();
+    if (store) {
+      document.getElementById('store-id').value = store.id;
+      document.getElementById('store-name-input').value = store.name;
+      document.getElementById('marketplace-select').value = store.marketplace;
+      if (store.marketplace === 'Wildberries') {
+        document.getElementById('wb-api-key').value = store.credentials.apiKey || '';
+      } else if (store.marketplace === 'Ozon') {
+        document.getElementById('ozon-client-id').value = store.credentials.clientId || '';
+        document.getElementById('ozon-api-key').value = store.credentials.apiKey || '';
+      }
+      // Load start date if it exists
+      if (store.settings && store.settings.startDate) {
+        document.getElementById('start-date-input').value = store.settings.startDate;
+      }
+      
+      // Load include answered setting
+      if (store.settings && store.settings.includeAnswered) {
+        document.getElementById('include-answered-input').checked = store.settings.includeAnswered;
+      }
+    }
+    toggleApiKeys();
+    document.getElementById('store-form').classList.remove('hidden');
+    document.getElementById('add-store-button-container').classList.add('hidden');
+  }
+
+  function hideForm() {
+    clearForm();
+    document.getElementById('store-form').classList.add('hidden');
+    document.getElementById('add-store-button-container').classList.remove('hidden');
+  }
+
+  function clearForm() {
+      document.getElementById('store-id').value = '';
+      document.getElementById('store-name-input').value = '';
+      document.getElementById('marketplace-select').value = '';
+      document.getElementById('wb-api-key').value = '';
+      document.getElementById('ozon-client-id').value = '';
+      document.getElementById('ozon-api-key').value = '';
+      document.getElementById('start-date-input').value = '';
+      document.getElementById('include-answered-input').checked = false;
+      resetConnectionStatus();
+      toggleApiKeys();
+  }
+
+  function toggleApiKeys() {
+    const marketplace = document.getElementById('marketplace-select').value;
+    document.getElementById('wb-keys').classList.add('hidden');
+    document.getElementById('ozon-keys').classList.add('hidden');
+    if (marketplace === 'Wildberries') {
+      document.getElementById('wb-keys').classList.remove('hidden');
+    } else if (marketplace === 'Ozon') {
+      document.getElementById('ozon-keys').classList.remove('hidden');
+    }
+  }
+
+  // ============ ACTIONS (CRUD + CHECK) ============
+   function saveStore() {
+    // Prevent multiple clicks
+    const button = document.querySelector('.button-primary');
+    if (button && button.disabled) {
+      return;
+    }
+
+    const id = document.getElementById('store-id').value;
+    const name = document.getElementById('store-name-input').value;
+    const marketplace = document.getElementById('marketplace-select').value;
+    const startDate = document.getElementById('start-date-input').value;
+    const includeAnswered = document.getElementById('include-answered-input').checked;
+
+    if (!name || !marketplace) {
+        alert('Название магазина и маркетплейс должны быть указаны.');
+        return;
+    }
+
+    const store = {
+      id: id,
+      name: name,
+      marketplace: marketplace,
+      isActive: id ? stores.find(s => s.id === id)?.isActive ?? true : true,
+      credentials: {},
+      settings: {
+        startDate: startDate || null,  // Store null if empty
+        includeAnswered: includeAnswered || false  // Store boolean value
+      }
+    };
+
+    if (marketplace === 'Wildberries') {
+      store.credentials.apiKey = document.getElementById('wb-api-key').value;
+    } else if (marketplace === 'Ozon') {
+      store.credentials.clientId = document.getElementById('ozon-client-id').value;
+      store.credentials.apiKey = document.getElementById('ozon-api-key').value;
+    }
+
+    showSpinnerOnButton('.button-primary');
+    google.script.run.withSuccessHandler(onSaveSuccess).withFailureHandler(onSaveFailure).saveStore(store);
+  }
+  
+  function onSaveSuccess(updatedStores) {
+      hideSpinnerFromButton('.button-primary', 'Сохранить');
+      renderStores(updatedStores);
+      hideForm();
+  }
+
+  function onSaveFailure(error) {
+      alert("Ошибка при сохранении: " + error.message);
+      hideSpinnerFromButton('.button-primary', 'Сохранить');
+  }
+
+  function deleteStore(id) {
+    if (confirm('Вы уверены, что хотите удалить этот магазин?')) {
+      google.script.run.withSuccessHandler(renderStores).deleteStore(id);
+    }
+  }
+
+  function editStore(id) {
+    const store = stores.find(s => s.id === id);
+    if (store) {
+      showForm(store);
+    }
+  }
+  
+  function toggleStoreActivity(id, isActive) {
+    const store = stores.find(s => s.id === id);
+    if (store) {
+        store.isActive = isActive;
+        // We just need to save this change, no need for complex spinner logic
+        google.script.run.withSuccessHandler(loadStores).saveStore(store);
+    }
+  }
+
+  function checkConnection() {
+    const marketplace = document.getElementById('marketplace-select').value;
+    const statusEl = document.getElementById('connection-status');
+    const buttonEl = document.getElementById('check-connection-btn');
+    let credentials = {};
+
+    if (marketplace === 'Wildberries') {
+      credentials.apiKey = document.getElementById('wb-api-key').value;
+    } else if (marketplace === 'Ozon') {
+      credentials.clientId = document.getElementById('ozon-client-id').value;
+      credentials.apiKey = document.getElementById('ozon-api-key').value;
+    }
+    
+    // Reset state and show spinner
+    statusEl.textContent = 'Проверка...';
+    statusEl.className = '';
+    buttonEl.className = 'button'; // Reset to default blue
+    buttonEl.disabled = true;
+
+    google.script.run.withSuccessHandler(result => {
+        statusEl.textContent = result.message;
+        buttonEl.disabled = false;
+        if (result.success) {
+            statusEl.classList.add('success');
+            buttonEl.classList.add('success');
+        } else {
+            statusEl.classList.add('error');
+            buttonEl.classList.add('error');
+        }
+    }).testStoreConnection(credentials, marketplace);
+  }
+  
+  function resetConnectionStatus() {
+      const statusEl = document.getElementById('connection-status');
+      const buttonEl = document.getElementById('check-connection-btn');
+      statusEl.textContent = '';
+      statusEl.className = '';
+      buttonEl.className = 'button';
+      buttonEl.disabled = false;
+  }
+
+  // ============ UTILITY ============
+  function showSpinnerOnButton(buttonSelector) {
+      const button = document.querySelector(buttonSelector);
+      if(button) {
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner"></span> Загрузка';
+      }
+  }
+
+  function hideSpinnerFromButton(buttonSelector, text) {
+      const button = document.querySelector(buttonSelector);
+      if(button) {
+        button.disabled = false;
+        button.innerHTML = text;
+      }
+  }
+
+</script>
