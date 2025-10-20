@@ -1156,17 +1156,19 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
 }
 
 function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
-    // ✅ ИСПРАВЛЕН WB API endpoint для отправки ответов на отзывы
-    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/answer`;
+    // 🔧 ИСПРАВЛЕНО: Код 204 указывает на проблему с endpoint или форматом
+    // По документации WB API, правильный endpoint для ответов:
+    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/${feedbackId}/answer`;
     const payload = { 
-        id: feedbackId,  // ID отзыва в payload
-        text: text 
+        text: text  // Только текст в payload, ID в URL
     };
     
-    log(`[WB API] 🚀 Отправка ответа: POST ${url}, payload: ${JSON.stringify(payload)}`);
+    log(`[WB API] 🚀 Отправка ответа: POST ${url}`);
+    log(`[WB API] 📝 Payload: ${JSON.stringify(payload)}`);
+    log(`[WB API] 🔑 Authorization: ${apiKey.substring(0, 10)}...`);
     
     const response = UrlFetchApp.fetch(url, {
-        method: 'POST',  // ✅ ИСПРАВЛЕН метод на POST 
+        method: 'POST',
         headers: { 
             'Authorization': apiKey,
             'Content-Type': 'application/json'
@@ -1177,10 +1179,29 @@ function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
     
     const code = response.getResponseCode();
     const responseBody = response.getContentText();
+    const responseHeaders = response.getAllHeaders();
     
-    // Include detailed API response for debugging
-    const success = code === 200;
-    const errorMessage = success ? '' : `Код ответа: ${code}. Тело: ${responseBody}`;
+    // 🔍 УЛУЧШЕННОЕ ЛОГИРОВАНИЕ для диагностики
+    log(`[WB API] 📤 ЗАПРОС: POST ${url}`);
+    log(`[WB API] 📤 HEADERS: ${JSON.stringify({Authorization: 'Bearer ***', 'Content-Type': 'application/json'})}`);
+    log(`[WB API] 📤 PAYLOAD: ${JSON.stringify(payload)}`);
+    log(`[WB API] 📥 ОТВЕТ: Код ${code}`);
+    log(`[WB API] 📥 ТЕЛО ОТВЕТА: "${responseBody}"`);
+    log(`[WB API] 📥 HEADERS ОТВЕТА: ${JSON.stringify(responseHeaders)}`);
+    
+    // 🎯 ПРАВИЛЬНАЯ обработка кодов ответа WB API
+    const success = (code === 200 || code === 201 || code === 204);
+    let errorMessage = '';
+    
+    if (!success) {
+        errorMessage = `Код ответа: ${code}. Тело: ${responseBody}`;
+        log(`[WB API] ❌ ОШИБКА: ${errorMessage}`);
+    } else {
+        log(`[WB API] ✅ УСПЕХ: Ответ отправлен (код ${code})`);
+        if (code === 204) {
+            log(`[WB API] ℹ️ Код 204 = No Content обычно означает успешную обработку без возврата данных`);
+        }
+    }
     
     return [success, errorMessage, responseBody];
 }
