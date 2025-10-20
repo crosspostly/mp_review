@@ -134,6 +134,7 @@ function onOpen(e) {
   menu.addSeparator();
   menu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
   menu.addItem('▶️ Отправить подготовленные ответы', 'sendPendingAnswers');
+  menu.addItem('🧪 Тест ответа на конкретный отзыв', 'testWbFeedbackAnswerById');
   menu.addItem('🗑️ Удалить отзыв по ID', 'manuallyDeleteReviewById');
   menu.addSeparator();
   const devMenu = ui.createMenu('🛠️ Режим разработчика');
@@ -1156,54 +1157,130 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
 }
 
 function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
-    // 🔧 ИСПРАВЛЕНО: Код 204 указывает на проблему с endpoint или форматом
-    // По документации WB API, правильный endpoint для ответов:
+    log(`[WB API] 🎯 НАЧАЛО отправки ответа для ID ${feedbackId}`);
+    log(`[WB API] 📝 Текст ответа: "${text}" (длина: ${text.length} символов)`);
+    log(`[WB API] 🔑 API ключ: ${apiKey.substring(0, 15)}... (длина: ${apiKey.length})`);
+    
+    // 🔥 НОВАЯ СТРАТЕГИЯ: Пробуем ОБА endpoint'а последовательно
+    // Вариант 1: ID в URL (текущий подход)
+    const result1 = attemptWbFeedbackAnswerMethod1(feedbackId, text, apiKey);
+    if (result1[0]) {
+        log(`[WB API] ✅ УСПЕХ с Method 1 (ID в URL)!`);
+        return result1;
+    }
+    
+    log(`[WB API] ⚠️ Method 1 не сработал, пробуем Method 2...`);
+    
+    // Вариант 2: ID в теле запроса (альтернативный подход)
+    const result2 = attemptWbFeedbackAnswerMethod2(feedbackId, text, apiKey);
+    if (result2[0]) {
+        log(`[WB API] ✅ УСПЕХ с Method 2 (ID в теле)!`);
+        return result2;
+    }
+    
+    log(`[WB API] ❌ ОБА метода не сработали. Возвращаем результат последней попытки.`);
+    return result2;
+}
+
+/**
+ * Method 1: ID в URL - текущий подход из документации
+ * Endpoint: POST /api/v1/feedbacks/{feedbackId}/answer
+ */
+function attemptWbFeedbackAnswerMethod1(feedbackId, text, apiKey) {
     const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/${feedbackId}/answer`;
     const payload = { 
         text: text  // Только текст в payload, ID в URL
     };
     
-    log(`[WB API] 🚀 Отправка ответа: POST ${url}`);
-    log(`[WB API] 📝 Payload: ${JSON.stringify(payload)}`);
-    log(`[WB API] 🔑 Authorization: ${apiKey.substring(0, 10)}...`);
+    log(`[WB API Method 1] 🚀 URL: ${url}`);
+    log(`[WB API Method 1] 📝 Payload: ${JSON.stringify(payload)}`);
     
-    const response = UrlFetchApp.fetch(url, {
-        method: 'POST',
-        headers: { 
-            'Authorization': apiKey,
-            'Content-Type': 'application/json'
-        },
-        payload: JSON.stringify(payload),
-        muteHttpExceptions: true
-    });
+    return sendWbApiRequest(url, payload, apiKey, "Method 1 (ID в URL)");
+}
+
+/**
+ * Method 2: ID в теле запроса - альтернативный подход
+ * Endpoint: POST /api/v1/feedbacks/answer
+ */
+function attemptWbFeedbackAnswerMethod2(feedbackId, text, apiKey) {
+    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/answer`;
+    const payload = { 
+        id: feedbackId,  // ID в теле запроса
+        text: text       // Текст также в теле
+    };
     
-    const code = response.getResponseCode();
-    const responseBody = response.getContentText();
-    const responseHeaders = response.getAllHeaders();
+    log(`[WB API Method 2] 🚀 URL: ${url}`);
+    log(`[WB API Method 2] 📝 Payload: ${JSON.stringify(payload)}`);
     
-    // 🔍 УЛУЧШЕННОЕ ЛОГИРОВАНИЕ для диагностики
-    log(`[WB API] 📤 ЗАПРОС: POST ${url}`);
-    log(`[WB API] 📤 HEADERS: ${JSON.stringify({Authorization: 'Bearer ***', 'Content-Type': 'application/json'})}`);
-    log(`[WB API] 📤 PAYLOAD: ${JSON.stringify(payload)}`);
-    log(`[WB API] 📥 ОТВЕТ: Код ${code}`);
-    log(`[WB API] 📥 ТЕЛО ОТВЕТА: "${responseBody}"`);
-    log(`[WB API] 📥 HEADERS ОТВЕТА: ${JSON.stringify(responseHeaders)}`);
-    
-    // 🎯 ПРАВИЛЬНАЯ обработка кодов ответа WB API
-    const success = (code === 200 || code === 201 || code === 204);
-    let errorMessage = '';
-    
-    if (!success) {
-        errorMessage = `Код ответа: ${code}. Тело: ${responseBody}`;
-        log(`[WB API] ❌ ОШИБКА: ${errorMessage}`);
-    } else {
-        log(`[WB API] ✅ УСПЕХ: Ответ отправлен (код ${code})`);
-        if (code === 204) {
-            log(`[WB API] ℹ️ Код 204 = No Content обычно означает успешную обработку без возврата данных`);
+    return sendWbApiRequest(url, payload, apiKey, "Method 2 (ID в теле)");
+}
+
+/**
+ * Универсальная функция для отправки WB API запроса
+ * @param {string} url - URL для запроса
+ * @param {Object} payload - Тело запроса
+ * @param {string} apiKey - API ключ
+ * @param {string} methodName - Название метода для логирования
+ * @returns {Array} [success, errorMessage, responseBody]
+ */
+function sendWbApiRequest(url, payload, apiKey, methodName) {
+    try {
+        log(`[WB ${methodName}] 📤 Отправка запроса...`);
+        
+        const response = UrlFetchApp.fetch(url, {
+            method: 'POST',
+            headers: { 
+                'Authorization': apiKey,
+                'Content-Type': 'application/json'
+            },
+            payload: JSON.stringify(payload),
+            muteHttpExceptions: true
+        });
+        
+        const code = response.getResponseCode();
+        const responseBody = response.getContentText();
+        const responseHeaders = response.getAllHeaders();
+        
+        // 🔍 ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ каждого запроса
+        log(`[WB ${methodName}] 📥 Код ответа: ${code}`);
+        log(`[WB ${methodName}] 📥 Тело ответа: "${responseBody}"`);
+        
+        if (isDevMode()) {
+            log(`[WB ${methodName} DEBUG] 📋 Заголовки запроса: Authorization: ${apiKey.substring(0, 20)}..., Content-Type: application/json`);
+            log(`[WB ${methodName} DEBUG] 📋 Заголовки ответа: ${JSON.stringify(responseHeaders, null, 2)}`);
         }
+        
+        // 🎯 Анализ кодов ответа
+        const success = (code === 200 || code === 201 || code === 204);
+        let errorMessage = '';
+        
+        if (success) {
+            log(`[WB ${methodName}] ✅ УСПЕХ: Код ${code}`);
+            if (code === 200) log(`[WB ${methodName}] ℹ️ 200 OK - Ответ отправлен и сервер вернул данные`);
+            if (code === 201) log(`[WB ${methodName}] ℹ️ 201 Created - Ответ успешно создан`);
+            if (code === 204) log(`[WB ${methodName}] ℹ️ 204 No Content - Операция успешна, данных не возвращено`);
+        } else {
+            errorMessage = `${methodName}: Код ${code}. Ответ: ${responseBody}`;
+            log(`[WB ${methodName}] ❌ НЕУДАЧА: ${errorMessage}`);
+            
+            // 🔍 Специальная диагностика типичных ошибок
+            if (code === 400) log(`[WB ${methodName}] 🔎 400 Bad Request - Проверьте формат запроса и данные`);
+            if (code === 401) log(`[WB ${methodName}] 🔎 401 Unauthorized - Проверьте API ключ`);
+            if (code === 403) log(`[WB ${methodName}] 🔎 403 Forbidden - API ключ не имеет прав или отзыв уже отвечен`);
+            if (code === 404) log(`[WB ${methodName}] 🔎 404 Not Found - Отзыв не найден или endpoint неверный`);
+            if (code === 422) log(`[WB ${methodName}] 🔎 422 Unprocessable Entity - Проверьте данные (длина текста, статус отзыва)`);
+            if (code === 429) log(`[WB ${methodName}] 🔎 429 Too Many Requests - Превышен лимит запросов (max 3/сек)`);
+            if (code >= 500) log(`[WB ${methodName}] 🔎 ${code} Server Error - Временные проблемы на стороне WB`);
+        }
+        
+        return [success, errorMessage, responseBody];
+        
+    } catch (e) {
+        const criticalError = `${methodName} КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`;
+        log(`[WB ${methodName}] ⛔ ${criticalError}`);
+        log(`[WB ${methodName}] 🔍 Stack trace: ${e.stack}`);
+        return [false, criticalError, e.message];
     }
-    
-    return [success, errorMessage, responseBody];
 }
 
 // ======================================================================
@@ -1484,6 +1561,169 @@ function manuallyDeleteReviewById() {
     ui.alert('Успех', `Запись об отзыве с ID "${feedbackId}" удалена.`);
   } else {
     ui.alert('Не найдено', `Отзыв с ID "${feedbackId}" не найден.`);
+  }
+}
+
+// ============ WB TESTING FUNCTIONS ============
+/**
+ * Функция для тестирования отправки ответа на конкретный отзыв WB
+ * Позволяет протестировать оба endpoint'а без влияния на производственные данные
+ */
+function testWbFeedbackAnswerById() {
+  const ui = SpreadsheetApp.getUi();
+  
+  // Получаем список активных WB магазинов
+  const stores = getStores().filter(s => s.isActive && s.marketplace === 'Wildberries');
+  if (stores.length === 0) {
+    ui.alert('❌ Ошибка', 'Не найдено активных магазинов Wildberries для тестирования.', ui.ButtonSet.OK);
+    return;
+  }
+  
+  // Выбираем магазин (пока берем первый)
+  const store = stores[0];
+  log(`[WB TEST] 🧪 Начало тестирования для магазина: ${store.name}`);
+  
+  // Запрашиваем ID отзыва
+  const feedbackIdResponse = ui.prompt('🧪 Тест WB API', 
+    'Введите ID отзыва Wildberries для тестирования:', ui.ButtonSet.OK_CANCEL);
+  
+  if (feedbackIdResponse.getSelectedButton() !== ui.Button.OK || !feedbackIdResponse.getResponseText().trim()) {
+    log('[WB TEST] ❌ Тестирование отменено пользователем.');
+    return;
+  }
+  
+  const feedbackId = feedbackIdResponse.getResponseText().trim();
+  log(`[WB TEST] 🎯 ID отзыва для тестирования: ${feedbackId}`);
+  
+  // Запрашиваем текст ответа
+  const answerTextResponse = ui.prompt('🧪 Тест WB API', 
+    'Введите текст ответа для тестирования (2-5000 символов):', ui.ButtonSet.OK_CANCEL);
+    
+  if (answerTextResponse.getSelectedButton() !== ui.Button.OK || !answerTextResponse.getResponseText().trim()) {
+    log('[WB TEST] ❌ Тестирование отменено пользователем.');
+    return;
+  }
+  
+  const answerText = answerTextResponse.getResponseText().trim();
+  
+  // Валидация текста ответа
+  if (answerText.length < 2) {
+    ui.alert('❌ Ошибка валидации', 'Текст ответа слишком короткий (минимум 2 символа).', ui.ButtonSet.OK);
+    return;
+  }
+  if (answerText.length > 5000) {
+    ui.alert('❌ Ошибка валидации', 'Текст ответа слишком длинный (максимум 5000 символов).', ui.ButtonSet.OK);
+    return;
+  }
+  
+  log(`[WB TEST] 📝 Текст ответа: "${answerText}" (${answerText.length} символов)`);
+  
+  // Предупреждение пользователя
+  const confirmResponse = ui.alert('⚠️ ВНИМАНИЕ', 
+    `Вы собираетесь отправить РЕАЛЬНЫЙ ответ на отзыв ${feedbackId} в магазине "${store.name}"!\n\nТекст: "${answerText}"\n\nЭто действие нельзя отменить. Продолжить?`, 
+    ui.ButtonSet.YES_NO);
+    
+  if (confirmResponse !== ui.Button.YES) {
+    log('[WB TEST] ❌ Тестирование отменено пользователем на этапе подтверждения.');
+    return;
+  }
+  
+  // Включаем режим разработчика на время теста для более подробных логов
+  const wasDevMode = isDevMode();
+  if (!wasDevMode) {
+    log('[WB TEST] 🛠️ Временно включаем Dev Mode для детального логирования...');
+    setDevMode('true');
+  }
+  
+  try {
+    log('[WB TEST] 🚀 ЗАПУСК ТЕСТИРОВАНИЯ отправки ответа...');
+    
+    // Используем обновленную функцию с двумя вариантами endpoint'ов
+    const result = sendWbFeedbackAnswer(feedbackId, answerText, store.credentials.apiKey);
+    const [success, errorMessage, responseBody] = result;
+    
+    log(`[WB TEST] 📊 РЕЗУЛЬТАТ ТЕСТА:`);
+    log(`[WB TEST] ✅ Успех: ${success ? 'ДА' : 'НЕТ'}`);
+    log(`[WB TEST] 📝 Сообщение об ошибке: ${errorMessage || 'отсутствует'}`);
+    log(`[WB TEST] 📋 Ответ сервера: ${responseBody || 'пустой'}`);
+    
+    // Показываем результат пользователю
+    if (success) {
+      ui.alert('✅ УСПЕХ', 
+        `Ответ успешно отправлен!\n\nОтзыв ID: ${feedbackId}\nОтвет сервера: ${responseBody}`, 
+        ui.ButtonSet.OK);
+    } else {
+      ui.alert('❌ ОШИБКА', 
+        `Не удалось отправить ответ.\n\nОшибка: ${errorMessage}\nОтвет сервера: ${responseBody}\n\nПодробности в логе отладки.`, 
+        ui.ButtonSet.OK);
+    }
+    
+  } catch (e) {
+    log(`[WB TEST] ⛔ КРИТИЧЕСКАЯ ОШИБКА в тесте: ${e.message}`);
+    log(`[WB TEST] 🔍 Stack trace: ${e.stack}`);
+    ui.alert('⛔ КРИТИЧЕСКАЯ ОШИБКА', 
+      `Произошла критическая ошибка:\n\n${e.message}\n\nПодробности в логе отладки.`, 
+      ui.ButtonSet.OK);
+  } finally {
+    // Восстанавливаем предыдущий режим разработчика
+    if (!wasDevMode) {
+      log('[WB TEST] 🛠️ Восстанавливаем предыдущий режим разработчика...');
+      setDevMode('false');
+    }
+    
+    log('[WB TEST] 🏁 Тестирование завершено. Подробные логи в листе "🐞 Лог отладки".');
+  }
+}
+
+/**
+ * Функция для проверки статуса конкретного отзыва WB
+ * Помогает диагностировать, почему отзыв не может получить ответ
+ */
+function checkWbFeedbackStatus(feedbackId, apiKey) {
+  try {
+    log(`[WB Check] 🔍 Проверка статуса отзыва ${feedbackId}...`);
+    
+    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedback?id=${feedbackId}`;
+    
+    const response = UrlFetchApp.fetch(url, {
+      method: 'GET',
+      headers: { 'Authorization': apiKey },
+      muteHttpExceptions: true
+    });
+    
+    const code = response.getResponseCode();
+    const responseBody = response.getContentText();
+    
+    log(`[WB Check] 📥 Код ответа: ${code}`);
+    log(`[WB Check] 📋 Тело ответа: ${responseBody}`);
+    
+    if (code === 200) {
+      try {
+        const feedback = JSON.parse(responseBody);
+        const hasAnswer = feedback.answer && feedback.answer.text;
+        const createdDate = feedback.createdDate;
+        const rating = feedback.rating;
+        
+        log(`[WB Check] ✅ Отзыв найден:`);
+        log(`[WB Check] 📅 Дата: ${createdDate}`);
+        log(`[WB Check] ⭐ Рейтинг: ${rating}`);
+        log(`[WB Check] 💬 Имеет ответ: ${hasAnswer ? 'ДА' : 'НЕТ'}`);
+        if (hasAnswer) {
+          log(`[WB Check] 📝 Текст ответа: "${feedback.answer.text}"`);
+        }
+        
+        return { exists: true, hasAnswer, feedback };
+      } catch (e) {
+        log(`[WB Check] ❌ Ошибка парсинга JSON: ${e.message}`);
+        return { exists: false, error: 'JSON parse error' };
+      }
+    } else {
+      log(`[WB Check] ❌ Отзыв не найден или ошибка API: ${code}`);
+      return { exists: false, error: `HTTP ${code}: ${responseBody}` };
+    }
+  } catch (e) {
+    log(`[WB Check] ⛔ Критическая ошибка: ${e.message}`);
+    return { exists: false, error: e.message };
   }
 }
 
