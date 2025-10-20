@@ -1405,6 +1405,14 @@ function getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered,
             
             const json = JSON.parse(responseBody);
             
+            // 🚨 ЭКСТРЕННАЯ ОТЛАДКА: Показываем структуру ответа
+            if (isDevMode() || pageNumber <= 2) {
+                log(`[Ozon DEBUG] Страница ${pageNumber} - структура JSON: ${JSON.stringify(Object.keys(json), null, 2)}`);
+                if (json.result) {
+                    log(`[Ozon DEBUG] json.result содержит: ${JSON.stringify(Object.keys(json.result), null, 2)}`);
+                }
+            }
+            
             // ✅ ПРАВИЛЬНАЯ обработка структуры ответа
             let reviews = [];
             let resultData = null;
@@ -1419,6 +1427,10 @@ function getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered,
                 reviews = json.data.reviews;
             } else {
                 log(`[Ozon] ⚠️ Неожиданная структура ответа на странице ${pageNumber}. Ключи: ${Object.keys(json).join(', ')}`);
+                // 🚨 ЭКСТРЕННАЯ МЕРА: Показываем полный ответ если структура неожиданная
+                if (pageNumber <= 3) {
+                    log(`[Ozon EMERGENCY] Первые 1000 символов ответа: ${responseBody.substring(0, 1000)}`);
+                }
                 break;
             }
             
@@ -1454,10 +1466,16 @@ function getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered,
                     log(`[Ozon DEBUG] has_next: ${hasNext}, last_id: "${lastId}"`);
                 }
             } else {
-                // Если структура не содержит информацию о пагинации, 
-                // проверяем по количеству записей
-                hasNext = (reviews.length === limit);
-                log(`[Ozon] ⚠️ Нет информации о пагинации. Предполагаем has_next = ${hasNext} на основе размера ответа`);
+                // 🚨 АВАРИЙНАЯ МЕРА: Если lastId пустой 3 раза подряд - СТОП
+                if (!lastId && pageNumber > 3) {
+                    log(`[Ozon] 🛑 АВАРИЙНАЯ ОСТАНОВКА: last_id пустой ${pageNumber - 1} страниц подряд - возможна ошибка в API или парсинге`);
+                    hasNext = false;
+                } else {
+                    // Если структура не содержит информацию о пагинации, 
+                    // проверяем по количеству записей
+                    hasNext = (reviews.length === limit);
+                    log(`[Ozon] ⚠️ Нет информации о пагинации. Предполагаем has_next = ${hasNext} на основе размера ответа`);
+                }
             }
             
             // Если получили меньше записей чем лимит - это последняя страница
