@@ -1326,7 +1326,9 @@ function getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered,
     let hasNext = true;
     let pageNumber = 1;
     const limit = OZON_CONFIG.API_LIMITS.MAX_LIMIT; // 100 - максимум
-    const maxPages = 100; // Защита от бесконечного цикла (10,000 отзывов максимум)
+    const maxPages = 15; // ⚡ УМЕНЬШЕНО для предотвращения таймаута (1,500 отзывов за раз)
+    const startTime = Date.now(); // Отслеживание времени выполнения  
+    const maxExecutionTime = 5 * 60 * 1000; // 5 минут максимум (оставляем запас)
     
     // Базовая структура запроса
     let basePayload = {
@@ -1365,8 +1367,15 @@ function getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered,
         log(`[Ozon] 🗓️ Фильтр по дате НЕ применен - получаем все доступные отзывы`);
     }
     
-    // ✅ ГЛАВНЫЙ ЦИКЛ ПАГИНАЦИИ с last_id
+    // ✅ ГЛАВНЫЙ ЦИКЛ ПАГИНАЦИИ с last_id и контролем времени выполнения
     while (hasNext && pageNumber <= maxPages) {
+        // 🚨 КОНТРОЛЬ ВРЕМЕНИ ВЫПОЛНЕНИЯ для предотвращения таймаута
+        const elapsedTime = Date.now() - startTime;
+        if (elapsedTime > maxExecutionTime) {
+            log(`[Ozon] ⏱️ ОСТАНОВКА по времени: выполняется ${Math.round(elapsedTime/1000)} сек (лимит ${Math.round(maxExecutionTime/1000)} сек)`);
+            log(`[Ozon] 📊 Успели обработать ${pageNumber - 1} страниц, получено ${allReviews.length} отзывов`);
+            break;
+        }
         log(`[Ozon] 📄 Запрашиваю страницу ${pageNumber} (last_id: "${lastId}")...`);
         
         const payload = {
