@@ -125,6 +125,200 @@ const OZON_CONFIG = {
   PRODUCT_URL_TEMPLATE: 'https://www.ozon.ru/product/{sku}'
 };
 
+// ============ AUTHORIZATION HELPERS ============
+
+/**
+ * Проверяет наличие разрешений для работы с триггерами
+ * @returns {boolean} true если разрешения есть
+ */
+function hasScriptAppPermissions() {
+  try {
+    ScriptApp.getProjectTriggers();
+    return true;
+  } catch (e) {
+    if (e.message && e.message.includes('script.scriptapp')) {
+      return false;
+    }
+    // Другие ошибки считаем временными
+    log(`[Auth] Неожиданная ошибка при проверке разрешений: ${e.message}`);
+    return false;
+  }
+}
+
+/**
+ * Безопасный вызов ScriptApp.getProjectTriggers() с автоматическим запросом авторизации
+ * @returns {GoogleAppsScript.Script.Trigger[]|null} массив триггеров или null если нет разрешений
+ */
+function safeGetProjectTriggers() {
+  try {
+    return ScriptApp.getProjectTriggers();
+  } catch (e) {
+    if (e.message && e.message.includes('script.scriptapp')) {
+      log(`[Auth] ❌ Недостаточно разрешений для работы с триггерами: ${e.message}`);
+      requestScriptAppAuthorization();
+      return null;
+    }
+    // Пробрасываем другие ошибки
+    throw e;
+  }
+}
+
+/**
+ * Запрашивает дополнительные разрешения для работы с триггерами
+ * Показывает пользователю инструкции по авторизации
+ */
+function requestScriptAppAuthorization() {
+  log(`[Auth] 🔑 АВТОМАТИЧЕСКИЙ ЗАПРОС АВТОРИЗАЦИИ для ScriptApp разрешений`);
+  
+  try {
+    const ui = SpreadsheetApp.getUi();
+    
+    // Создаем детальное сообщение с инструкциями
+    const message = `🔑 ТРЕБУЕТСЯ ДОПОЛНИТЕЛЬНАЯ АВТОРИЗАЦИЯ
+
+Для работы с автоматическими триггерами необходимы дополнительные разрешения.
+
+📋 ТРЕБУЕМЫЕ РАЗРЕШЕНИЯ:
+• https://www.googleapis.com/auth/script.scriptapp
+
+🔧 КАК ПОЛУЧИТЬ РАЗРЕШЕНИЯ:
+1. Нажмите "ОК" в этом диалоге
+2. Откроется запрос авторизации Google
+3. Разрешите доступ к управлению скриптами
+4. После авторизации функция триггеров заработает автоматически
+
+⚠️ ЧТО ПРОИЗОЙДЕТ БЕЗ АВТОРИЗАЦИИ:
+• Автоматическая синхронизация триггеров будет отключена
+• Ручное управление триггерами будет недоступно
+• Основной функционал обработки отзывов продолжит работать
+
+Разрешить доступ сейчас?`;
+
+    const response = ui.alert(
+      '🔑 Требуется авторизация', 
+      message, 
+      ui.ButtonSet.OK_CANCEL
+    );
+    
+    if (response === ui.Button.OK) {
+      log(`[Auth] 👤 Пользователь согласился на авторизацию`);
+      
+      // Попытка принудительного запроса разрешений
+      try {
+        // Этот вызов должен вызвать диалог авторизации
+        forceAuthorizationRequest();
+        log(`[Auth] ✅ Запрос авторизации отправлен`);
+      } catch (authError) {
+        log(`[Auth] ❌ Ошибка при запросе авторизации: ${authError.message}`);
+        
+        // Показываем дополнительные инструкции
+        const fallbackMessage = `❌ Не удалось автоматически запросить авторизацию.
+
+📋 РУЧНАЯ АВТОРИЗАЦИЯ:
+1. Откройте Редактор скриптов (Расширения → Apps Script)
+2. Выберите функцию "requestManualAuthorization" в списке
+3. Нажмите кнопку "Выполнить" (▶️)
+4. Разрешите все запрашиваемые права доступа
+5. Вернитесь в таблицу и попробуйте снова
+
+🔄 После авторизации триггеры заработают автоматически.`;
+
+        ui.alert('⚠️ Требуется ручная авторизация', fallbackMessage, ui.ButtonSet.OK);
+      }
+    } else {
+      log(`[Auth] ❌ Пользователь отклонил авторизацию`);
+      
+      // Показываем последствия отказа
+      const declineMessage = `⚠️ Авторизация отклонена.
+
+🚫 ОГРАНИЧЕНИЯ:
+• Автоматические триггеры НЕ будут работать
+• Синхронизация триггеров ОТКЛЮЧЕНА
+• Управление триггерами из меню НЕДОСТУПНО
+
+✅ ПРОДОЛЖАЕТ РАБОТАТЬ:
+• Ручная обработка отзывов
+• Отправка подготовленных ответов  
+• Все остальные функции таблицы
+
+🔄 Чтобы включить триггеры позже, выберите в меню:
+"🔄 Управление автозапуском" → "🔑 Запросить авторизацию триггеров"`;
+
+      ui.alert('ℹ️ Функционал ограничен', declineMessage, ui.ButtonSet.OK);
+    }
+  } catch (uiError) {
+    log(`[Auth] ❌ Ошибка интерфейса при запросе авторизации: ${uiError.message}`);
+    // Если UI недоступен, просто логируем проблему
+  }
+}
+
+/**
+ * Принудительный запрос авторизации через вызов ScriptApp функций
+ */
+function forceAuthorizationRequest() {
+  // Попытка получить информацию о проекте - это должно вызвать запрос авторизации
+  try {
+    ScriptApp.getProjectTriggers();
+    log(`[Auth] ✅ Разрешения уже есть`);
+  } catch (e) {
+    // Это и есть наша цель - вызвать диалог авторизации
+    if (e.message.includes('script.scriptapp')) {
+      log(`[Auth] 🔑 Запрос авторизации активирован для: ${e.message}`);
+      throw new Error('Authorization dialog should appear now');
+    }
+  }
+}
+
+/**
+ * Функция для ручного запроса авторизации (вызывается пользователем из редактора скриптов)
+ * Эта функция должна быть запущена вручную для получения всех необходимых разрешений
+ */
+function requestManualAuthorization() {
+  log(`[Manual Auth] 🔑 ЗАПУСК РУЧНОЙ АВТОРИЗАЦИИ`);
+  
+  try {
+    // Запрашиваем все необходимые разрешения
+    const triggers = ScriptApp.getProjectTriggers();
+    log(`[Manual Auth] ✅ ScriptApp разрешения получены. Найдено триггеров: ${triggers.length}`);
+    
+    // Также запрашиваем разрешения для работы с таблицами (на всякий случай)
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    log(`[Manual Auth] ✅ Spreadsheet разрешения получены. Таблица: ${spreadsheet.getName()}`);
+    
+    // Запрашиваем разрешения для HTTP запросов (на всякий случай)  
+    const testResponse = UrlFetchApp.fetch('https://httpbin.org/json', {muteHttpExceptions: true});
+    log(`[Manual Auth] ✅ URL Fetch разрешения получены. Тестовый запрос: ${testResponse.getResponseCode()}`);
+    
+    log(`[Manual Auth] 🎉 ВСЕ РАЗРЕШЕНИЯ УСПЕШНО ПОЛУЧЕНЫ!`);
+    
+    // Показываем сообщение об успехе если возможно
+    try {
+      const ui = SpreadsheetApp.getUi();
+      ui.alert('✅ Авторизация завершена', 
+        '🎉 Все необходимые разрешения получены!\\n\\nТриггеры теперь будут работать автоматически.', 
+        ui.ButtonSet.OK);
+    } catch (uiError) {
+      log(`[Manual Auth] UI недоступен: ${uiError.message}`);
+    }
+    
+    return true;
+    
+  } catch (e) {
+    log(`[Manual Auth] ❌ ОШИБКА авторизации: ${e.message}`);
+    
+    try {
+      const ui = SpreadsheetApp.getUi();
+      ui.alert('❌ Ошибка авторизации', 
+        `Не удалось получить разрешения:\\n\\n${e.message}\\n\\nПопробуйте еще раз или обратитесь к администратору.`, 
+        ui.ButtonSet.OK);
+    } catch (uiError) {
+      log(`[Manual Auth] UI недоступен: ${uiError.message}`);
+    }
+    
+    return false;
+  }
+}
+
 // ============ MENU CREATION ============
 function onOpen(e) {
   const ui = SpreadsheetApp.getUi();
@@ -146,6 +340,8 @@ function onOpen(e) {
   menu.addSubMenu(devMenu);
   
   const triggerSubMenu = ui.createMenu('🔄 Управление автозапуском');
+  triggerSubMenu.addItem('🔑 Запросить авторизацию триггеров', 'requestScriptAppAuthorization');
+  triggerSubMenu.addSeparator();
   triggerSubMenu.addItem('Установить автозапуск (5 мин)', 'createTrigger5Min');
   triggerSubMenu.addItem('Установить автозапуск (30 мин)', 'createTrigger30Min');
   triggerSubMenu.addSeparator();
@@ -167,10 +363,15 @@ function onOpen(e) {
   if (!e || e.authMode !== ScriptApp.AuthMode.NONE) {
     // Только если пользователь авторизован
     try {
-      const interval = getTriggerInterval();
-      log(`[onOpen] Автоматическая синхронизация триггеров (интервал: ${interval} мин)...`);
-      const result = syncAllStoreTriggers(interval);
-      log(`[onOpen] Синхронизация завершена: создано ${result.created}, удалено ${result.deleted}`);
+      // Проверяем наличие разрешений перед синхронизацией
+      if (hasScriptAppPermissions()) {
+        const interval = getTriggerInterval();
+        log(`[onOpen] Автоматическая синхронизация триггеров (интервал: ${interval} мин)...`);
+        const result = syncAllStoreTriggers(interval);
+        log(`[onOpen] Синхронизация завершена: создано ${result.created}, удалено ${result.deleted}`);
+      } else {
+        log(`[onOpen] ⚠️ Нет разрешений для работы с триггерами - синхронизация пропущена`);
+      }
     } catch (e) {
       log(`[onOpen] ⚠️ Ошибка синхронизации триггеров: ${e.message}`);
     }
@@ -1973,7 +2174,11 @@ function ensureStoreTrigger(store, intervalMinutes = 5) {
  */
 function deleteStoreTrigger(storeId) {
   const functionName = `processStore_${storeId}`;
-  const triggers = ScriptApp.getProjectTriggers();
+  const triggers = safeGetProjectTriggers();
+  if (!triggers) {
+    log(`[Trigger] ❌ Нет разрешений для удаления триггера магазина ID ${storeId}`);
+    return false;
+  }
   let deleted = false;
   
   triggers.forEach(trigger => {
@@ -2034,19 +2239,23 @@ function syncAllStoreTriggers(intervalMinutes = 5) {
   
   // 3. Удаляем триггеры для несуществующих магазинов (очистка мусора)
   const existingStoreIds = new Set(allStores.map(s => s.id));
-  const triggers = ScriptApp.getProjectTriggers();
+  const triggers = safeGetProjectTriggers();
   
-  triggers.forEach(trigger => {
-    const funcName = trigger.getHandlerFunction();
-    if (funcName.startsWith('processStore_')) {
-      const storeId = funcName.replace('processStore_', '');
-      if (!existingStoreIds.has(storeId)) {
-        ScriptApp.deleteTrigger(trigger);
-        deleted++;
-        log(`[Trigger Sync] 🗑️ Удален триггер для несуществующего магазина ID: ${storeId}`);
+  if (!triggers) {
+    log('[Trigger Sync] ❌ Нет разрешений для очистки старых триггеров');
+  } else {
+    triggers.forEach(trigger => {
+      const funcName = trigger.getHandlerFunction();
+      if (funcName.startsWith('processStore_')) {
+        const storeId = funcName.replace('processStore_', '');
+        if (!existingStoreIds.has(storeId)) {
+          ScriptApp.deleteTrigger(trigger);
+          deleted++;
+          log(`[Trigger Sync] 🗑️ Удален триггер для несуществующего магазина ID: ${storeId}`);
+        }
       }
-    }
-  });
+    });
+  }
   
   log(`[Trigger Sync] ✅ СИНХРОНИЗАЦИЯ ЗАВЕРШЕНА: создано ${created}, удалено ${deleted}, ошибок ${errors}`);
   
@@ -2087,7 +2296,11 @@ function createTrigger30Min() { createTrigger(30); }
 function createTrigger1Hour() { createTrigger(60); }
 
 function deleteAllTriggers() {
-  const triggers = ScriptApp.getProjectTriggers();
+  const triggers = safeGetProjectTriggers();
+  if (!triggers) {
+    log('❌ Нет разрешений для удаления триггеров - требуется авторизация');
+    return;
+  }
   let deletedCount = 0;
   triggers.forEach(trigger => {
     if (trigger.getHandlerFunction() === 'processAllStores') {
@@ -2351,7 +2564,11 @@ function warmupOzonProducts(store) {
  */
 function createWarmupTrigger() {
   // Удаляем существующие триггеры прогрева
-  const triggers = ScriptApp.getProjectTriggers();
+  const triggers = safeGetProjectTriggers();
+  if (!triggers) {
+    log('[Warmup Trigger] ❌ Нет разрешений для управления триггерами - требуется авторизация');
+    return;
+  }
   triggers.forEach(trigger => {
     if (trigger.getHandlerFunction() === 'warmupProductCache') {
       ScriptApp.deleteTrigger(trigger);
@@ -2373,7 +2590,12 @@ function createWarmupTrigger() {
  * Удаление триггера кеш-прогрева
  */
 function deleteWarmupTrigger() {
-  const triggers = ScriptApp.getProjectTriggers();
+  const triggers = safeGetProjectTriggers();
+  if (!triggers) {
+    log('[Warmup Trigger] ❌ Нет разрешений для управления триггерами - требуется авторизация');
+    SpreadsheetApp.getUi().alert('❌ Ошибка', 'Нет разрешений для управления триггерами. Требуется авторизация.', SpreadsheetApp.getUi().ButtonSet.OK);
+    return;
+  }
   let deletedCount = 0;
   
   triggers.forEach(trigger => {
@@ -2532,7 +2754,11 @@ function deletePerStoreTriggers() {
  * Внутренняя функция удаления индивидуальных триггеров
  */
 function deletePerStoreTriggersInternal() {
-  const triggers = ScriptApp.getProjectTriggers();
+  const triggers = safeGetProjectTriggers();
+  if (!triggers) {
+    log('[Per-Store Triggers] ❌ Нет разрешений для управления индивидуальными триггерами');
+    return 0;
+  }
   let deletedCount = 0;
   
   triggers.forEach(trigger => {
