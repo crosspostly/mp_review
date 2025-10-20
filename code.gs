@@ -265,9 +265,21 @@ function getWbProductNames(nmIds, apiKey) {
 function getOzonProductNames(offerIds, clientId, apiKey) {
     if (!offerIds || offerIds.length === 0) return {};
     
-    // Убираем дубликаты
-    const uniqueOfferIds = [...new Set(offerIds)];
-    log(`[Ozon Products] 🏷️ Запрашиваю названия для ${uniqueOfferIds.length} товаров...`);
+    // Убираем дубликаты и фильтруем невалидные offer_id
+    const uniqueOfferIds = [...new Set(offerIds)].filter(id => {
+        // ИСПРАВЛЕНИЕ: Фильтруем только строковые offer_id и исключаем числовые sku
+        if (!id || typeof id !== 'string') return false;
+        // Исключаем чисто числовые ID (это sku, не offer_id)
+        if (/^\d+$/.test(id)) return false;
+        return true;
+    });
+    
+    log(`[Ozon Products] 🏷️ Запрашиваю названия для ${uniqueOfferIds.length} товаров (отфильтровано ${offerIds.length - uniqueOfferIds.length} невалидных ID)...`);
+    
+    if (uniqueOfferIds.length === 0) {
+        log(`[Ozon Products] ⚠️ Нет валидных offer_id для запроса названий`);
+        return {};
+    }
     
     const url = 'https://api-seller.ozon.ru/v3/product/list';
     const payload = {
@@ -436,10 +448,10 @@ function getWbFeedbacksByType(apiKey, isAnswered, store = null) {
         // ✅ ИСПРАВЛЕНО: Используем настройки даты из конфига магазина
         let url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks?isAnswered=${isAnswered}&take=${take}&skip=${currentSkip}&order=dateDesc`;
         
-        // ВРЕМЕННО ОТКЛЮЧАЕМ фильтрацию по дате для диагностики проблемы
+        // ✅ ИСПРАВЛЕНО: WB Feedbacks API НЕ поддерживает dateFrom/dateTo параметры
+        // Фильтрация по дате будет выполнена на клиентской стороне после получения данных
         if (store && store.settings && store.settings.startDate) {
-            log(`[WB] 🗓️ ВРЕМЕННО: Фильтр по дате ОТКЛЮЧЕН для диагностики (настроена дата: ${store.settings.startDate})`);
-            log(`[WB] 🔧 ДИАГНОСТИКА: Пробуем получить отзывы БЕЗ фильтров дат`);
+            log(`[WB] 🗓️ Настроена дата фильтрации: ${store.settings.startDate} (фильтрация будет выполнена после получения данных)`);
         } else {
             log(`[WB] 🗓️ Фильтр по дате не применен - получаем все доступные отзывы`);
         }
