@@ -949,12 +949,51 @@ function processAllStores() {
   }
   
   log(`Найдено ${activeStores.length} активных магазинов.`);
-  activeStores.forEach(store => {
-    log(`--- Начинаю обработку магазина: ${store.name} [${store.marketplace}] ---`);
+  
+  // 🚀 ИНТЕЛЛЕКТУАЛЬНАЯ БАТЧЕВАЯ ОБРАБОТКА
+  const maxExecutionTime = 5 * 60 * 1000; // 5 минут лимит
+  const startTime = Date.now();
+  
+  // Группируем магазины по платформам для оптимальной обработки
+  const wbStores = activeStores.filter(s => s.marketplace === 'Wildberries');
+  const ozonStores = activeStores.filter(s => s.marketplace === 'Ozon');
+  const otherStores = activeStores.filter(s => s.marketplace !== 'Wildberries' && s.marketplace !== 'Ozon');
+  
+  log(`📊 Распределение: WB=${wbStores.length}, Ozon=${ozonStores.length}, Другие=${otherStores.length}`);
+  
+  // Обработка с контролем времени и приоритизацией
+  let processedCount = 0;
+  const allStoresToProcess = [...wbStores, ...ozonStores, ...otherStores]; // WB и Ozon в приоритете
+  
+  for (const store of allStoresToProcess) {
+    // Проверяем оставшееся время перед каждым магазином
+    const elapsedTime = Date.now() - startTime;
+    const remainingTime = maxExecutionTime - elapsedTime;
+    
+    if (remainingTime < 30000) { // Менее 30 секунд осталось
+      log(`⏱️ ОСТАНОВКА: осталось ${Math.round(remainingTime/1000)} сек (недостаточно для обработки магазина)`);
+      log(`📊 Успешно обработано: ${processedCount}/${activeStores.length} магазинов`);
+      
+      if (processedCount < activeStores.length) {
+        log(`📋 Необработанные магазины: ${activeStores.length - processedCount}`);
+        log(`💡 Рекомендация: запустите обработку повторно для оставшихся магазинов`);
+      }
+      break;
+    }
+    
+    log(`--- Начинаю обработку магазина: ${store.name} [${store.marketplace}] (${processedCount + 1}/${activeStores.length}) ---`);
+    log(`⏱️ Времени осталось: ${Math.round(remainingTime/1000)} сек`);
+    
+    const storeStartTime = Date.now();
     processSingleStore(store, devMode);
-    log(`--- Завершение обработки магазина: ${store.name} ---`);
-  });
-  log('--- ОБРАБОТКА ВСЕХ МАГАЗИНОВ ЗАВЕРШЕНА ---');
+    const storeDuration = Date.now() - storeStartTime;
+    
+    processedCount++;
+    log(`--- Завершение обработки магазина: ${store.name} (${Math.round(storeDuration/1000)} сек) ---`);
+  }
+  
+  const totalDuration = Date.now() - startTime;
+  log(`--- ОБРАБОТКА ЗАВЕРШЕНА: ${processedCount}/${activeStores.length} магазинов за ${Math.round(totalDuration/1000)} сек ---`);
 }
 
 function processSingleStore(store, devMode) {
@@ -2144,8 +2183,13 @@ function testOzonFeedbacksWithLimitedPages(clientId, apiKey, includeAnswered, st
   return allReviews;
 }
 
-// ============ TRIGGERS ============
-function createTrigger(minutes) {
+// ============ ADVANCED PROCESSING FUNCTIONS ============
+
+/**
+ * Обработка только магазинов Wildberries
+ * Полезно когда нужно сфокусироваться на одной платформе
+ */
+function processWildberriesStores() {\n  const devMode = isDevMode();\n  log(`--- ЗАПУСК ОБРАБОТКИ WILDBERRIES (${devMode ? 'РЕЖИМ РАЗРАБОТЧИКА' : 'БОЕВОЙ РЕЖИМ'}) ---`);\n  const wbStores = getStores().filter(s => s.isActive && s.marketplace === 'Wildberries');\n  \n  if (wbStores.length === 0) {\n    log('Нет активных магазинов Wildberries для обработки.');\n    return;\n  }\n  \n  log(`Найдено ${wbStores.length} активных магазинов WB.`);\n  processStoresWithTimeControl(wbStores, devMode);\n}\n\n/**\n * Обработка только магазинов Ozon\n * Полезно когда нужно сфокусироваться на одной платформе\n */\nfunction processOzonStores() {\n  const devMode = isDevMode();\n  log(`--- ЗАПУСК ОБРАБОТКИ OZON (${devMode ? 'РЕЖИМ РАЗРАБОТЧИКА' : 'БОЕВОЙ РЕЖИМ'}) ---`);\n  const ozonStores = getStores().filter(s => s.isActive && s.marketplace === 'Ozon');\n  \n  if (ozonStores.length === 0) {\n    log('Нет активных магазинов Ozon для обработки.');\n    return;\n  }\n  \n  log(`Найдено ${ozonStores.length} активных магазинов Ozon.`);\n  processStoresWithTimeControl(ozonStores, devMode);\n}\n\n/**\n * Универсальная функция обработки списка магазинов с контролем времени\n * @param {Array} stores - Список магазинов для обработки\n * @param {boolean} devMode - Режим разработчика\n */\nfunction processStoresWithTimeControl(stores, devMode) {\n  const maxExecutionTime = 5 * 60 * 1000; // 5 минут лимит\n  const startTime = Date.now();\n  let processedCount = 0;\n  \n  for (const store of stores) {\n    const elapsedTime = Date.now() - startTime;\n    const remainingTime = maxExecutionTime - elapsedTime;\n    \n    if (remainingTime < 30000) {\n      log(`⏱️ ОСТАНОВКА: осталось ${Math.round(remainingTime/1000)} сек`);\n      log(`📊 Успешно обработано: ${processedCount}/${stores.length} магазинов`);\n      break;\n    }\n    \n    log(`--- Обрабатываю: ${store.name} [${store.marketplace}] (${processedCount + 1}/${stores.length}) ---`);\n    log(`⏱️ Времени осталось: ${Math.round(remainingTime/1000)} сек`);\n    \n    const storeStartTime = Date.now();\n    processSingleStore(store, devMode);\n    const storeDuration = Date.now() - storeStartTime;\n    \n    processedCount++;\n    log(`--- Завершено: ${store.name} (${Math.round(storeDuration/1000)} сек) ---`);\n  }\n  \n  const totalDuration = Date.now() - startTime;\n  log(`--- ОБРАБОТКА ЗАВЕРШЕНА: ${processedCount}/${stores.length} магазинов за ${Math.round(totalDuration/1000)} сек ---`);\n}\n\n// ============ TRIGGERS ============\nfunction createTrigger(minutes) {
   deleteAllTriggers();
   ScriptApp.newTrigger('processAllStores').timeBased().everyMinutes(minutes).create();
   log(`Установлен триггер автозапуска на каждые ${minutes} минут.`);
