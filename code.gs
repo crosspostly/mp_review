@@ -247,6 +247,10 @@ function getWbProductNames(nmIds, apiKey) {
         
     } catch (e) {
         log(`[WB Products] ❌ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
+        // Специальная обработка DNS ошибок
+        if (e.message.includes('DNS') || e.message.includes('resolve')) {
+            log(`[WB Products] ❌ DNS ОШИБКА: Проверьте доступность suppliers-api.wildberries.ru. Возможно временные проблемы с сетью.`);
+        }
         return {};
     }
 }
@@ -434,14 +438,24 @@ function getWbFeedbacksByType(apiKey, isAnswered, store = null) {
         
         // Добавляем фильтрацию по дате только если есть настройка startDate у магазина
         if (store && store.settings && store.settings.startDate) {
-            const startDate = store.settings.startDate; // Формат: YYYY-MM-DD
-            const today = new Date().toISOString().split('T')[0]; // Сегодняшняя дата в YYYY-MM-DD
+            const startDate = new Date(store.settings.startDate); // Парсим дату
+            const today = new Date(); // Сегодняшняя дата
             
-            const dateFrom = getUnixTimestamp(startDate);
-            const dateTo = getUnixTimestamp(today);
-            
-            url += `&dateFrom=${dateFrom}&dateTo=${dateTo}`;
-            log(`[WB] 🗓️ Применен фильтр дат магазина: ${startDate} - ${today} (Unix: ${dateFrom} - ${dateTo})`);
+            // ИСПРАВЛЕНИЕ: Проверка на корректность даты и будущее время
+            if (isNaN(startDate.getTime())) {
+                log(`[WB] ⚠️ ОШИБКА: Некорректная дата начала "${store.settings.startDate}". Фильтр по дате не применен.`);
+            } else if (startDate > today) {
+                log(`[WB] ⚠️ ПРЕДУПРЕЖДЕНИЕ: Дата начала "${store.settings.startDate}" в будущем! Все отзывы будут отфильтрованы. Проверьте настройки магазина.`);
+                const dateFromUnix = getUnixTimestamp(store.settings.startDate);
+                const dateToUnix = getUnixTimestamp(today.toISOString().split('T')[0]);
+                url += `&dateFrom=${dateFromUnix}&dateTo=${dateToUnix}`;
+                log(`[WB] 🗓️ Применен фильтр дат магазина: ${store.settings.startDate} - ${today.toISOString().split('T')[0]} (Unix: ${dateFromUnix} - ${dateToUnix})`);
+            } else {
+                const dateFromUnix = getUnixTimestamp(store.settings.startDate);
+                const dateToUnix = getUnixTimestamp(today.toISOString().split('T')[0]);
+                url += `&dateFrom=${dateFromUnix}&dateTo=${dateToUnix}`;
+                log(`[WB] 🗓️ Применен фильтр дат магазина: ${store.settings.startDate} - ${today.toISOString().split('T')[0]} (Unix: ${dateFromUnix} - ${dateToUnix})`);
+            }
         } else {
             log(`[WB] 🗓️ Фильтр по дате не применен - получаем все доступные отзывы`);
         }
