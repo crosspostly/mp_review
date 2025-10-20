@@ -162,17 +162,17 @@ function onOpen(e) {
   menu.addToUi();
   updateDevModeStatus();
   
-  // 🎯 АВТОМАТИЧЕСКАЯ СИНХРОНИЗАЦИЯ ОБЩЕГО ТРИГГЕРА при открытии таблицы
-  // Создает или удаляет общий триггер в зависимости от наличия активных магазинов
+  // 🎯 АВТОМАТИЧЕСКАЯ СИНХРОНИЗАЦИЯ ТРИГГЕРОВ при открытии таблицы
+  // Проверяем и синхронизируем триггеры для всех магазинов
   if (!e || e.authMode !== ScriptApp.AuthMode.NONE) {
     // Только если пользователь авторизован
     try {
       const interval = getTriggerInterval();
-      log(`[onOpen] Автоматическая синхронизация общего триггера (интервал: ${interval} мин)...`);
-      const updated = ensureGlobalTrigger(interval);
-      log(`[onOpen] Синхронизация завершена ${updated ? '(триггер обновлен)' : '(без изменений)'}`);
+      log(`[onOpen] Автоматическая синхронизация триггеров (интервал: ${interval} мин)...`);
+      const result = syncAllStoreTriggers(interval);
+      log(`[onOpen] Синхронизация завершена: создано ${result.created}, удалено ${result.deleted}`);
     } catch (e) {
-      log(`[onOpen] ⚠️ Ошибка синхронизации триггера: ${e.message}`);
+      log(`[onOpen] ⚠️ Ошибка синхронизации триггеров: ${e.message}`);
     }
   }
 }
@@ -1632,10 +1632,10 @@ function saveStore(store) {
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
   createOrGetSheet(`Отзывы (${store.name})`, CONFIG.HEADERS);
   
-  // 🎯 АВТОМАТИЧЕСКОЕ УПРАВЛЕНИЕ ТРИГГЕРОМ СЛОТА при сохранении магазина
+  // 🎯 АВТОМАТИЧЕСКОЕ УПРАВЛЕНИЕ ТРИГГЕРОМ при сохранении магазина
   const triggerInterval = getTriggerInterval();
   ensureStoreTrigger(store, triggerInterval);
-  log(`[saveStore] Триггер слота синхронизирован (магазин "${store.name}" ${store.isActive ? 'активен' : 'неактивен'})`);
+  log(`[saveStore] Триггер для магазина "${store.name}" синхронизирован (активен: ${store.isActive})`);
   
   return getStores();
 }
@@ -1646,9 +1646,9 @@ function deleteStore(storeId) {
   stores = stores.filter(s => s.id !== storeId);
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
   
-  // 🎯 АВТОМАТИЧЕСКОЕ УДАЛЕНИЕ ТРИГГЕРА СЛОТА при удалении магазина
+  // 🎯 АВТОМАТИЧЕСКОЕ УДАЛЕНИЕ ТРИГГЕРА при удалении магазина
   deleteStoreTrigger(storeId);
-  log(`[deleteStore] Триггер слота удалён (магазин ID ${storeId} удален)`);
+  log(`[deleteStore] Триггер для магазина ID ${storeId} удален`);
   
   return getStores();
 }
@@ -1917,61 +1917,13 @@ function checkWbFeedbackStatus(feedbackId, apiKey) {
 
 // ============ TRIGGERS ============
 
-// ============ АВТОМАТИЧЕСКОЕ УПРАВЛЕНИЕ ОБЩИМ ТРИГГЕРОМ ============
+// ============ АВТОМАТИЧЕСКОЕ УПРАВЛЕНИЕ ТРИГГЕРАМИ МАГАЗИНОВ ============
 
 /**
- * 🎯 АВТОМАТИЧЕСКОЕ УПРАВЛЕНИЕ ОБЩИМ ТРИГГЕРОМ processAllStores
- * Создает триггер если есть активные магазины, удаляет если все магазины неактивны
- * @param {number} intervalMinutes - Интервал запуска в минутах (по умолчанию 5)
- * @returns {boolean} true если триггер был создан/обновлен
- */
-function ensureGlobalTrigger(intervalMinutes = 5) {
-  const allStores = getStores();
-  const activeStores = allStores.filter(s => s.isActive);
-  
-  // Проверяем, существует ли уже общий триггер
-  const existingTriggers = ScriptApp.getProjectTriggers();
-  const existingTrigger = existingTriggers.find(t => t.getHandlerFunction() === 'processAllStores');
-  
-  if (activeStores.length > 0) {
-    // Есть активные магазины - нужен триггер
-    
-    if (existingTrigger) {
-      log(`[Trigger] ℹ️ Общий триггер processAllStores уже существует (активных магазинов: ${activeStores.length})`);
-      return false;
-    }
-    
-    try {
-      // Создаем новый общий триггер
-      ScriptApp.newTrigger('processAllStores')
-        .timeBased()
-        .everyMinutes(intervalMinutes)
-        .create();
-      
-      log(`[Trigger] ✅ Общий триггер processAllStores создан (интервал: ${intervalMinutes} мин, активных магазинов: ${activeStores.length})`);
-      return true;
-      
-    } catch (e) {
-      log(`[Trigger] ❌ ОШИБКА создания общего триггера: ${e.message}`);
-      return false;
-    }
-    
-  } else {
-    // Нет активных магазинов - удаляем триггер если существует
-    if (existingTrigger) {
-      ScriptApp.deleteTrigger(existingTrigger);
-      log(`[Trigger] 🗑️ Общий триггер processAllStores удален (нет активных магазинов)`);
-      return true;
-    } else {
-      log(`[Trigger] ℹ️ Нет активных магазинов и нет триггера - ничего не делаем`);
-      return false;
-    }
-  }\n}\n\n// ============ ИНДИВИДУАЛЬНЫЕ ТРИГГЕРЫ (УСТАРЕЛО) ============\n\n/**
- * ⚠️ УСТАРЕЛО: АВТОМАТИЧЕСКОЕ СОЗДАНИЕ/ОБНОВЛЕНИЕ триггера для магазина
+ * 🎯 АВТОМАТИЧЕСКОЕ СОЗДАНИЕ/ОБНОВЛЕНИЕ триггера для магазина
  * Вызывается при сохранении или изменении статуса магазина
  * @param {Object} store - Конфигурация магазина
  * @param {number} intervalMinutes - Интервал запуска в минутах (по умолчанию 5)
- * @deprecated Используйте ensureGlobalTrigger() вместо этой функции
  */
 function ensureStoreTrigger(store, intervalMinutes = 5) {
   if (!store || !store.id) {
@@ -1979,69 +1931,65 @@ function ensureStoreTrigger(store, intervalMinutes = 5) {
     return false;
   }
   
-  try {
-    if (store.isActive) {
-      // Магазин активен - назначаем слот и создаём триггер
-      log(`[Trigger] 🔄 Создание триггера для "${store.name}"...`);
-      
-      const slot = assignSlotToStore(store.id);
-      
-      if (!slot) {
-        log(`[Trigger] ❌ Не удалось назначить слот для "${store.name}" - все слоты заняты`);
-        SpreadsheetApp.getUi().alert('❌ Все слоты заняты', 
-          `Все 50 слотов заняты!\\n\\nУдалите неактивные магазины или отключите ненужные.`, 
-          SpreadsheetApp.getUi().ButtonSet.OK);
-        return false;
-      }
-      
-      const functionName = `processStoreSlot${slot}`;
-      
-      // Удаляем существующий триггер для этого слота
-      deleteSlotTrigger(slot);
-      
-      // Создаём новый триггер
+  const functionName = `processStore_${store.id}`;
+  
+  if (store.isActive) {
+    // Магазин включен - создаем/обновляем триггер
+    log(`[Trigger] 🔄 Синхронизация триггера для магазина "${store.name}" (ID: ${store.id})...`);
+    
+    // Удаляем существующий триггер этого магазина если есть
+    deleteStoreTrigger(store.id);
+    
+    try {
+      // Создаем новый триггер
       ScriptApp.newTrigger(functionName)
         .timeBased()
         .everyMinutes(intervalMinutes)
         .create();
       
-      log(`[Trigger] ✅ Триггер создан для "${store.name}" (слот: ${slot}, интервал: ${intervalMinutes} мин)`);
+      // Сохраняем конфигурацию магазина для триггера
+      const props = PropertiesService.getScriptProperties();
+      props.setProperty(`store_${store.id}`, JSON.stringify(store));
+      
+      log(`[Trigger] ✅ Триггер для "${store.name}" создан (функция: ${functionName}, интервал: ${intervalMinutes} мин)`);
       return true;
       
-    } else {
-      // Магазин неактивен - освобождаем слот и удаляем триггер
-      log(`[Trigger] ⏸️ Удаление триггера для "${store.name}"...`);
-      
-      const slot = getSlotForStore(store.id);
-      if (slot) {
-        deleteSlotTrigger(slot);
-        releaseSlotForStore(store.id);
-        log(`[Trigger] 🗑️ Триггер удалён для "${store.name}" (слот ${slot} освобождён)`);
-      }
-      return true;
+    } catch (e) {
+      log(`[Trigger] ❌ ОШИБКА создания триггера для "${store.name}": ${e.message}`);
+      return false;
     }
-  } catch (e) {
-    log(`[Trigger] ❌ ОШИБКА управления триггером для "${store.name}": ${e.message}`);
-    if (e.message.includes('разрешений') || e.message.includes('permissions')) {
-      SpreadsheetApp.getUi().alert('❌ Требуются разрешения', 
-        `Для работы с триггерами необходимы дополнительные разрешения.\\n\\nВыберите меню:\\n🤖 Автоответы → 🔄 Управление автозапуском → 🎯 Создать индивидуальные триггеры`, 
-        SpreadsheetApp.getUi().ButtonSet.OK);
-    }
-    return false;
+    
+  } else {
+    // Магазин выключен - удаляем триггер
+    log(`[Trigger] ⏸️ Магазин "${store.name}" выключен, удаляю триггер...`);
+    return deleteStoreTrigger(store.id);
   }
 }
 
 /**
- * Удаление триггера конкретного магазина (через слоты)
+ * Удаление триггера конкретного магазина
  * @param {string} storeId - ID магазина
  * @returns {boolean} true если триггер был удален
  */
 function deleteStoreTrigger(storeId) {
-  const slot = getSlotForStore(storeId);
-  if (slot) {
-    deleteSlotTrigger(slot);
-    releaseSlotForStore(storeId);
-    log(`[Trigger] 🗑️ Триггер магазина ID ${storeId} удалён (слот ${slot})`);\n    return true;\n  }\n  return false;\n}
+  const functionName = `processStore_${storeId}`;
+  const triggers = ScriptApp.getProjectTriggers();
+  let deleted = false;
+  
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === functionName) {
+      ScriptApp.deleteTrigger(trigger);
+      deleted = true;
+      log(`[Trigger] 🗑️ Триггер магазина ID ${storeId} удален (функция: ${functionName})`);
+    }
+  });
+  
+  // Удаляем конфигурацию из Properties
+  const props = PropertiesService.getScriptProperties();
+  props.deleteProperty(`store_${storeId}`);
+  
+  return deleted;
+}
 
 /**
  * 🔄 СИНХРОНИЗАЦИЯ ВСЕХ ТРИГГЕРОВ
@@ -2637,152 +2585,14 @@ function syncAllStoreTriggersMenu() {
     ui.ButtonSet.OK);
 }
 
-// ============ СИСТЕМА СЛОТОВ ДЛЯ ПАРАЛЛЕЛЬНОЙ ОБРАБОТКИ ============
+// ============ ДИНАМИЧЕСКИЕ ФУНКЦИИ ДЛЯ ТРИГГЕРОВ МАГАЗИНОВ ============
+// Эти функции используются триггерами для обработки отдельных магазинов
+// ⚠️ ВАЖНО: Google Apps Script НЕ может создавать функции динамически!
+// Каждая функция должна быть определена в коде заранее
+// 
+// Решение: используем универсальный подход с одной функцией,
+// которая загружает конфигурацию из Properties
 
-/**
- * 🎯 УПРАВЛЕНИЕ СЛОТАМИ для параллельной обработки магазинов
- * Каждый магазин получает свой слот (1-50) и индивидуальный триггер
- */
-
-/**
- * Назначение слота магазину
- * @param {string} storeId - ID магазина
- * @returns {number|null} Номер назначенного слота или null если все заняты
- */
-function assignSlotToStore(storeId) {
-  const props = PropertiesService.getScriptProperties();
-  const MAX_SLOTS = 50;
-  
-  // Проверяем, есть ли уже слот для этого магазина
-  for (let i = 1; i <= MAX_SLOTS; i++) {
-    const existingStoreId = props.getProperty(`slot_${i}_storeId`);
-    if (existingStoreId === storeId) {
-      log(`[Slots] ℹ️ Магазин ${storeId} уже использует слот ${i}`);
-      return i;
-    }
-  }
-  
-  // Ищем свободный слот
-  for (let i = 1; i <= MAX_SLOTS; i++) {
-    const existingStoreId = props.getProperty(`slot_${i}_storeId`);
-    if (!existingStoreId) {
-      props.setProperty(`slot_${i}_storeId`, storeId);
-      log(`[Slots] ✅ Магазину ${storeId} назначен слот ${i}`);
-      return i;
-    }
-  }
-  
-  log(`[Slots] ❌ Все ${MAX_SLOTS} слотов заняты! Невозможно назначить слот для магазина ${storeId}`);
-  return null;
-}
-
-/**
- * Освобождение слота магазина
- * @param {string} storeId - ID магазина
- * @returns {number|null} Номер освобождённого слота или null
- */
-function releaseSlotForStore(storeId) {
-  const props = PropertiesService.getScriptProperties();
-  const MAX_SLOTS = 50;
-  
-  for (let i = 1; i <= MAX_SLOTS; i++) {
-    const existingStoreId = props.getProperty(`slot_${i}_storeId`);
-    if (existingStoreId === storeId) {
-      props.deleteProperty(`slot_${i}_storeId`);
-      log(`[Slots] 🗑️ Слот ${i} освобождён (магазин ${storeId})`);
-      return i;
-    }
-  }
-  
-  return null;
-}
-
-/**
- * Получение номера слота для магазина
- * @param {string} storeId - ID магазина
- * @returns {number|null} Номер слота или null
- */
-function getSlotForStore(storeId) {
-  const props = PropertiesService.getScriptProperties();
-  const MAX_SLOTS = 50;
-  
-  for (let i = 1; i <= MAX_SLOTS; i++) {
-    const existingStoreId = props.getProperty(`slot_${i}_storeId`);
-    if (existingStoreId === storeId) {
-      return i;
-    }
-  }
-  
-  return null;
-}
-
-/**
- * 🔄 УНИВЕРСАЛЬНЫЙ ОБРАБОТЧИК для всех слотов
- * Вызывается функциями processStoreSlot1...processStoreSlot50
- * @param {number} slotNumber - Номер слота
- */
-function processStoreBySlot(slotNumber) {
-  const devMode = isDevMode();
-  log(`--- 🎯 ЗАПУСК СЛОТА ${slotNumber} (${devMode ? 'DEV' : 'PROD'}) ---`);
-  
-  const props = PropertiesService.getScriptProperties();
-  const storeId = props.getProperty(`slot_${slotNumber}_storeId`);
-  
-  if (!storeId) {
-    log(`[Slot ${slotNumber}] ⚠️ Слот не назначен магазину`);
-    return;
-  }
-  
-  // Получаем магазин из списка
-  const allStores = getStores();
-  const store = allStores.find(s => s.id === storeId);
-  
-  if (!store) {
-    log(`[Slot ${slotNumber}] ❌ Магазин ID ${storeId} не найден - освобождаю слот`);
-    releaseSlotForStore(storeId);
-    return;
-  }
-  
-  if (!store.isActive) {
-    log(`[Slot ${slotNumber}] ⏸️ Магазин "${store.name}" неактивен, пропускаю`);
-    return;
-  }
-  
-  log(`[Slot ${slotNumber}] 🏪 Обработка: ${store.name} [${store.marketplace}]`);
-  processSingleStore(store, devMode);
-  log(`[Slot ${slotNumber}] ✅ Обработка завершена`);
-}
-
-/**
- * Удаление триггера слота
- * @param {number} slotNumber - Номер слота
- */
-function deleteSlotTrigger(slotNumber) {
-  const functionName = `processStoreSlot${slotNumber}`;
-  const triggers = ScriptApp.getProjectTriggers();
-  let deleted = false;
-  
-  triggers.forEach(trigger => {
-    if (trigger.getHandlerFunction() === functionName) {
-      ScriptApp.deleteTrigger(trigger);
-      deleted = true;
-      log(`[Trigger] 🗑️ Триггер слота ${slotNumber} удалён`);
-    }
-  });
-  
-  return deleted;
-}
-
-// ============ ДИНАМИЧЕСКАЯ ГЕНЕРАЦИЯ 50 ФУНКЦИЙ-СЛОТОВ ============
-// Вместо 150 строк однотипного кода используем цикл!
-// Каждая функция processStoreSlot1...processStoreSlot50 вызывает processStoreBySlot(номер)
-
-(function() {
-  for (let i = 1; i <= 50; i++) {
-    this['processStoreSlot' + i] = (function(slotNum) {
-      return function() {
-        processStoreBySlot(slotNum);
-      };
-    })(i);
-  }
-}).call(this);
+// ПРИМЕРЫ динамических функций (добавляйте по мере создания новых магазинов):
+// Функции для первых 20 магазинов (ID могут быть timestamp-based)
+// Эти функции будут автоматически вызваны триггерами
