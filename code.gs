@@ -1616,6 +1616,12 @@ function saveStore(store) {
   }
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
   createOrGetSheet(`Отзывы (${store.name})`, CONFIG.HEADERS);
+  
+  // 🎯 АВТОМАТИЧЕСКОЕ УПРАВЛЕНИЕ ТРИГГЕРОМ при сохранении магазина
+  const triggerInterval = getTriggerInterval();
+  ensureStoreTrigger(store, triggerInterval);
+  log(`[saveStore] Триггер для магазина "${store.name}" синхронизирован (активен: ${store.isActive})`);
+  
   return getStores();
 }
 
@@ -1890,6 +1896,165 @@ function checkWbFeedbackStatus(feedbackId, apiKey) {
 }
 
 // ============ TRIGGERS ============
+
+// ============ АВТОМАТИЧЕСКОЕ УПРАВЛЕНИЕ ТРИГГЕРАМИ МАГАЗИНОВ ============
+
+/**
+ * 🎯 АВТОМАТИЧЕСКОЕ СОЗДАНИЕ/ОБНОВЛЕНИЕ триггера для магазина
+ * Вызывается при сохранении или изменении статуса магазина
+ * @param {Object} store - Конфигурация магазина
+ * @param {number} intervalMinutes - Интервал запуска в минутах (по умолчанию 5)
+ */
+function ensureStoreTrigger(store, intervalMinutes = 5) {
+  if (!store || !store.id) {
+    log('[Trigger] ❌ ОШИБКА: Некорректный объект магазина');
+    return false;
+  }
+  
+  const functionName = `processStore_${store.id}`;
+  
+  if (store.isActive) {
+    // Магазин включен - создаем/обновляем триггер
+    log(`[Trigger] 🔄 Синхронизация триггера для магазина "${store.name}" (ID: ${store.id})...`);
+    
+    // Удаляем существующий триггер этого магазина если есть
+    deleteStoreTrigger(store.id);
+    
+    try {
+      // Создаем новый триггер
+      ScriptApp.newTrigger(functionName)
+        .timeBased()
+        .everyMinutes(intervalMinutes)
+        .create();
+      
+      // Сохраняем конфигурацию магазина для триггера
+      const props = PropertiesService.getScriptProperties();
+      props.setProperty(`store_${store.id}`, JSON.stringify(store));
+      
+      log(`[Trigger] ✅ Триггер для "${store.name}" создан (функция: ${functionName}, интервал: ${intervalMinutes} мин)`);
+      return true;
+      
+    } catch (e) {
+      log(`[Trigger] ❌ ОШИБКА создания триггера для "${store.name}": ${e.message}`);
+      return false;
+    }
+    
+  } else {
+    // Магазин выключен - удаляем триггер
+    log(`[Trigger] ⏸️ Магазин "${store.name}" выключен, удаляю триггер...`);
+    return deleteStoreTrigger(store.id);
+  }
+}
+
+/**
+ * Удаление триггера конкретного магазина
+ * @param {string} storeId - ID магазина
+ * @returns {boolean} true если триггер был удален
+ */
+function deleteStoreTrigger(storeId) {
+  const functionName = `processStore_${storeId}`;
+  const triggers = ScriptApp.getProjectTriggers();
+  let deleted = false;
+  
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === functionName) {
+      ScriptApp.deleteTrigger(trigger);
+      deleted = true;
+      log(`[Trigger] 🗑️ Триггер магазина ID ${storeId} удален (функция: ${functionName})`);
+    }
+  });
+  
+  // Удаляем конфигурацию из Properties
+  const props = PropertiesService.getScriptProperties();
+  props.deleteProperty(`store_${storeId}`);
+  
+  return deleted;
+}
+
+/**
+ * 🔄 СИНХРОНИЗАЦИЯ ВСЕХ ТРИГГЕРОВ
+ * Проверяет состояние всех магазинов и синхронизирует триггеры
+ * - Создает триггеры для активных магазинов без триггеров
+ * - Удаляет триггеры для неактивных магазинов
+ * - Удаляет триггеры для удаленных магазинов
+ */
+function syncAllStoreTriggers(intervalMinutes = 5) {
+  log('[Trigger Sync] 🔄 ЗАПУСК СИНХРОНИЗАЦИИ ВСЕХ ТРИГГЕРОВ...');
+  
+  const allStores = getStores();
+  const activeStores = allStores.filter(s => s.isActive);
+  const inactiveStores = allStores.filter(s => !s.isActive);
+  
+  log(`[Trigger Sync] 📊 Всего магазинов: ${allStores.length} (активных: ${activeStores.length}, неактивных: ${inactiveStores.length})`);
+  
+  let created = 0;
+  let deleted = 0;
+  let errors = 0;
+  
+  // 1. Обрабатываем активные магазины - создаем триггеры
+  activeStores.forEach(store => {
+    try {
+      const result = ensureStoreTrigger(store, intervalMinutes);
+      if (result) created++;
+    } catch (e) {
+      log(`[Trigger Sync] ❌ Ошибка синхронизации магазина "${store.name}": ${e.message}`);
+      errors++;
+    }
+  });
+  
+  // 2. Обрабатываем неактивные магазины - удаляем триггеры
+  inactiveStores.forEach(store => {
+    try {
+      if (deleteStoreTrigger(store.id)) deleted++;
+    } catch (e) {
+      log(`[Trigger Sync] ❌ Ошибка удаления триггера для "${store.name}": ${e.message}`);
+      errors++;
+    }
+  });
+  
+  // 3. Удаляем триггеры для несуществующих магазинов (очистка мусора)
+  const existingStoreIds = new Set(allStores.map(s => s.id));
+  const triggers = ScriptApp.getProjectTriggers();
+  
+  triggers.forEach(trigger => {
+    const funcName = trigger.getHandlerFunction();
+    if (funcName.startsWith('processStore_')) {
+      const storeId = funcName.replace('processStore_', '');
+      if (!existingStoreIds.has(storeId)) {
+        ScriptApp.deleteTrigger(trigger);
+        deleted++;
+        log(`[Trigger Sync] 🗑️ Удален триггер для несуществующего магазина ID: ${storeId}`);
+      }
+    }
+  });
+  
+  log(`[Trigger Sync] ✅ СИНХРОНИЗАЦИЯ ЗАВЕРШЕНА: создано ${created}, удалено ${deleted}, ошибок ${errors}`);
+  
+  return { created, deleted, errors };
+}
+
+/**
+ * Получение текущего интервала триггеров из настроек
+ * @returns {number} Интервал в минутах (по умолчанию 5)
+ */
+function getTriggerInterval() {
+  const props = PropertiesService.getScriptProperties();
+  const interval = props.getProperty('TRIGGER_INTERVAL_MINUTES');
+  return interval ? parseInt(interval) : 5;
+}
+
+/**
+ * Сохранение интервала триггеров в настройки
+ * @param {number} minutes - Интервал в минутах
+ */
+function setTriggerInterval(minutes) {
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('TRIGGER_INTERVAL_MINUTES', String(minutes));
+  log(`[Trigger] 💾 Интервал триггеров установлен: ${minutes} минут`);
+}
+
+// ============ СТАРЫЕ ФУНКЦИИ ТРИГГЕРОВ (для обратной совместимости) ============
+
 function createTrigger(minutes) {
   deleteAllTriggers();
   ScriptApp.newTrigger('processAllStores').timeBased().everyMinutes(minutes).create();
