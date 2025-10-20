@@ -148,6 +148,9 @@ function onOpen(e) {
   const triggerSubMenu = ui.createMenu('🔄 Управление автозапуском');
   triggerSubMenu.addItem('Установить автозапуск (5 мин)', 'createTrigger5Min');
   triggerSubMenu.addItem('Установить автозапуск (30 мин)', 'createTrigger30Min');
+  triggerSubMenu.addSeparator();
+  triggerSubMenu.addItem('🎯 Создать индивидуальные триггеры для магазинов', 'createPerStoreTriggers');
+  triggerSubMenu.addItem('🗑️ Удалить все индивидуальные триггеры', 'deletePerStoreTriggers');
   triggerSubMenu.addItem('Установить автозапуск (1 час)', 'createTrigger1Hour');
   triggerSubMenu.addSeparator();
   triggerSubMenu.addItem('❌ Удалить все триггеры автозапуска', 'deleteAllTriggers');
@@ -331,6 +334,151 @@ function getOzonProductNames(offerIds, clientId, apiKey) {
         log(`[Ozon Products] ❌ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
         return {};
     }
+}
+
+/**
+ * НОВАЯ ФУНКЦИЯ: Ozon получение названий товаров через /v3/product/info/list
+ * Этот endpoint поддерживает поиск по sku, product_id, offer_id
+ * @param {Array} identifiers - Массив {type: 'sku'|'product_id'|'offer_id', value: '...'}
+ * @param {string} clientId - Ozon Client ID
+ * @param {string} apiKey - Ozon API ключ
+ * @returns {Object} Справочник {identifier: {name, price, images, etc}}
+ */
+function getOzonProductInfoList(identifiers, clientId, apiKey) {
+    if (!identifiers || identifiers.length === 0) return {};
+    
+    log(`[Ozon Product Info] 🏷️ Запрашиваю детальную информацию для ${identifiers.length} товаров...`);
+    
+    // Проверяем кеш перед запросом
+    const cache = CacheService.getScriptCache();
+    const uncachedIdentifiers = [];
+    const cachedResults = {};
+    
+    identifiers.forEach(id => {
+        const cacheKey = `ozon_product_${id.type}_${id.value}`;
+        const cached = cache.get(cacheKey);
+        if (cached) {
+            try {
+                cachedResults[id.value] = JSON.parse(cached);
+            } catch (e) {
+                log(`[Ozon Product Info] ⚠️ Ошибка парсинга кеша для ${id.value}: ${e.message}`);
+                uncachedIdentifiers.push(id);
+            }
+        } else {
+            uncachedIdentifiers.push(id);
+        }
+    });
+    
+    if (Object.keys(cachedResults).length > 0) {
+        log(`[Ozon Product Info] 💾 Получено из кеша: ${Object.keys(cachedResults).length} товаров`);
+    }
+    
+    if (uncachedIdentifiers.length === 0) {
+        log(`[Ozon Product Info] ✅ Все данные получены из кеша`);
+        return cachedResults;
+    }
+    
+    log(`[Ozon Product Info] 🌐 Запрашиваю с сервера: ${uncachedIdentifiers.length} товаров`);
+    
+    // Разбиваем на батчи по 100 товаров (лимит API)
+    const batches = [];
+    for (let i = 0; i < uncachedIdentifiers.length; i += 100) {
+        batches.push(uncachedIdentifiers.slice(i, i + 100));
+    }
+    
+    log(`[Ozon Product Info] 📦 Разбито на ${batches.length} батчей`);
+    
+    const allResults = { ...cachedResults };
+    
+    batches.forEach((batch, batchIndex) => {
+        log(`[Ozon Product Info] 📤 Обработка батча ${batchIndex + 1}/${batches.length} (${batch.length} товаров)...`);
+        
+        // Группируем по типу идентификатора
+        const skus = batch.filter(id => id.type === 'sku').map(id => parseInt(id.value));
+        const productIds = batch.filter(id => id.type === 'product_id').map(id => parseInt(id.value));
+        const offerIds = batch.filter(id => id.type === 'offer_id').map(id => id.value);
+        
+        const payload = {};
+        if (skus.length > 0) payload.sku = skus;
+        if (productIds.length > 0) payload.product_id = productIds;
+        if (offerIds.length > 0) payload.offer_id = offerIds;
+        
+        if (Object.keys(payload).length === 0) {
+            log(`[Ozon Product Info] ⚠️ Пустой payload для батча ${batchIndex + 1}, пропускаем`);
+            return;
+        }
+        
+        const url = 'https://api-seller.ozon.ru/v3/product/info/list';
+        
+        try {
+            const response = UrlFetchApp.fetch(url, {
+                method: 'POST',
+                headers: { 
+                    'Client-Id': clientId, 
+                    'Api-Key': apiKey,
+                    'Content-Type': 'application/json'
+                },
+                payload: JSON.stringify(payload),
+                muteHttpExceptions: true
+            });
+            
+            const responseCode = response.getResponseCode();
+            const responseBody = response.getContentText();
+            
+            if (responseCode !== 200) {
+                log(`[Ozon Product Info] ❌ ОШИБКА батча ${batchIndex + 1}: ${responseCode}. ${responseBody.substring(0, 200)}`);
+                return;
+            }
+            
+            const json = JSON.parse(responseBody);
+            const items = json.result?.items || [];
+            
+            log(`[Ozon Product Info] ✅ Батч ${batchIndex + 1}: получено ${items.length} товаров`);
+            
+            // Обрабатываем результаты и кешируем
+            items.forEach(item => {
+                const productInfo = {
+                    name: item.name || 'Не указано',
+                    sku: item.sku,
+                    product_id: item.id,
+                    offer_id: item.offer_id,
+                    price: item.price || null,
+                    old_price: item.old_price || null,
+                    currency_code: item.currency_code || 'RUB',
+                    images: item.images || [],
+                    description: item.description || ''
+                };
+                
+                // Сохраняем по всем возможным идентификаторам
+                if (item.sku) {
+                    allResults[item.sku] = productInfo;
+                    const cacheKey = `ozon_product_sku_${item.sku}`;
+                    cache.put(cacheKey, JSON.stringify(productInfo), 86400); // 24 часа
+                }
+                if (item.id) {
+                    allResults[item.id] = productInfo;
+                    const cacheKey = `ozon_product_product_id_${item.id}`;
+                    cache.put(cacheKey, JSON.stringify(productInfo), 86400);
+                }
+                if (item.offer_id) {
+                    allResults[item.offer_id] = productInfo;
+                    const cacheKey = `ozon_product_offer_id_${item.offer_id}`;
+                    cache.put(cacheKey, JSON.stringify(productInfo), 86400);
+                }
+            });
+            
+            // Задержка между батчами для соблюдения rate limits
+            if (batchIndex < batches.length - 1) {
+                Utilities.sleep(OZON_CONFIG.RATE_LIMITS.DELAY_BETWEEN_REQUESTS);
+            }
+            
+        } catch (e) {
+            log(`[Ozon Product Info] ❌ КРИТИЧЕСКАЯ ОШИБКА батча ${batchIndex + 1}: ${e.message}`);
+        }
+    });
+    
+    log(`[Ozon Product Info] 🎯 ИТОГО: получено ${Object.keys(allResults).length} товаров (из них ${Object.keys(cachedResults).length} из кеша)`);
+    return allResults;
 }
 
 // ============ ДАТА УТИЛИТЫ ============
@@ -994,9 +1142,15 @@ function processSingleStore(store, devMode) {
   log(`[${store.name}] Из них ${newFeedbacks.length} действительно новых (нет в таблице).`);
   if (newFeedbacks.length === 0) return;
 
-  const rowsToAppend = [];
+  // 🚀 ПАРАЛЛЕЛЬНОЕ СОХРАНЕНИЕ: обрабатываем и сохраняем каждый отзыв сразу
+  log(`[${store.name}] 🚀 ПАРАЛЛЕЛЬНОЕ СОХРАНЕНИЕ: обработка и немедленная запись результатов...`);
   
-  newFeedbacks.slice(0, CONFIG.MAX_FEEDBACKS_PER_RUN).forEach(feedback => {
+  let processedCount = 0;
+  const maxToProcess = Math.min(newFeedbacks.length, CONFIG.MAX_FEEDBACKS_PER_RUN);
+  
+  newFeedbacks.slice(0, maxToProcess).forEach((feedback, index) => {
+    const progressInfo = `[${index + 1}/${maxToProcess}]`;
+    
     let rowData = [
         feedback.id, new Date(feedback.createdDate), feedback.product.id, 
         feedback.product.name, feedback.product.url, feedback.rating, 
@@ -1005,35 +1159,55 @@ function processSingleStore(store, devMode) {
 
     if (!CONFIG.RESPOND_TO_RATINGS.includes(feedback.rating)) {
       rowData.push('', CONFIG.STATUS.SKIPPED_RATING, `Рейтинг ${feedback.rating} не входит в список для ответа.`, '');
-      rowsToAppend.push(rowData);
-      log(`[${store.name}] Пропущен отзыв ID: ${feedback.id} (рейтинг ${feedback.rating}). Ссылка: ${feedback.product.url}`);
+      
+      // 💾 СРАЗУ СОХРАНЯЕМ В ТАБЛИЦУ
+      sheet.appendRow(rowData);
+      processedCount++;
+      
+      log(`${progressInfo} [${store.name}] Пропущен отзыв ID: ${feedback.id} (рейтинг ${feedback.rating}). Ссылка: ${feedback.product.url}`);
       return;
     }
       
     const template = selectRandomTemplate(templates, feedback.rating);
     if (!template) {
       rowData.push('', CONFIG.STATUS.NO_TEMPLATE, `Не найден подходящий шаблон для рейтинга ${feedback.rating}.`, '');
-      rowsToAppend.push(rowData);
-      log(`[${store.name}] Нет шаблона для отзыва ID: ${feedback.id} (рейтинг ${feedback.rating}). Ссылка: ${feedback.product.url}`);
+      
+      // 💾 СРАЗУ СОХРАНЯЕМ В ТАБЛИЦУ
+      sheet.appendRow(rowData);
+      processedCount++;
+      
+      log(`${progressInfo} [${store.name}] Нет шаблона для отзыва ID: ${feedback.id} (рейтинг ${feedback.rating}). Ссылка: ${feedback.product.url}`);
       return;
     }
 
     if (devMode) {
       rowData.push(template, CONFIG.STATUS.PENDING, '', '');
-      rowsToAppend.push(rowData);
-      log(`[${store.name}] DEV: Подготовлен ответ для отзыва ID: ${feedback.id}. Ссылка: ${feedback.product.url}`);
+      
+      // 💾 СРАЗУ СОХРАНЯЕМ В ТАБЛИЦУ
+      sheet.appendRow(rowData);
+      processedCount++;
+      
+      log(`${progressInfo} [${store.name}] DEV: Подготовлен ответ для отзыва ID: ${feedback.id}. Ссылка: ${feedback.product.url}`);
     } else {
       // Production mode: send answer immediately
       const result = sendAnswer(store, feedback.id, template);
       rowData.push(template, result.status, result.error, result.timestamp);
-      rowsToAppend.push(rowData);
-      log(`[${store.name}] PROD: Отправлен ответ для ID: ${feedback.id}. Статус: ${result.status}. Ссылка: ${feedback.product.url}`);
-      Utilities.sleep(CONFIG.DELAY_BETWEEN_REQUESTS);
+      
+      // 💾 СРАЗУ СОХРАНЯЕМ В ТАБЛИЦУ ПОСЛЕ ОТПРАВКИ
+      sheet.appendRow(rowData);
+      processedCount++;
+      
+      log(`${progressInfo} [${store.name}] PROD: Отправлен ответ для ID: ${feedback.id}. Статус: ${result.status}. Ссылка: ${feedback.product.url}`);
+      
+      // Задержка только если это не последний отзыв
+      if (index < maxToProcess - 1) {
+        Utilities.sleep(CONFIG.DELAY_BETWEEN_REQUESTS);
+      }
     }
   });
   
-  if (rowsToAppend.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, CONFIG.HEADERS.length).setValues(rowsToAppend);
+  if (processedCount > 0) {
+    log(`[${store.name}] ✅ Сохранено ${processedCount} отзывов в режиме параллельной записи`);
     
     // Автоматическая сортировка по дате - новые отзывы наверх
     sortSheetByDate(sheet);
@@ -1343,18 +1517,43 @@ function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = nul
             }
         }));
         
-        // ✅ ОБОГАЩАЕМ НАЗВАНИЯМИ ТОВАРОВ из Product API
+        // ✅ ОБОГАЩАЕМ НАЗВАНИЯМИ ТОВАРОВ через /v3/product/info/list (новая функция с кешированием)
         if (processedReviews.length > 0 && store && store.credentials) {
-            const offerIds = processedReviews.map(review => review.product.id).filter(id => id);
-            const productNames = getOzonProductNames(offerIds, store.credentials.clientId, store.credentials.apiKey);
+            // Подготавливаем идентификаторы товаров для батч-запроса
+            const identifiers = [];
+            processedReviews.forEach(review => {
+                const productId = review.product.id;
+                if (!productId) return;
+                
+                // Определяем тип идентификатора (sku - числовой, offer_id - строковый)
+                if (/^\d+$/.test(String(productId))) {
+                    identifiers.push({ type: 'sku', value: String(productId) });
+                } else {
+                    identifiers.push({ type: 'offer_id', value: String(productId) });
+                }
+            });
             
-            if (Object.keys(productNames).length > 0) {
+            log(`[Ozon] 🏷️ Подготовлено ${identifiers.length} идентификаторов товаров для обогащения данными`);
+            
+            // Получаем детальную информацию о товарах с кешированием
+            const productInfo = getOzonProductInfoList(identifiers, store.credentials.clientId, store.credentials.apiKey);
+            
+            if (Object.keys(productInfo).length > 0) {
+                let enrichedCount = 0;
                 processedReviews.forEach(review => {
-                    if (productNames[review.product.id]) {
-                        review.product.name = productNames[review.product.id];
+                    const info = productInfo[review.product.id];
+                    if (info && info.name) {
+                        review.product.name = info.name;
+                        // Опционально: можем также обогатить ценой и изображениями
+                        if (info.price) {
+                            review.product.price = info.price;
+                        }
+                        enrichedCount++;
                     }
                 });
-                log(`[Ozon] 🏷️ Названия товаров обновлены для ${Object.keys(productNames).length} отзывов`);
+                log(`[Ozon] 🏷️ Обогащено ${enrichedCount} отзывов из ${Object.keys(productInfo).length} полученных товаров`);
+            } else {
+                log(`[Ozon] ⚠️ Не удалось получить информацию о товарах через Product API`);
             }
         }
         
@@ -1715,3 +1914,458 @@ function deleteAllTriggers() {
     log(`Удалено ${deletedCount} триггеров автозапуска.`);
   }
 }
+
+// ============ НОЧНОЙ КЕШ-ПРОГРЕВ ============
+
+/**
+ * 🌙 НОЧНОЙ КЕШ-ПРОГРЕВ: Предзагрузка информации о всех товарах в кеш
+ * Запускается по триггеру раз в день (обычно ночью)
+ * Загружает информацию о товарах из каталогов всех активных магазинов
+ */
+function warmupProductCache() {
+  log('=== 🌙 ЗАПУСК НОЧНОГО КЕШ-ПРОГРЕВА ===');
+  const startTime = new Date();
+  
+  const allStores = getStores();
+  const activeStores = allStores.filter(store => store.isActive);
+  
+  if (activeStores.length === 0) {
+    log('[Warmup] ⚠️ Нет активных магазинов для прогрева кеша');
+    return;
+  }
+  
+  log(`[Warmup] 🏪 Найдено ${activeStores.length} активных магазинов`);
+  
+  let totalProductsWarmed = 0;
+  let successfulStores = 0;
+  let failedStores = 0;
+  
+  activeStores.forEach((store, index) => {
+    log(`[Warmup] 📦 [${index + 1}/${activeStores.length}] Обработка магазина: ${store.name} [${store.marketplace}]`);
+    
+    try {
+      let warmedCount = 0;
+      
+      if (store.marketplace === 'Wildberries') {
+        warmedCount = warmupWildberriesProducts(store);
+      } else if (store.marketplace === 'Ozon') {
+        warmedCount = warmupOzonProducts(store);
+      }
+      
+      if (warmedCount > 0) {
+        totalProductsWarmed += warmedCount;
+        successfulStores++;
+        log(`[Warmup] ✅ ${store.name}: прогрето ${warmedCount} товаров`);
+      } else {
+        log(`[Warmup] ⚠️ ${store.name}: не удалось прогреть товары`);
+      }
+      
+      // Задержка между магазинами для соблюдения rate limits
+      if (index < activeStores.length - 1) {
+        Utilities.sleep(2000);
+      }
+      
+    } catch (e) {
+      failedStores++;
+      log(`[Warmup] ❌ ОШИБКА для ${store.name}: ${e.message}`);
+    }
+  });
+  
+  const endTime = new Date();
+  const duration = Math.round((endTime - startTime) / 1000);
+  
+  log('=== 🌙 ЗАВЕРШЕНИЕ КЕШ-ПРОГРЕВА ===');
+  log(`[Warmup] 📊 ИТОГО: ${totalProductsWarmed} товаров прогрето`);
+  log(`[Warmup] ✅ Успешно: ${successfulStores} магазинов`);
+  log(`[Warmup] ❌ Ошибки: ${failedStores} магазинов`);
+  log(`[Warmup] ⏱️ Время выполнения: ${duration} секунд`);
+}
+
+/**
+ * Прогрев кеша для Wildberries
+ * Получает список всех товаров и загружает их названия в кеш
+ */
+function warmupWildberriesProducts(store) {
+  if (!store.credentials || !store.credentials.apiKey) {
+    log(`[WB Warmup] ❌ Нет API ключа для магазина ${store.name}`);
+    return 0;
+  }
+  
+  try {
+    log(`[WB Warmup] 🔍 Получение списка товаров...`);
+    
+    // Получаем список всех товаров через Content API
+    const url = 'https://content-api.wildberries.ru/content/v2/get/cards/list';
+    const response = UrlFetchApp.fetch(url, {
+      method: 'POST',
+      headers: { 
+        'Authorization': store.credentials.apiKey,
+        'Content-Type': 'application/json'
+      },
+      payload: JSON.stringify({
+        settings: {
+          cursor: {
+            limit: 100  // Максимум за запрос
+          },
+          filter: {
+            withPhoto: -1  // Все товары
+          }
+        }
+      }),
+      muteHttpExceptions: true
+    });
+    
+    const code = response.getResponseCode();
+    if (code !== 200) {
+      log(`[WB Warmup] ❌ Ошибка получения списка: ${code}`);
+      return 0;
+    }
+    
+    const json = JSON.parse(response.getContentText());
+    const cards = json.cards || [];
+    
+    if (cards.length === 0) {
+      log(`[WB Warmup] ⚠️ Список товаров пуст`);
+      return 0;
+    }
+    
+    log(`[WB Warmup] 📦 Найдено ${cards.length} товаров`);
+    
+    // Извлекаем nmId из карточек и загружаем их в кеш
+    const nmIds = cards.map(card => card.nmID).filter(id => id);
+    
+    if (nmIds.length === 0) {
+      log(`[WB Warmup] ⚠️ Не найдено nmID в карточках`);
+      return 0;
+    }
+    
+    // Используем существующую функцию с кешированием
+    const productNames = getWbProductNames(nmIds, store.credentials.apiKey);
+    const warmedCount = Object.keys(productNames).length;
+    
+    log(`[WB Warmup] 💾 Прогрето в кеш: ${warmedCount} товаров`);
+    return warmedCount;
+    
+  } catch (e) {
+    log(`[WB Warmup] ❌ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
+    return 0;
+  }
+}
+
+/**
+ * Прогрев кеша для Ozon
+ * Получает список всех товаров и загружает их информацию в кеш
+ */
+function warmupOzonProducts(store) {
+  if (!store.credentials || !store.credentials.clientId || !store.credentials.apiKey) {
+    log(`[Ozon Warmup] ❌ Нет API ключей для магазина ${store.name}`);
+    return 0;
+  }
+  
+  try {
+    log(`[Ozon Warmup] 🔍 Получение списка товаров...`);
+    
+    // Получаем список всех товаров через /v3/product/list
+    const url = 'https://api-seller.ozon.ru/v3/product/list';
+    let allProducts = [];
+    let lastId = "";
+    let pageCount = 0;
+    const maxPages = 50; // Ограничение для безопасности (5000 товаров максимум)
+    
+    while (pageCount < maxPages) {
+      const payload = {
+        filter: {},
+        last_id: lastId,
+        limit: 100  // Максимум за запрос
+      };
+      
+      const response = UrlFetchApp.fetch(url, {
+        method: 'POST',
+        headers: { 
+          'Client-Id': store.credentials.clientId, 
+          'Api-Key': store.credentials.apiKey,
+          'Content-Type': 'application/json'
+        },
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+      
+      const code = response.getResponseCode();
+      if (code !== 200) {
+        log(`[Ozon Warmup] ❌ Ошибка получения списка (страница ${pageCount + 1}): ${code}`);
+        break;
+      }
+      
+      const json = JSON.parse(response.getContentText());
+      const items = json.result?.items || [];
+      
+      if (items.length === 0) {
+        log(`[Ozon Warmup] ✅ Получены все товары (страниц: ${pageCount})`);
+        break;
+      }
+      
+      allProducts = allProducts.concat(items);
+      lastId = json.result?.last_id || "";
+      pageCount++;
+      
+      log(`[Ozon Warmup] 📄 Страница ${pageCount}: получено ${items.length} товаров (всего: ${allProducts.length})`);
+      
+      // Если last_id пустой, значит это последняя страница
+      if (!lastId) {
+        log(`[Ozon Warmup] ✅ Достигнута последняя страница`);
+        break;
+      }
+      
+      // Задержка между запросами
+      Utilities.sleep(OZON_CONFIG.RATE_LIMITS.DELAY_BETWEEN_REQUESTS);
+    }
+    
+    if (allProducts.length === 0) {
+      log(`[Ozon Warmup] ⚠️ Список товаров пуст`);
+      return 0;
+    }
+    
+    log(`[Ozon Warmup] 📦 ИТОГО найдено ${allProducts.length} товаров`);
+    
+    // Подготавливаем идентификаторы для загрузки детальной информации
+    const identifiers = [];
+    allProducts.forEach(product => {
+      // Добавляем sku
+      if (product.sku) {
+        identifiers.push({ type: 'sku', value: String(product.sku) });
+      }
+      // Добавляем offer_id если есть
+      if (product.offer_id) {
+        identifiers.push({ type: 'offer_id', value: String(product.offer_id) });
+      }
+    });
+    
+    if (identifiers.length === 0) {
+      log(`[Ozon Warmup] ⚠️ Не найдено идентификаторов для загрузки`);
+      return 0;
+    }
+    
+    log(`[Ozon Warmup] 🔄 Загрузка детальной информации для ${identifiers.length} идентификаторов...`);
+    
+    // Используем существующую функцию с кешированием и батчингом
+    const productInfo = getOzonProductInfoList(identifiers, store.credentials.clientId, store.credentials.apiKey);
+    const warmedCount = Object.keys(productInfo).length;
+    
+    log(`[Ozon Warmup] 💾 Прогрето в кеш: ${warmedCount} товаров`);
+    return warmedCount;
+    
+  } catch (e) {
+    log(`[Ozon Warmup] ❌ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
+    return 0;
+  }
+}
+
+/**
+ * Создание ночного триггера для кеш-прогрева
+ * Запускается раз в день в 23:00
+ */
+function createWarmupTrigger() {
+  // Удаляем существующие триггеры прогрева
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'warmupProductCache') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+  
+  // Создаем новый триггер на 23:00
+  ScriptApp.newTrigger('warmupProductCache')
+    .timeBased()
+    .atHour(23)  // 23:00
+    .everyDays(1)
+    .create();
+  
+  log('[Warmup Trigger] ✅ Создан триггер ночного кеш-прогрева (ежедневно в 23:00)');
+  SpreadsheetApp.getUi().alert('✅ Успех', 'Триггер ночного кеш-прогрева создан.\n\nБудет запускаться ежедневно в 23:00.', SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+/**
+ * Удаление триггера кеш-прогрева
+ */
+function deleteWarmupTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let deletedCount = 0;
+  
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'warmupProductCache') {
+      ScriptApp.deleteTrigger(trigger);
+      deletedCount++;
+    }
+  });
+  
+  if (deletedCount > 0) {
+    log(`[Warmup Trigger] 🗑️ Удалено ${deletedCount} триггеров кеш-прогрева`);
+    SpreadsheetApp.getUi().alert('✅ Успех', `Удалено ${deletedCount} триггеров ночного кеш-прогрева.`, SpreadsheetApp.getUi().ButtonSet.OK);
+  } else {
+    SpreadsheetApp.getUi().alert('ℹ️ Информация', 'Триггеры ночного кеш-прогрева не найдены.', SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+// ============ ИНДИВИДУАЛЬНЫЕ ТРИГГЕРЫ ДЛЯ МАГАЗИНОВ ============
+
+/**
+ * 🎯 ПАРАЛЛЕЛЬНАЯ ОБРАБОТКА: Создание индивидуальных триггеров для каждого магазина
+ * Каждый магазин получает свой собственный триггер
+ * Google Apps Script может выполнять до 30 триггеров одновременно
+ */
+function createPerStoreTriggers() {
+  const ui = SpreadsheetApp.getUi();
+  
+  // Запрашиваем интервал
+  const intervalResponse = ui.prompt('🎯 Индивидуальные триггеры',
+    'Введите интервал запуска в минутах (5, 10, 15, 30):', ui.ButtonSet.OK_CANCEL);
+  
+  if (intervalResponse.getSelectedButton() !== ui.Button.OK) {
+    log('[Per-Store Triggers] Отменено пользователем');
+    return;
+  }
+  
+  const interval = parseInt(intervalResponse.getResponseText());
+  if (isNaN(interval) || interval < 1) {
+    ui.alert('❌ Ошибка', 'Неверный интервал. Введите число больше 0.', ui.ButtonSet.OK);
+    return;
+  }
+  
+  log(`[Per-Store Triggers] 🎯 Создание индивидуальных триггеров с интервалом ${interval} минут...`);
+  
+  const allStores = getStores();
+  const activeStores = allStores.filter(store => store.isActive);
+  
+  if (activeStores.length === 0) {
+    ui.alert('⚠️ Предупреждение', 'Нет активных магазинов для создания триггеров.', ui.ButtonSet.OK);
+    return;
+  }
+  
+  log(`[Per-Store Triggers] 🏪 Найдено ${activeStores.length} активных магазинов`);
+  
+  // Удаляем существующие индивидуальные триггеры
+  deletePerStoreTriggersInternal();
+  
+  let createdCount = 0;
+  
+  activeStores.forEach((store, index) => {
+    try {
+      // Создаем функцию-обертку для каждого магазина
+      const functionName = `processStore_${store.id}`;
+      
+      // Создаем триггер с небольшой задержкой между магазинами для распределения нагрузки
+      const offsetMinutes = index * 2; // Каждый магазин запускается с задержкой 2 минуты
+      
+      ScriptApp.newTrigger(functionName)
+        .timeBased()
+        .everyMinutes(interval)
+        .create();
+      
+      createdCount++;
+      log(`[Per-Store Triggers] ✅ [${index + 1}/${activeStores.length}] Создан триггер для "${store.name}" (функция: ${functionName})`);
+      
+    } catch (e) {
+      log(`[Per-Store Triggers] ❌ Ошибка создания триггера для "${store.name}": ${e.message}`);
+    }
+  });
+  
+  log(`[Per-Store Triggers] 🎯 ИТОГО: создано ${createdCount} триггеров`);
+  
+  // Создаем функции-обертки для каждого магазина
+  savePerStoreFunctions(activeStores);
+  
+  ui.alert('✅ Успех', 
+    `Создано ${createdCount} индивидуальных триггеров.\n\n` +
+    `Интервал: каждые ${interval} минут.\n\n` +
+    `⚠️ ВАЖНО: Перезагрузите редактор скриптов для активации новых функций.`,
+    ui.ButtonSet.OK);
+}
+
+/**
+ * Сохраняет информацию о магазинах для индивидуальных триггеров
+ */
+function savePerStoreFunctions(stores) {
+  const props = PropertiesService.getScriptProperties();
+  const storeMap = {};
+  
+  stores.forEach(store => {
+    storeMap[`store_${store.id}`] = JSON.stringify(store);
+  });
+  
+  props.setProperties(storeMap);
+  log(`[Per-Store Triggers] 💾 Сохранено ${stores.length} конфигураций магазинов`);
+}
+
+/**
+ * Универсальная функция обработки одного магазина по ID
+ * Используется индивидуальными триггерами
+ */
+function processSingleStoreById(storeId) {
+  const devMode = isDevMode();
+  log(`--- 🎯 ЗАПУСК ОБРАБОТКИ МАГАЗИНА ID: ${storeId} (${devMode ? 'DEV' : 'PROD'}) ---`);
+  
+  const props = PropertiesService.getScriptProperties();
+  const storeJson = props.getProperty(`store_${storeId}`);
+  
+  if (!storeJson) {
+    log(`[Store ${storeId}] ❌ ОШИБКА: Конфигурация магазина не найдена`);
+    return;
+  }
+  
+  try {
+    const store = JSON.parse(storeJson);
+    
+    if (!store.isActive) {
+      log(`[Store ${storeId}] ⚠️ Магазин "${store.name}" неактивен, пропускаю`);
+      return;
+    }
+    
+    log(`[Store ${storeId}] 🏪 Обработка магазина: ${store.name} [${store.marketplace}]`);
+    processSingleStore(store, devMode);
+    log(`[Store ${storeId}] ✅ Обработка завершена`);
+    
+  } catch (e) {
+    log(`[Store ${storeId}] ❌ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
+  }
+}
+
+/**
+ * Удаление всех индивидуальных триггеров магазинов
+ */
+function deletePerStoreTriggers() {
+  const deletedCount = deletePerStoreTriggersInternal();
+  
+  const ui = SpreadsheetApp.getUi();
+  if (deletedCount > 0) {
+    ui.alert('✅ Успех', `Удалено ${deletedCount} индивидуальных триггеров магазинов.`, ui.ButtonSet.OK);
+  } else {
+    ui.alert('ℹ️ Информация', 'Индивидуальные триггеры магазинов не найдены.', ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Внутренняя функция удаления индивидуальных триггеров
+ */
+function deletePerStoreTriggersInternal() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let deletedCount = 0;
+  
+  triggers.forEach(trigger => {
+    const functionName = trigger.getHandlerFunction();
+    // Удаляем триггеры, которые начинаются с processStore_
+    if (functionName.startsWith('processStore_')) {
+      ScriptApp.deleteTrigger(trigger);
+      deletedCount++;
+    }
+  });
+  
+  if (deletedCount > 0) {
+    log(`[Per-Store Triggers] 🗑️ Удалено ${deletedCount} индивидуальных триггеров`);
+  }
+  
+  return deletedCount;
+}
+
+// Динамически создаваемые функции для каждого магазина
+// Эти функции будут созданы автоматически при вызове createPerStoreTriggers()
+// Пример: function processStore_1() { processSingleStoreById('1'); }
