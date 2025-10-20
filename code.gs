@@ -333,6 +333,151 @@ function getOzonProductNames(offerIds, clientId, apiKey) {
     }
 }
 
+/**
+ * НОВАЯ ФУНКЦИЯ: Ozon получение названий товаров через /v3/product/info/list
+ * Этот endpoint поддерживает поиск по sku, product_id, offer_id
+ * @param {Array} identifiers - Массив {type: 'sku'|'product_id'|'offer_id', value: '...'}
+ * @param {string} clientId - Ozon Client ID
+ * @param {string} apiKey - Ozon API ключ
+ * @returns {Object} Справочник {identifier: {name, price, images, etc}}
+ */
+function getOzonProductInfoList(identifiers, clientId, apiKey) {
+    if (!identifiers || identifiers.length === 0) return {};
+    
+    log(`[Ozon Product Info] 🏷️ Запрашиваю детальную информацию для ${identifiers.length} товаров...`);
+    
+    // Проверяем кеш перед запросом
+    const cache = CacheService.getScriptCache();
+    const uncachedIdentifiers = [];
+    const cachedResults = {};
+    
+    identifiers.forEach(id => {
+        const cacheKey = `ozon_product_${id.type}_${id.value}`;
+        const cached = cache.get(cacheKey);
+        if (cached) {
+            try {
+                cachedResults[id.value] = JSON.parse(cached);
+            } catch (e) {
+                log(`[Ozon Product Info] ⚠️ Ошибка парсинга кеша для ${id.value}: ${e.message}`);
+                uncachedIdentifiers.push(id);
+            }
+        } else {
+            uncachedIdentifiers.push(id);
+        }
+    });
+    
+    if (Object.keys(cachedResults).length > 0) {
+        log(`[Ozon Product Info] 💾 Получено из кеша: ${Object.keys(cachedResults).length} товаров`);
+    }
+    
+    if (uncachedIdentifiers.length === 0) {
+        log(`[Ozon Product Info] ✅ Все данные получены из кеша`);
+        return cachedResults;
+    }
+    
+    log(`[Ozon Product Info] 🌐 Запрашиваю с сервера: ${uncachedIdentifiers.length} товаров`);
+    
+    // Разбиваем на батчи по 100 товаров (лимит API)
+    const batches = [];
+    for (let i = 0; i < uncachedIdentifiers.length; i += 100) {
+        batches.push(uncachedIdentifiers.slice(i, i + 100));
+    }
+    
+    log(`[Ozon Product Info] 📦 Разбито на ${batches.length} батчей`);
+    
+    const allResults = { ...cachedResults };
+    
+    batches.forEach((batch, batchIndex) => {
+        log(`[Ozon Product Info] 📤 Обработка батча ${batchIndex + 1}/${batches.length} (${batch.length} товаров)...`);
+        
+        // Группируем по типу идентификатора
+        const skus = batch.filter(id => id.type === 'sku').map(id => parseInt(id.value));
+        const productIds = batch.filter(id => id.type === 'product_id').map(id => parseInt(id.value));
+        const offerIds = batch.filter(id => id.type === 'offer_id').map(id => id.value);
+        
+        const payload = {};
+        if (skus.length > 0) payload.sku = skus;
+        if (productIds.length > 0) payload.product_id = productIds;
+        if (offerIds.length > 0) payload.offer_id = offerIds;
+        
+        if (Object.keys(payload).length === 0) {
+            log(`[Ozon Product Info] ⚠️ Пустой payload для батча ${batchIndex + 1}, пропускаем`);
+            return;
+        }
+        
+        const url = 'https://api-seller.ozon.ru/v3/product/info/list';
+        
+        try {
+            const response = UrlFetchApp.fetch(url, {
+                method: 'POST',
+                headers: { 
+                    'Client-Id': clientId, 
+                    'Api-Key': apiKey,
+                    'Content-Type': 'application/json'
+                },
+                payload: JSON.stringify(payload),
+                muteHttpExceptions: true
+            });
+            
+            const responseCode = response.getResponseCode();
+            const responseBody = response.getContentText();
+            
+            if (responseCode !== 200) {
+                log(`[Ozon Product Info] ❌ ОШИБКА батча ${batchIndex + 1}: ${responseCode}. ${responseBody.substring(0, 200)}`);
+                return;
+            }
+            
+            const json = JSON.parse(responseBody);
+            const items = json.result?.items || [];
+            
+            log(`[Ozon Product Info] ✅ Батч ${batchIndex + 1}: получено ${items.length} товаров`);
+            
+            // Обрабатываем результаты и кешируем
+            items.forEach(item => {
+                const productInfo = {
+                    name: item.name || 'Не указано',
+                    sku: item.sku,
+                    product_id: item.id,
+                    offer_id: item.offer_id,
+                    price: item.price || null,
+                    old_price: item.old_price || null,
+                    currency_code: item.currency_code || 'RUB',
+                    images: item.images || [],
+                    description: item.description || ''
+                };
+                
+                // Сохраняем по всем возможным идентификаторам
+                if (item.sku) {
+                    allResults[item.sku] = productInfo;
+                    const cacheKey = `ozon_product_sku_${item.sku}`;
+                    cache.put(cacheKey, JSON.stringify(productInfo), 86400); // 24 часа
+                }
+                if (item.id) {
+                    allResults[item.id] = productInfo;
+                    const cacheKey = `ozon_product_product_id_${item.id}`;
+                    cache.put(cacheKey, JSON.stringify(productInfo), 86400);
+                }
+                if (item.offer_id) {
+                    allResults[item.offer_id] = productInfo;
+                    const cacheKey = `ozon_product_offer_id_${item.offer_id}`;
+                    cache.put(cacheKey, JSON.stringify(productInfo), 86400);
+                }
+            });
+            
+            // Задержка между батчами для соблюдения rate limits
+            if (batchIndex < batches.length - 1) {
+                Utilities.sleep(OZON_CONFIG.RATE_LIMITS.DELAY_BETWEEN_REQUESTS);
+            }
+            
+        } catch (e) {
+            log(`[Ozon Product Info] ❌ КРИТИЧЕСКАЯ ОШИБКА батча ${batchIndex + 1}: ${e.message}`);
+        }
+    });
+    
+    log(`[Ozon Product Info] 🎯 ИТОГО: получено ${Object.keys(allResults).length} товаров (из них ${Object.keys(cachedResults).length} из кеша)`);
+    return allResults;
+}
+
 // ============ ДАТА УТИЛИТЫ ============
 
 /**
@@ -994,9 +1139,15 @@ function processSingleStore(store, devMode) {
   log(`[${store.name}] Из них ${newFeedbacks.length} действительно новых (нет в таблице).`);
   if (newFeedbacks.length === 0) return;
 
-  const rowsToAppend = [];
+  // 🚀 ПАРАЛЛЕЛЬНОЕ СОХРАНЕНИЕ: обрабатываем и сохраняем каждый отзыв сразу
+  log(`[${store.name}] 🚀 ПАРАЛЛЕЛЬНОЕ СОХРАНЕНИЕ: обработка и немедленная запись результатов...`);
   
-  newFeedbacks.slice(0, CONFIG.MAX_FEEDBACKS_PER_RUN).forEach(feedback => {
+  let processedCount = 0;
+  const maxToProcess = Math.min(newFeedbacks.length, CONFIG.MAX_FEEDBACKS_PER_RUN);
+  
+  newFeedbacks.slice(0, maxToProcess).forEach((feedback, index) => {
+    const progressInfo = `[${index + 1}/${maxToProcess}]`;
+    
     let rowData = [
         feedback.id, new Date(feedback.createdDate), feedback.product.id, 
         feedback.product.name, feedback.product.url, feedback.rating, 
@@ -1005,35 +1156,55 @@ function processSingleStore(store, devMode) {
 
     if (!CONFIG.RESPOND_TO_RATINGS.includes(feedback.rating)) {
       rowData.push('', CONFIG.STATUS.SKIPPED_RATING, `Рейтинг ${feedback.rating} не входит в список для ответа.`, '');
-      rowsToAppend.push(rowData);
-      log(`[${store.name}] Пропущен отзыв ID: ${feedback.id} (рейтинг ${feedback.rating}). Ссылка: ${feedback.product.url}`);
+      
+      // 💾 СРАЗУ СОХРАНЯЕМ В ТАБЛИЦУ
+      sheet.appendRow(rowData);
+      processedCount++;
+      
+      log(`${progressInfo} [${store.name}] Пропущен отзыв ID: ${feedback.id} (рейтинг ${feedback.rating}). Ссылка: ${feedback.product.url}`);
       return;
     }
       
     const template = selectRandomTemplate(templates, feedback.rating);
     if (!template) {
       rowData.push('', CONFIG.STATUS.NO_TEMPLATE, `Не найден подходящий шаблон для рейтинга ${feedback.rating}.`, '');
-      rowsToAppend.push(rowData);
-      log(`[${store.name}] Нет шаблона для отзыва ID: ${feedback.id} (рейтинг ${feedback.rating}). Ссылка: ${feedback.product.url}`);
+      
+      // 💾 СРАЗУ СОХРАНЯЕМ В ТАБЛИЦУ
+      sheet.appendRow(rowData);
+      processedCount++;
+      
+      log(`${progressInfo} [${store.name}] Нет шаблона для отзыва ID: ${feedback.id} (рейтинг ${feedback.rating}). Ссылка: ${feedback.product.url}`);
       return;
     }
 
     if (devMode) {
       rowData.push(template, CONFIG.STATUS.PENDING, '', '');
-      rowsToAppend.push(rowData);
-      log(`[${store.name}] DEV: Подготовлен ответ для отзыва ID: ${feedback.id}. Ссылка: ${feedback.product.url}`);
+      
+      // 💾 СРАЗУ СОХРАНЯЕМ В ТАБЛИЦУ
+      sheet.appendRow(rowData);
+      processedCount++;
+      
+      log(`${progressInfo} [${store.name}] DEV: Подготовлен ответ для отзыва ID: ${feedback.id}. Ссылка: ${feedback.product.url}`);
     } else {
       // Production mode: send answer immediately
       const result = sendAnswer(store, feedback.id, template);
       rowData.push(template, result.status, result.error, result.timestamp);
-      rowsToAppend.push(rowData);
-      log(`[${store.name}] PROD: Отправлен ответ для ID: ${feedback.id}. Статус: ${result.status}. Ссылка: ${feedback.product.url}`);
-      Utilities.sleep(CONFIG.DELAY_BETWEEN_REQUESTS);
+      
+      // 💾 СРАЗУ СОХРАНЯЕМ В ТАБЛИЦУ ПОСЛЕ ОТПРАВКИ
+      sheet.appendRow(rowData);
+      processedCount++;
+      
+      log(`${progressInfo} [${store.name}] PROD: Отправлен ответ для ID: ${feedback.id}. Статус: ${result.status}. Ссылка: ${feedback.product.url}`);
+      
+      // Задержка только если это не последний отзыв
+      if (index < maxToProcess - 1) {
+        Utilities.sleep(CONFIG.DELAY_BETWEEN_REQUESTS);
+      }
     }
   });
   
-  if (rowsToAppend.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, CONFIG.HEADERS.length).setValues(rowsToAppend);
+  if (processedCount > 0) {
+    log(`[${store.name}] ✅ Сохранено ${processedCount} отзывов в режиме параллельной записи`);
     
     // Автоматическая сортировка по дате - новые отзывы наверх
     sortSheetByDate(sheet);
@@ -1343,18 +1514,43 @@ function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = nul
             }
         }));
         
-        // ✅ ОБОГАЩАЕМ НАЗВАНИЯМИ ТОВАРОВ из Product API
+        // ✅ ОБОГАЩАЕМ НАЗВАНИЯМИ ТОВАРОВ через /v3/product/info/list (новая функция с кешированием)
         if (processedReviews.length > 0 && store && store.credentials) {
-            const offerIds = processedReviews.map(review => review.product.id).filter(id => id);
-            const productNames = getOzonProductNames(offerIds, store.credentials.clientId, store.credentials.apiKey);
+            // Подготавливаем идентификаторы товаров для батч-запроса
+            const identifiers = [];
+            processedReviews.forEach(review => {
+                const productId = review.product.id;
+                if (!productId) return;
+                
+                // Определяем тип идентификатора (sku - числовой, offer_id - строковый)
+                if (/^\d+$/.test(String(productId))) {
+                    identifiers.push({ type: 'sku', value: String(productId) });
+                } else {
+                    identifiers.push({ type: 'offer_id', value: String(productId) });
+                }
+            });
             
-            if (Object.keys(productNames).length > 0) {
+            log(`[Ozon] 🏷️ Подготовлено ${identifiers.length} идентификаторов товаров для обогащения данными`);
+            
+            // Получаем детальную информацию о товарах с кешированием
+            const productInfo = getOzonProductInfoList(identifiers, store.credentials.clientId, store.credentials.apiKey);
+            
+            if (Object.keys(productInfo).length > 0) {
+                let enrichedCount = 0;
                 processedReviews.forEach(review => {
-                    if (productNames[review.product.id]) {
-                        review.product.name = productNames[review.product.id];
+                    const info = productInfo[review.product.id];
+                    if (info && info.name) {
+                        review.product.name = info.name;
+                        // Опционально: можем также обогатить ценой и изображениями
+                        if (info.price) {
+                            review.product.price = info.price;
+                        }
+                        enrichedCount++;
                     }
                 });
-                log(`[Ozon] 🏷️ Названия товаров обновлены для ${Object.keys(productNames).length} отзывов`);
+                log(`[Ozon] 🏷️ Обогащено ${enrichedCount} отзывов из ${Object.keys(productInfo).length} полученных товаров`);
+            } else {
+                log(`[Ozon] ⚠️ Не удалось получить информацию о товарах через Product API`);
             }
         }
         
