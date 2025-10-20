@@ -441,20 +441,22 @@ function getWbFeedbacksByType(apiKey, isAnswered, store = null) {
             const startDate = new Date(store.settings.startDate); // Парсим дату
             const today = new Date(); // Сегодняшняя дата
             
-            // ИСПРАВЛЕНИЕ: Проверка на корректность даты и будущее время
+            // ИСПРАВЛЕНИЕ: Правильная обработка дат - НЕ устанавливаем dateTo в будущее
             if (isNaN(startDate.getTime())) {
                 log(`[WB] ⚠️ ОШИБКА: Некорректная дата начала "${store.settings.startDate}". Фильтр по дате не применен.`);
-            } else if (startDate > today) {
-                log(`[WB] ⚠️ ПРЕДУПРЕЖДЕНИЕ: Дата начала "${store.settings.startDate}" в будущем! Все отзывы будут отфильтрованы. Проверьте настройки магазина.`);
-                const dateFromUnix = getUnixTimestamp(store.settings.startDate);
-                const dateToUnix = getUnixTimestamp(today.toISOString().split('T')[0]);
-                url += `&dateFrom=${dateFromUnix}&dateTo=${dateToUnix}`;
-                log(`[WB] 🗓️ Применен фильтр дат магазина: ${store.settings.startDate} - ${today.toISOString().split('T')[0]} (Unix: ${dateFromUnix} - ${dateToUnix})`);
             } else {
                 const dateFromUnix = getUnixTimestamp(store.settings.startDate);
-                const dateToUnix = getUnixTimestamp(today.toISOString().split('T')[0]);
-                url += `&dateFrom=${dateFromUnix}&dateTo=${dateToUnix}`;
-                log(`[WB] 🗓️ Применен фильтр дат магазина: ${store.settings.startDate} - ${today.toISOString().split('T')[0]} (Unix: ${dateFromUnix} - ${dateToUnix})`);
+                // КРИТИЧНО: НЕ добавляем dateTo, если startDate в будущем - пусть API возвращает все доступные данные
+                if (startDate > today) {
+                    log(`[WB] ⚠️ ПРЕДУПРЕЖДЕНИЕ: Дата начала "${store.settings.startDate}" в будущем! API может не вернуть данные.`);
+                    url += `&dateFrom=${dateFromUnix}`;
+                    log(`[WB] 🗓️ Применен фильтр дат: ОТ ${store.settings.startDate} (Unix: ${dateFromUnix}) БЕЗ верхней границы`);
+                } else {
+                    // Нормальный случай: startDate в прошлом, dateTo = сегодня
+                    const dateToUnix = getUnixTimestamp(today.toISOString().split('T')[0]);
+                    url += `&dateFrom=${dateFromUnix}&dateTo=${dateToUnix}`;
+                    log(`[WB] 🗓️ Применен фильтр дат магазина: ${store.settings.startDate} - ${today.toISOString().split('T')[0]} (Unix: ${dateFromUnix} - ${dateToUnix})`);
+                }
             }
         } else {
             log(`[WB] 🗓️ Фильтр по дате не применен - получаем все доступные отзывы`);
