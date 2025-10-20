@@ -1413,20 +1413,28 @@ function getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered,
                 }
             }
             
-            // ✅ ПРАВИЛЬНАЯ обработка структуры ответа
+            // ✅ ИСПРАВЛЕНА обработка структуры ответа - данные в корне JSON!
             let reviews = [];
             let resultData = null;
             
-            if (json.result) {
+            // ГЛАВНОЕ ИСПРАВЛЕНИЕ: Ozon API возвращает данные в корне, не в json.result!
+            if (json.reviews && Array.isArray(json.reviews)) {
+                // Структура: { "reviews": [...], "last_id": "...", "has_next": true }
+                reviews = json.reviews;
+                resultData = json; // Вся структура пагинации в корне!
+                log(`[Ozon] ✅ Найдена корневая структура: reviews=${reviews.length}, has_next=${json.has_next}, last_id="${json.last_id}"`);
+            } else if (json.result && json.result.reviews) {
+                // Альтернативная структура: { "result": { "reviews": [...], "has_next": true } }
                 resultData = json.result;
                 reviews = json.result.reviews || [];
-            } else if (json.reviews) {
-                reviews = json.reviews;
+                log(`[Ozon] ✅ Найдена result структура: reviews=${reviews.length}`);
             } else if (json.data && json.data.reviews) {
+                // Еще одна возможная структура: { "data": { "reviews": [...] } }
                 resultData = json.data;
                 reviews = json.data.reviews;
+                log(`[Ozon] ✅ Найдена data структура: reviews=${reviews.length}`);
             } else {
-                log(`[Ozon] ⚠️ Неожиданная структура ответа на странице ${pageNumber}. Ключи: ${Object.keys(json).join(', ')}`);
+                log(`[Ozon] ❌ Неожиданная структура ответа на странице ${pageNumber}. Ключи: ${Object.keys(json).join(', ')}`);
                 // 🚨 ЭКСТРЕННАЯ МЕРА: Показываем полный ответ если структура неожиданная
                 if (pageNumber <= 3) {
                     log(`[Ozon EMERGENCY] Первые 1000 символов ответа: ${responseBody.substring(0, 1000)}`);
