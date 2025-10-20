@@ -134,12 +134,15 @@ function onOpen(e) {
   menu.addSeparator();
   menu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
   menu.addItem('▶️ Отправить подготовленные ответы', 'sendPendingAnswers');
-  menu.addItem('🧪 Тест ответа на конкретный отзыв', 'testWbFeedbackAnswerById');
-  menu.addItem('🗑️ Удалить отзыв по ID', 'manuallyDeleteReviewById');
   menu.addSeparator();
+  
+  // 🛠️ РЕЖИМ РАЗРАБОТЧИКА - содержит все тесты и отладочные функции
   const devMenu = ui.createMenu('🛠️ Режим разработчика');
-  devMenu.addItem('Включить', 'enableDevMode');
-  devMenu.addItem('Выключить', 'disableDevMode');
+  devMenu.addItem('🔧 Включить режим разработчика', 'enableDevMode');
+  devMenu.addItem('🔧 Выключить режим разработчика', 'disableDevMode');
+  devMenu.addSeparator();
+  devMenu.addItem('🧪 Тест: ответ на конкретный отзыв WB', 'testWbFeedbackAnswerById');
+  devMenu.addItem('🗑️ Удалить отзыв по ID', 'manuallyDeleteReviewById');
   menu.addSubMenu(devMenu);
   
   const triggerSubMenu = ui.createMenu('🔄 Управление автозапуском');
@@ -1134,25 +1137,13 @@ function sendAnswer(store, feedbackId, text) {
   }
 }
 
-// ======================================================================
-// ======================== WILDBERRIES API ============================
-// ======================================================================
-// ВАЖНО: Этот раздел содержит всю логику работы с API Wildberries.
-// Изменения в других разделах не должны затрагивать эти функции.
-// ======================================================================
+// ============ WILDBERRIES API ============
 
 /**
- * ГЛАВНАЯ ФУНКЦИЯ WB: Получение отзывов с ПОЛНОЙ пагинацией
- * Теперь использует новые функции с пагинацией "до победного"!
- * @param {string} apiKey - WB API ключ
- * @param {boolean} includeAnswered - Включать ли отвеченные отзывы
- * @param {Object} store - Настройки магазина для фильтрации по дате
- * @returns {Array} Массив всех подходящих отзывов
+ * Главная функция получения отзывов WB с полной пагинацией
  */
 function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
-    log(`[WB] 🔄 ПЕРЕКЛЮЧЕНИЕ НА ПОЛНУЮ ПАГИНАЦИЮ! (включая отвеченные: ${includeAnswered})`);
-    
-    // ВАЖНО: Теперь используем новые функции с полной пагинацией!
+    log(`[WB] 🔄 Получение отзывов (включая отвеченные: ${includeAnswered})`);
     return getWbFeedbacksWithFullPagination(apiKey, includeAnswered, store);
 }
 
@@ -1161,42 +1152,19 @@ function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
     log(`[WB API] 📝 Текст ответа: "${text}" (длина: ${text.length} символов)`);
     log(`[WB API] 🔑 API ключ: ${apiKey.substring(0, 15)}... (длина: ${apiKey.length})`);
     
-    // 🔥 НОВАЯ СТРАТЕГИЯ: Пробуем ОБА endpoint'а последовательно
-    // Вариант 1: ID в URL (текущий подход)
-    const result1 = attemptWbFeedbackAnswerMethod1(feedbackId, text, apiKey);
-    if (result1[0]) {
-        log(`[WB API] ✅ УСПЕХ с Method 1 (ID в URL)!`);
-        return result1;
+    // 🚀 ИСПОЛЬЗУЕМ ТОЛЬКО РАБОЧИЙ METHOD 2 (ID в теле запроса) 
+    // Method 1 (ID в URL) всегда возвращает 404, удален из кода
+    const result = attemptWbFeedbackAnswerMethod2(feedbackId, text, apiKey);
+    if (result[0]) {
+        log(`[WB API] ✅ УСПЕХ! Ответ отправлен (Method 2)`);
+        return result;
     }
     
-    log(`[WB API] ⚠️ Method 1 не сработал, пробуем Method 2...`);
-    
-    // Вариант 2: ID в теле запроса (альтернативный подход)
-    const result2 = attemptWbFeedbackAnswerMethod2(feedbackId, text, apiKey);
-    if (result2[0]) {
-        log(`[WB API] ✅ УСПЕХ с Method 2 (ID в теле)!`);
-        return result2;
-    }
-    
-    log(`[WB API] ❌ ОБА метода не сработали. Возвращаем результат последней попытки.`);
-    return result2;
+    log(`[WB API] ❌ Не удалось отправить ответ. Возможно, проблемы с API или ID отзыва.`);
+    return result;
 }
 
-/**
- * Method 1: ID в URL - текущий подход из документации
- * Endpoint: POST /api/v1/feedbacks/{feedbackId}/answer
- */
-function attemptWbFeedbackAnswerMethod1(feedbackId, text, apiKey) {
-    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/${feedbackId}/answer`;
-    const payload = { 
-        text: text  // Только текст в payload, ID в URL
-    };
-    
-    log(`[WB API Method 1] 🚀 URL: ${url}`);
-    log(`[WB API Method 1] 📝 Payload: ${JSON.stringify(payload)}`);
-    
-    return sendWbApiRequest(url, payload, apiKey, "Method 1 (ID в URL)");
-}
+// Method 1 (ID в URL) УДАЛЕН - всегда возвращал 404 ошибку
 
 /**
  * Method 2: ID в теле запроса - альтернативный подход
@@ -1283,12 +1251,7 @@ function sendWbApiRequest(url, payload, apiKey, methodName) {
     }
 }
 
-// ======================================================================
-// ============================ OZON API ===============================
-// ======================================================================
-// ВАЖНО: Этот раздел содержит всю логику работы с API Ozon.
-// Изменения в других разделах не должны затрагивать эти функции.
-// ======================================================================
+// ============ OZON API ============
 
 /**
  * Fetches reviews from Ozon API
@@ -1314,10 +1277,10 @@ function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = nul
         limit: OZON_CONFIG.API_LIMITS.MAX_LIMIT  // 100 - максимум
     };
 
-    // ✅ ИСПРАВЛЕНО: Используем настройки даты из конфига магазина
+    // Применяем фильтр дат из настроек магазина
     if (store && store.settings && store.settings.startDate) {
-        const startDate = store.settings.startDate; // Формат: YYYY-MM-DD
-        const today = new Date().toISOString().split('T')[0]; // Сегодняшняя дата в YYYY-MM-DD
+        const startDate = store.settings.startDate;
+        const today = new Date().toISOString().split('T')[0];
         
         const dateFrom = formatDateForOzon(startDate);
         const dateTo = formatDateForOzon(today);
