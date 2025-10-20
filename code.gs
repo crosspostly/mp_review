@@ -195,7 +195,7 @@ function getWbProductNames(nmIds, apiKey) {
     const uniqueNmIds = [...new Set(nmIds)];
     log(`[WB Products] 🏷️ Запрашиваю названия для ${uniqueNmIds.length} товаров...`);
     
-    const url = 'https://suppliers-api.wildberries.ru/content/v1/cards/cursor/list';
+    const url = 'https://suppliers-api.wildberries.ru/content/v2/cards/cursor/list';
     const payload = {
         filter: {
             nmID: uniqueNmIds
@@ -219,6 +219,16 @@ function getWbProductNames(nmIds, apiKey) {
         
         if (responseCode !== 200) {
             log(`[WB Products] ❌ ОШИБКА получения названий: ${responseCode}. ${responseBody}`);
+            // Специальная обработка частых ошибок API
+            if (responseCode === 401) {
+                log(`[WB Products] ❌ КРИТИЧНО: Неверный API ключ для Content API`);
+            } else if (responseCode === 403) {
+                log(`[WB Products] ❌ КРИТИЧНО: API ключ не имеет доступа к Content API`);
+            } else if (responseCode === 404) {
+                log(`[WB Products] ❌ КРИТИЧНО: Content API endpoint недоступен. Возможно изменился URL.`);
+            } else if (responseCode === 429) {
+                log(`[WB Products] ❌ ПРЕВЫШЕН лимит запросов к Content API. Нужна пауза.`);
+            }
             return {};
         }
         
@@ -237,6 +247,10 @@ function getWbProductNames(nmIds, apiKey) {
         
     } catch (e) {
         log(`[WB Products] ❌ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
+        // Специальная обработка DNS ошибок
+        if (e.message.includes('DNS') || e.message.includes('resolve')) {
+            log(`[WB Products] ❌ DNS ОШИБКА: Проверьте доступность suppliers-api.wildberries.ru. Возможно временные проблемы с сетью.`);
+        }
         return {};
     }
 }
@@ -251,9 +265,21 @@ function getWbProductNames(nmIds, apiKey) {
 function getOzonProductNames(offerIds, clientId, apiKey) {
     if (!offerIds || offerIds.length === 0) return {};
     
-    // Убираем дубликаты
-    const uniqueOfferIds = [...new Set(offerIds)];
-    log(`[Ozon Products] 🏷️ Запрашиваю названия для ${uniqueOfferIds.length} товаров...`);
+    // Убираем дубликаты и фильтруем невалидные offer_id
+    const uniqueOfferIds = [...new Set(offerIds)].filter(id => {
+        // ИСПРАВЛЕНИЕ: Фильтруем только строковые offer_id и исключаем числовые sku
+        if (!id || typeof id !== 'string') return false;
+        // Исключаем чисто числовые ID (это sku, не offer_id)
+        if (/^\d+$/.test(id)) return false;
+        return true;
+    });
+    
+    log(`[Ozon Products] 🏷️ Запрашиваю названия для ${uniqueOfferIds.length} товаров (отфильтровано ${offerIds.length - uniqueOfferIds.length} невалидных ID)...`);
+    
+    if (uniqueOfferIds.length === 0) {
+        log(`[Ozon Products] ⚠️ Нет валидных offer_id для запроса названий`);
+        return {};
+    }
     
     const url = 'https://api-seller.ozon.ru/v3/product/list';
     const payload = {
@@ -422,16 +448,10 @@ function getWbFeedbacksByType(apiKey, isAnswered, store = null) {
         // ✅ ИСПРАВЛЕНО: Используем настройки даты из конфига магазина
         let url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks?isAnswered=${isAnswered}&take=${take}&skip=${currentSkip}&order=dateDesc`;
         
-        // Добавляем фильтрацию по дате только если есть настройка startDate у магазина
+        // ✅ ИСПРАВЛЕНО: WB Feedbacks API НЕ поддерживает dateFrom/dateTo параметры
+        // Фильтрация по дате будет выполнена на клиентской стороне после получения данных
         if (store && store.settings && store.settings.startDate) {
-            const startDate = store.settings.startDate; // Формат: YYYY-MM-DD
-            const today = new Date().toISOString().split('T')[0]; // Сегодняшняя дата в YYYY-MM-DD
-            
-            const dateFrom = getUnixTimestamp(startDate);
-            const dateTo = getUnixTimestamp(today);
-            
-            url += `&dateFrom=${dateFrom}&dateTo=${dateTo}`;
-            log(`[WB] 🗓️ Применен фильтр дат магазина: ${startDate} - ${today} (Unix: ${dateFrom} - ${dateTo})`);
+            log(`[WB] 🗓️ Настроена дата фильтрации: ${store.settings.startDate} (фильтрация будет выполнена после получения данных)`);
         } else {
             log(`[WB] 🗓️ Фильтр по дате не применен - получаем все доступные отзывы`);
         }
@@ -581,6 +601,58 @@ function getWbFeedbacksByType(apiKey, isAnswered, store = null) {
     return allFeedbacks;
 }
 
+// ============ HELPER FUNCTIONS FOR API TESTING ============
+function testWbContentApiAccess(apiKey) {
+  try {
+    const url = 'https://suppliers-api.wildberries.ru/content/v2/cards/cursor/list';
+    const payload = { limit: 1 }; // Минимальный тест-запрос
+    
+    const response = UrlFetchApp.fetch(url, {
+      method: 'POST',
+      headers: { 
+        'Authorization': apiKey,
+        'Content-Type': 'application/json'
+      },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    
+    const code = response.getResponseCode();
+    log(`[WB Content API Test] Код ответа: ${code}`);
+    
+    return code === 200;
+  } catch (e) {
+    log(`[WB Content API Test] Ошибка: ${e.message}`);
+    return false;
+  }
+}
+
+function testOzonProductApiAccess(clientId, apiKey) {
+  try {
+    const url = 'https://api-seller.ozon.ru/v3/product/list';
+    const payload = { limit: 1, last_id: "", filter: {} }; // Минимальный тест-запрос
+    
+    const response = UrlFetchApp.fetch(url, {
+      method: 'POST',
+      headers: { 
+        'Client-Id': clientId,
+        'Api-Key': apiKey,
+        'Content-Type': 'application/json'
+      },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    
+    const code = response.getResponseCode();
+    log(`[Ozon Product API Test] Код ответа: ${code}`);
+    
+    return code === 200;
+  } catch (e) {
+    log(`[Ozon Product API Test] Ошибка: ${e.message}`);
+    return false;
+  }
+}
+
 // ============ CONNECTION TESTER ============
 function testStoreConnection(credentials, marketplace) {
   log(`[Тест] Запуск проверки для ${marketplace}.`);
@@ -590,15 +662,44 @@ function testStoreConnection(credentials, marketplace) {
   try {
     if (marketplace === 'Wildberries') {
       if (!credentials.apiKey) return { success: false, message: 'API ключ не указан.' };
+      
+      // Базовая валидация формата ключа
+      if (!credentials.apiKey.trim() || credentials.apiKey.length < 10) {
+        return { success: false, message: 'API ключ слишком короткий или пустой.' };
+      }
+      
       const url = 'https://feedbacks-api.wildberries.ru/api/v1/feedbacks?isAnswered=false&take=1&skip=0';
       const response = UrlFetchApp.fetch(url, { method: 'GET', headers: { 'Authorization': credentials.apiKey }, muteHttpExceptions: true });
       const code = response.getResponseCode();
-      log(`[Тест WB] Ответ: ${code}.`);
-      if (code === 200) return { success: true, message: 'Успешно! Ключ имеет доступ к новым отзывам.' };
+      const responseBody = response.getContentText();
+      
+      log(`[Тест WB] Ответ: ${code}. Тело: ${responseBody.substring(0, 200)}...`);
+      
+      if (code === 200) {
+        // Дополнительно проверяем Content API доступ
+        const contentTestResult = testWbContentApiAccess(credentials.apiKey);
+        const mainMessage = 'Успешно! Ключ имеет доступ к новым отзывам.';
+        if (contentTestResult) {
+          return { success: true, message: mainMessage + ' Content API также доступен.' };
+        } else {
+          return { success: true, message: mainMessage + ' ⚠️ Content API недоступен - названия товаров будут "Не указано".' };
+        }
+      }
       if (code === 401) return { success: false, message: 'Ошибка 401: Неверный API ключ.' };
-      return { success: false, message: `Неожиданный ответ сервера: ${code}.` };
+      if (code === 403) return { success: false, message: 'Ошибка 403: API ключ не имеет необходимых разрешений.' };
+      if (code === 429) return { success: false, message: 'Ошибка 429: Превышен лимит запросов. Попробуйте позже.' };
+      return { success: false, message: `Неожиданный ответ сервера: ${code}. ${responseBody.substring(0, 100)}...` };
     } else if (marketplace === 'Ozon') {
       if (!credentials.clientId || !credentials.apiKey) return { success: false, message: 'Client ID и API Key должны быть указаны.' };
+      
+      // Базовая валидация формата ключей
+      if (!credentials.clientId.trim() || credentials.clientId.length < 5) {
+        return { success: false, message: 'Client ID слишком короткий или пустой.' };
+      }
+      if (!credentials.apiKey.trim() || credentials.apiKey.length < 10) {
+        return { success: false, message: 'API Key слишком короткий или пустой.' };
+      }
+      
       const url = 'https://api-seller.ozon.ru/v1/review/list';
       const payload = { limit: 20 };
       const response = UrlFetchApp.fetch(url, {
@@ -610,21 +711,41 @@ function testStoreConnection(credentials, marketplace) {
       });
       const code = response.getResponseCode();
       const responseBody = response.getContentText();
-      log(`[Тест Ozon] Ответ: ${code}. Тело: ${responseBody}`);
-      const json = JSON.parse(responseBody);
+      log(`[Тест Ozon] Ответ: ${code}. Тело: ${responseBody.substring(0, 300)}...`);
+      
       if (code === 200) {
-        // Additional validation: check if response structure is as expected
-        if (json.reviews !== undefined) {
-          return { success: true, message: 'Успешно! Ключ имеет доступ к отзывам.' };
-        } else {
-          return { success: false, message: 'Предупреждение: API изменился. Структура ответа неожиданная.' };
+        try {
+          const json = JSON.parse(responseBody);
+          // Улучшенная проверка структуры ответа - проверяем различные варианты
+          if (json.reviews !== undefined || (json.result && json.result.reviews) || (json.data && json.data.reviews)) {
+            // Дополнительно проверяем Product API доступ
+            const productTestResult = testOzonProductApiAccess(credentials.clientId, credentials.apiKey);
+            const mainMessage = 'Успешно! Ключи имеют доступ к отзывам.';
+            if (productTestResult) {
+              return { success: true, message: mainMessage + ' Product API также доступен.' };
+            } else {
+              return { success: true, message: mainMessage + ' ⚠️ Product API недоступен - названия товаров будут "Не указано".' };
+            }
+          } else {
+            return { success: false, message: 'API изменился: неожиданная структура ответа. Получены ключи: ' + Object.keys(json).join(', ') };
+          }
+        } catch (e) {
+          return { success: false, message: 'Ошибка парсинга JSON ответа: ' + e.message };
         }
       }
-      if (code === 401) return { success: false, message: 'Ошибка 401: Неверный Api-Key.' };
-      if (code === 403) return { success: false, message: `Ошибка 403: ${json.message || 'Доступ запрещен.'}` };
+      if (code === 401) return { success: false, message: 'Ошибка 401: Неверный Api-Key или Client-Id.' };
+      if (code === 403) {
+        try {
+          const json = JSON.parse(responseBody);
+          return { success: false, message: `Ошибка 403: ${json.message || 'Доступ запрещен. Проверьте права API ключа.'}` };
+        } catch (e) {
+          return { success: false, message: 'Ошибка 403: Доступ запрещен. Проверьте Client-Id и API Key.' };
+        }
+      }
       if (code === 404) return { success: false, message: 'Ошибка 404: Неверный адрес запроса. Возможно, API Ozon изменился.' };
+      if (code === 429) return { success: false, message: 'Ошибка 429: Превышен лимит запросов. Попробуйте позже.' };
       if (code >= 500) return { success: false, message: `Ошибка сервера Ozon (${code}). Попробуйте позже.` };
-      return { success: false, message: `Неожиданный ответ сервера: ${code}. Тело: ${responseBody}` };
+      return { success: false, message: `Неожиданный ответ сервера: ${code}. ${responseBody.substring(0, 100)}...` };
     }
     return { success: false, message: 'Неизвестный маркетплейс.' };
   } catch (e) {
@@ -1035,17 +1156,19 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
 }
 
 function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
-    // ✅ ИСПРАВЛЕН WB API endpoint для отправки ответов на отзывы
-    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/answer`;
+    // 🔧 ИСПРАВЛЕНО: Код 204 указывает на проблему с endpoint или форматом
+    // По документации WB API, правильный endpoint для ответов:
+    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/${feedbackId}/answer`;
     const payload = { 
-        id: feedbackId,  // ID отзыва в payload
-        text: text 
+        text: text  // Только текст в payload, ID в URL
     };
     
-    log(`[WB API] 🚀 Отправка ответа: POST ${url}, payload: ${JSON.stringify(payload)}`);
+    log(`[WB API] 🚀 Отправка ответа: POST ${url}`);
+    log(`[WB API] 📝 Payload: ${JSON.stringify(payload)}`);
+    log(`[WB API] 🔑 Authorization: ${apiKey.substring(0, 10)}...`);
     
     const response = UrlFetchApp.fetch(url, {
-        method: 'POST',  // ✅ ИСПРАВЛЕН метод на POST 
+        method: 'POST',
         headers: { 
             'Authorization': apiKey,
             'Content-Type': 'application/json'
@@ -1056,10 +1179,29 @@ function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
     
     const code = response.getResponseCode();
     const responseBody = response.getContentText();
+    const responseHeaders = response.getAllHeaders();
     
-    // Include detailed API response for debugging
-    const success = code === 200;
-    const errorMessage = success ? '' : `Код ответа: ${code}. Тело: ${responseBody}`;
+    // 🔍 УЛУЧШЕННОЕ ЛОГИРОВАНИЕ для диагностики
+    log(`[WB API] 📤 ЗАПРОС: POST ${url}`);
+    log(`[WB API] 📤 HEADERS: ${JSON.stringify({Authorization: 'Bearer ***', 'Content-Type': 'application/json'})}`);
+    log(`[WB API] 📤 PAYLOAD: ${JSON.stringify(payload)}`);
+    log(`[WB API] 📥 ОТВЕТ: Код ${code}`);
+    log(`[WB API] 📥 ТЕЛО ОТВЕТА: "${responseBody}"`);
+    log(`[WB API] 📥 HEADERS ОТВЕТА: ${JSON.stringify(responseHeaders)}`);
+    
+    // 🎯 ПРАВИЛЬНАЯ обработка кодов ответа WB API
+    const success = (code === 200 || code === 201 || code === 204);
+    let errorMessage = '';
+    
+    if (!success) {
+        errorMessage = `Код ответа: ${code}. Тело: ${responseBody}`;
+        log(`[WB API] ❌ ОШИБКА: ${errorMessage}`);
+    } else {
+        log(`[WB API] ✅ УСПЕХ: Ответ отправлен (код ${code})`);
+        if (code === 204) {
+            log(`[WB API] ℹ️ Код 204 = No Content обычно означает успешную обработку без возврата данных`);
+        }
+    }
     
     return [success, errorMessage, responseBody];
 }
@@ -1125,11 +1267,21 @@ function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = nul
 
         const json = JSON.parse(responseBody);
         
-        // ✅ ОБНОВЛЕНА структура ответа для нового API endpoint  
-        const reviews = json.result?.reviews || json.reviews || [];
+        // ✅ УЛУЧШЕНА обработка различных структур ответа API
+        let reviews = [];
+        if (json.result && json.result.reviews) {
+            reviews = json.result.reviews;
+        } else if (json.reviews) {
+            reviews = json.reviews;
+        } else if (json.data && json.data.reviews) {
+            reviews = json.data.reviews;
+        } else {
+            log(`[Ozon] ⚠️ ПРЕДУПРЕЖДЕНИЕ: Неожиданная структура ответа. Ключи: ${Object.keys(json).join(', ')}. Ответ: ${responseBody.substring(0, 200)}...`);
+            return [];
+        }
         
         if (!Array.isArray(reviews)) {
-            log(`[Ozon] ОШИБКА: Неожиданная структура ответа. Ответ: ${responseBody}`);
+            log(`[Ozon] ОШИБКА: reviews не является массивом. Тип: ${typeof reviews}. Значение: ${JSON.stringify(reviews).substring(0, 100)}...`);
             return [];
         }
 
