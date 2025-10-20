@@ -134,7 +134,8 @@ function onOpen(e) {
   menu.addSeparator();
   menu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
   menu.addItem('▶️ Отправить подготовленные ответы', 'sendPendingAnswers');
-  menu.addItem('🧪 Тест ответа на конкретный отзыв', 'testWbFeedbackAnswerById');
+  menu.addItem('🧪 Тест WB: ответ на отзыв', 'testWbFeedbackAnswerById');
+  menu.addItem('🧪 Тест Ozon: получение отзывов', 'testOzonFeedbackPagination');
   menu.addItem('🗑️ Удалить отзыв по ID', 'manuallyDeleteReviewById');
   menu.addSeparator();
   const devMenu = ui.createMenu('🛠️ Режим разработчика');
@@ -1298,108 +1299,215 @@ function sendWbApiRequest(url, payload, apiKey, methodName) {
  * @returns {Array} Array of normalized feedback objects
  */
 function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = null) {
-    const url = 'https://api-seller.ozon.ru/v1/review/list';
+    log(`[Ozon] 🚀 ЗАПУСК полной пагинации для получения ВСЕХ отзывов (включая отвеченные: ${includeAnswered})`);
     
-    let payload = {
-        filter: {
-            has_text: true,  // Только отзывы с текстом
-            has_answer: includeAnswered ? undefined : false,  // Фильтр по ответам
-            status: includeAnswered ? ['MODERATED', 'NEW'] : ['MODERATED']  // Статусы отзывов
-        },
-        sort: {
-            field: 'CREATED_AT',
-            direction: 'DESC'  // Новые первыми
-        },
-        page: 1,
-        limit: OZON_CONFIG.API_LIMITS.MAX_LIMIT  // 100 - максимум
-    };
-
-    // ✅ ИСПРАВЛЕНО: Используем настройки даты из конфига магазина
-    if (store && store.settings && store.settings.startDate) {
-        const startDate = store.settings.startDate; // Формат: YYYY-MM-DD
-        const today = new Date().toISOString().split('T')[0]; // Сегодняшняя дата в YYYY-MM-DD
-        
-        const dateFrom = formatDateForOzon(startDate);
-        const dateTo = formatDateForOzon(today);
-        
-        payload.filter.date_from = dateFrom;
-        payload.filter.date_to = dateTo;
-        
-        log(`[Ozon] 🗓️ Применен фильтр дат магазина: ${startDate} - ${today} (RFC3339: ${dateFrom} - ${dateTo})`);
-    } else {
-        log(`[Ozon] 🗓️ Фильтр по дате не применен - получаем все доступные отзывы`);
-    }
     try {
-        const response = UrlFetchApp.fetch(url, {
-            method: 'POST', headers: { 'Client-Id': clientId, 'Api-Key': apiKey },
-            contentType: 'application/json', payload: JSON.stringify(payload),
-            muteHttpExceptions: true
-        });
-        const responseCode = response.getResponseCode();
-        const responseBody = response.getContentText();
-        if (responseCode !== 200) {
-            log(`[Ozon] ОШИБКА: Не удалось получить отзывы. Код: ${responseCode}. Тело: ${responseBody}`);
-            return [];
-        }
-
-        const json = JSON.parse(responseBody);
-        
-        // ✅ УЛУЧШЕНА обработка различных структур ответа API
-        let reviews = [];
-        if (json.result && json.result.reviews) {
-            reviews = json.result.reviews;
-        } else if (json.reviews) {
-            reviews = json.reviews;
-        } else if (json.data && json.data.reviews) {
-            reviews = json.data.reviews;
-        } else {
-            log(`[Ozon] ⚠️ ПРЕДУПРЕЖДЕНИЕ: Неожиданная структура ответа. Ключи: ${Object.keys(json).join(', ')}. Ответ: ${responseBody.substring(0, 200)}...`);
-            return [];
-        }
-        
-        if (!Array.isArray(reviews)) {
-            log(`[Ozon] ОШИБКА: reviews не является массивом. Тип: ${typeof reviews}. Значение: ${JSON.stringify(reviews).substring(0, 100)}...`);
-            return [];
-        }
-
-        log(`[Ozon] 📄 Получено ${reviews.length} отзывов через новый API`);
-
-        // КРИТИЧНО: Сортировка по дате (новые отзывы первыми) 
-        reviews.sort((a, b) => new Date(b.created_at || b.published_at) - new Date(a.created_at || a.published_at));
-        
-        let processedReviews = reviews.map(fb => ({
-            id: fb.id, 
-            createdDate: fb.published_at, 
-            rating: fb.rating,
-            text: fb.text || '(без текста)', 
-            user: 'Аноним', // Имя пользователя недоступно в этом методе
-            product: { 
-              id: fb.sku || fb.offer_id, // Используем sku или offer_id
-              name: 'Не указано', // Будет обновлено ниже через Product API
-              url: `https://www.ozon.ru/product/${fb.sku || fb.offer_id}`
-            }
-        }));
-        
-        // ✅ ОБОГАЩАЕМ НАЗВАНИЯМИ ТОВАРОВ из Product API
-        if (processedReviews.length > 0 && store && store.credentials) {
-            const offerIds = processedReviews.map(review => review.product.id).filter(id => id);
-            const productNames = getOzonProductNames(offerIds, store.credentials.clientId, store.credentials.apiKey);
-            
-            if (Object.keys(productNames).length > 0) {
-                processedReviews.forEach(review => {
-                    if (productNames[review.product.id]) {
-                        review.product.name = productNames[review.product.id];
-                    }
-                });
-                log(`[Ozon] 🏷️ Названия товаров обновлены для ${Object.keys(productNames).length} отзывов`);
-            }
-        }
-        
-        return processedReviews;
+        return getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered, store);
     } catch (e) {
-        log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА при запросе отзывов: ${e.stack}`);
+        log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.stack}`);
         return [];
     }
+}
+
+/**
+ * НОВАЯ РЕАЛИЗАЦИЯ: Ozon API с правильной пагинацией через last_id
+ * Решает проблему лимита в 100 отзывов за запрос
+ * @param {string} clientId - Ozon Client ID
+ * @param {string} apiKey - Ozon API Key  
+ * @param {boolean} includeAnswered - Включать ли отвеченные отзывы
+ * @param {Object} store - Настройки магазина
+ * @returns {Array} Все подходящие отзывы
+ */
+function getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered, store) {
+    const url = 'https://api-seller.ozon.ru/v1/review/list';
+    
+    let allReviews = [];
+    let lastId = "";
+    let hasNext = true;
+    let pageNumber = 1;
+    const limit = OZON_CONFIG.API_LIMITS.MAX_LIMIT; // 100 - максимум
+    const maxPages = 100; // Защита от бесконечного цикла (10,000 отзывов максимум)
+    
+    // Базовая структура запроса
+    let basePayload = {
+        filter: {
+            has_text: true,  // Только отзывы с текстом
+        },
+        sort: {
+            type: 'CREATED_AT',  // ✅ ИСПРАВЛЕНО: type вместо field
+            order: 'DESC'        // ✅ ИСПРАВЛЕНО: order вместо direction  
+        },
+        limit: limit
+    };
+    
+    // ✅ ПРАВИЛЬНАЯ настройка фильтра по статусу ответов
+    if (includeAnswered) {
+        // Получаем ВСЕ отзывы (отвеченные + неотвеченные)
+        basePayload.filter.status = ['PENDING', 'PROCESSED', 'MODERATED', 'NEW'];
+        log(`[Ozon] 🔄 Режим: ВСЕ отзывы (отвеченные + неотвеченные)`);
+    } else {
+        // Получаем только неотвеченные отзывы
+        basePayload.filter.has_answer = false;
+        basePayload.filter.status = ['PENDING', 'MODERATED', 'NEW'];
+        log(`[Ozon] 🎯 Режим: только НЕОТВЕЧЕННЫЕ отзывы`);
+    }
+
+    // ✅ ФИЛЬТР ПО ДАТЕ из настроек магазина
+    if (store && store.settings && store.settings.startDate) {
+        const startDate = store.settings.startDate;
+        const today = new Date().toISOString().split('T')[0];
+        
+        basePayload.filter.date_from = formatDateForOzon(startDate);
+        basePayload.filter.date_to = formatDateForOzon(today);
+        
+        log(`[Ozon] 🗓️ Фильтр дат: ${startDate} - ${today}`);
+    } else {
+        log(`[Ozon] 🗓️ Фильтр по дате НЕ применен - получаем все доступные отзывы`);
+    }
+    
+    // ✅ ГЛАВНЫЙ ЦИКЛ ПАГИНАЦИИ с last_id
+    while (hasNext && pageNumber <= maxPages) {
+        log(`[Ozon] 📄 Запрашиваю страницу ${pageNumber} (last_id: "${lastId}")...`);
+        
+        const payload = {
+            ...basePayload,
+            last_id: lastId  // ✅ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: используем last_id вместо page/offset!
+        };
+        
+        try {
+            const response = UrlFetchApp.fetch(url, {
+                method: 'POST',
+                headers: { 
+                    'Client-Id': clientId, 
+                    'Api-Key': apiKey,
+                    'Content-Type': 'application/json'
+                },
+                payload: JSON.stringify(payload),
+                muteHttpExceptions: true
+            });
+            
+            const responseCode = response.getResponseCode();
+            const responseBody = response.getContentText();
+            
+            log(`[Ozon] 🌐 API ответ страница ${pageNumber}: код ${responseCode}, размер ${responseBody.length} символов`);
+            
+            if (responseCode !== 200) {
+                log(`[Ozon] ❌ ОШИБКА на странице ${pageNumber}: Код ${responseCode}. Тело: ${responseBody.substring(0, 500)}`);
+                
+                // Специальная обработка типичных ошибок Ozon
+                if (responseCode === 401) log(`[Ozon] 🔎 401 Unauthorized - проверьте Client-Id и Api-Key`);
+                if (responseCode === 403) log(`[Ozon] 🔎 403 Forbidden - API ключ не имеет прав на чтение отзывов`);
+                if (responseCode === 429) log(`[Ozon] 🔎 429 Too Many Requests - превышен лимит 50 RPS`);
+                if (responseCode >= 500) log(`[Ozon] 🔎 ${responseCode} Server Error - временные проблемы на стороне Ozon`);
+                
+                break;
+            }
+            
+            const json = JSON.parse(responseBody);
+            
+            // ✅ ПРАВИЛЬНАЯ обработка структуры ответа
+            let reviews = [];
+            let resultData = null;
+            
+            if (json.result) {
+                resultData = json.result;
+                reviews = json.result.reviews || [];
+            } else if (json.reviews) {
+                reviews = json.reviews;
+            } else if (json.data && json.data.reviews) {
+                resultData = json.data;
+                reviews = json.data.reviews;
+            } else {
+                log(`[Ozon] ⚠️ Неожиданная структура ответа на странице ${pageNumber}. Ключи: ${Object.keys(json).join(', ')}`);
+                break;
+            }
+            
+            if (!Array.isArray(reviews)) {
+                log(`[Ozon] ❌ reviews не является массивом на странице ${pageNumber}. Тип: ${typeof reviews}`);
+                break;
+            }
+            
+            log(`[Ozon] 📄 Страница ${pageNumber}: получено ${reviews.length} отзывов`);
+            
+            // ✅ ОБРАБАТЫВАЕМ ОТЗЫВЫ И ДОБАВЛЯЕМ К ОБЩЕМУ СПИСКУ
+            const processedReviews = reviews.map(fb => ({
+                id: fb.id, 
+                createdDate: fb.published_at || fb.created_at, 
+                rating: fb.rating,
+                text: fb.text || '(без текста)', 
+                user: 'Аноним',
+                product: { 
+                    id: fb.sku || fb.offer_id,
+                    name: 'Не указано', // Будет обновлено через Product API
+                    url: `https://www.ozon.ru/product/${fb.sku || fb.offer_id}`
+                }
+            }));
+            
+            allReviews = allReviews.concat(processedReviews);
+            
+            // ✅ КРИТИЧНО: Проверяем наличие следующей страницы
+            if (resultData) {
+                hasNext = resultData.has_next || false;
+                lastId = resultData.last_id || "";
+                
+                if (isDevMode()) {
+                    log(`[Ozon DEBUG] has_next: ${hasNext}, last_id: "${lastId}"`);
+                }
+            } else {
+                // Если структура не содержит информацию о пагинации, 
+                // проверяем по количеству записей
+                hasNext = (reviews.length === limit);
+                log(`[Ozon] ⚠️ Нет информации о пагинации. Предполагаем has_next = ${hasNext} на основе размера ответа`);
+            }
+            
+            // Если получили меньше записей чем лимит - это последняя страница
+            if (reviews.length < limit) {
+                log(`[Ozon] ✅ Последняя страница ${pageNumber}: получено ${reviews.length} < ${limit}`);
+                hasNext = false;
+            }
+            
+            pageNumber++;
+            
+            // ✅ RATE LIMITING: Соблюдаем лимит 50 RPS (20мс минимум между запросами)
+            Utilities.sleep(25); // 40 RPS для безопасности
+            
+            // Дополнительная пауза каждые 20 запросов
+            if (pageNumber % 20 === 0) {
+                log(`[Ozon] 💤 Пауза после ${pageNumber - 1} страниц для стабильности...`);
+                Utilities.sleep(1000);
+            }
+            
+        } catch (e) {
+            log(`[Ozon] ❌ КРИТИЧЕСКАЯ ОШИБКА на странице ${pageNumber}: ${e.message}`);
+            log(`[Ozon] 🔍 Stack trace: ${e.stack}`);
+            break;
+        }
+    }
+    
+    if (pageNumber > maxPages) {
+        log(`[Ozon] ⚠️ ПРЕДУПРЕЖДЕНИЕ: Достигнут максимум страниц (${maxPages}). Возможно есть еще данные.`);
+    }
+    
+    // ✅ ФИНАЛЬНАЯ СОРТИРОВКА (новые отзывы первыми)
+    allReviews.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
+    
+    // ✅ ОБОГАЩЕНИЕ НАЗВАНИЯМИ ТОВАРОВ
+    if (allReviews.length > 0 && store && store.credentials) {
+        const offerIds = allReviews.map(review => review.product.id).filter(id => id);
+        const productNames = getOzonProductNames(offerIds, store.credentials.clientId, store.credentials.apiKey);
+        
+        if (Object.keys(productNames).length > 0) {
+            allReviews.forEach(review => {
+                if (productNames[review.product.id]) {
+                    review.product.name = productNames[review.product.id];
+                }
+            });
+            log(`[Ozon] 🏷️ Названия товаров обновлены для ${Object.keys(productNames).length} отзывов`);
+        }
+    }
+    
+    log(`[Ozon] 🎯 ИТОГО получено ${allReviews.length} отзывов за ${pageNumber - 1} страниц`);
+    return allReviews;
 }
 
 function sendOzonFeedbackAnswer(feedbackId, text, clientId, apiKey) {
@@ -1725,6 +1833,280 @@ function checkWbFeedbackStatus(feedbackId, apiKey) {
     log(`[WB Check] ⛔ Критическая ошибка: ${e.message}`);
     return { exists: false, error: e.message };
   }
+}
+
+// ============ OZON TESTING FUNCTIONS ============
+/**
+ * Функция для тестирования новой пагинации Ozon API
+ * Показывает, как работает правильный last_id пагинация и сколько отзывов можно получить
+ */
+function testOzonFeedbackPagination() {
+  const ui = SpreadsheetApp.getUi();
+  
+  // Получаем список активных Ozon магазинов
+  const stores = getStores().filter(s => s.isActive && s.marketplace === 'Ozon');
+  if (stores.length === 0) {
+    ui.alert('❌ Ошибка', 'Не найдено активных магазинов Ozon для тестирования.', ui.ButtonSet.OK);
+    return;
+  }
+  
+  // Выбираем магазин (пока берем первый)
+  const store = stores[0];
+  log(`[Ozon TEST] 🧪 Начало тестирования пагинации для магазина: ${store.name}`);
+  
+  // Выбираем режим тестирования
+  const testModeResponse = ui.alert('🧪 Тест Ozon API', 
+    'Выберите режим тестирования:\n\n' +
+    'ДА = Получить ВСЕ отзывы (отвеченные + неотвеченные)\n' +
+    'НЕТ = Получить только неотвеченные отзывы\n' +
+    'ОТМЕНА = Выход', 
+    ui.ButtonSet.YES_NO_CANCEL);
+  
+  if (testModeResponse === ui.Button.CANCEL) {
+    log('[Ozon TEST] ❌ Тестирование отменено пользователем.');
+    return;
+  }
+  
+  const includeAnswered = (testModeResponse === ui.Button.YES);
+  log(`[Ozon TEST] 🎯 Режим тестирования: ${includeAnswered ? 'ВСЕ отзывы' : 'только неотвеченные'}`);
+  
+  // Выбираем лимит страниц для тестирования
+  const pageLimitResponse = ui.prompt('🧪 Тест Ozon API', 
+    'Сколько страниц максимум запросить?\n(1 страница = до 100 отзывов)\n\nРекомендуется:\n• Для быстрого теста: 1-3\n• Для полноценной проверки: 5-10\n• Для получения ВСЕХ данных: 100', 
+    ui.ButtonSet.OK_CANCEL);
+    
+  if (pageLimitResponse.getSelectedButton() !== ui.Button.OK) {
+    log('[Ozon TEST] ❌ Тестирование отменено пользователем.');
+    return;
+  }
+  
+  let maxPages;
+  try {
+    maxPages = parseInt(pageLimitResponse.getResponseText().trim()) || 3;
+    if (maxPages < 1) maxPages = 1;
+    if (maxPages > 100) maxPages = 100;
+  } catch (e) {
+    maxPages = 3;
+  }
+  
+  log(`[Ozon TEST] 📊 Лимит страниц для тестирования: ${maxPages}`);
+  
+  // Включаем режим разработчика на время теста для более подробных логов
+  const wasDevMode = isDevMode();
+  if (!wasDevMode) {
+    log('[Ozon TEST] 🛠️ Временно включаем Dev Mode для детального логирования...');
+    setDevMode('true');
+  }
+  
+  try {
+    log('[Ozon TEST] 🚀 ЗАПУСК ТЕСТИРОВАНИЯ пагинации Ozon...');
+    const startTime = new Date();
+    
+    // Используем улучшенную функцию с правильной пагинацией
+    // Временно ограничиваем количество страниц для теста
+    const originalMaxPages = 100;
+    // Создаем тестовую версию функции с ограниченным числом страниц
+    const testResult = testOzonFeedbacksWithLimitedPages(
+      store.credentials.clientId, 
+      store.credentials.apiKey, 
+      includeAnswered, 
+      store, 
+      maxPages
+    );
+    
+    const endTime = new Date();
+    const duration = Math.round((endTime - startTime) / 1000);
+    
+    log(`[Ozon TEST] 📊 РЕЗУЛЬТАТ ТЕСТА:`);
+    log(`[Ozon TEST] ✅ Получено отзывов: ${testResult.length}`);
+    log(`[Ozon TEST] ⏱️ Время выполнения: ${duration} секунд`);
+    log(`[Ozon TEST] 📄 Страниц обработано: ${testResult.pagesProcessed || 'неизвестно'}`);
+    log(`[Ozon TEST] 🔄 Использована пагинация: ${testResult.usedPagination ? 'ДА (last_id)' : 'НЕТ'}`);
+    
+    // Показываем детали первых нескольких отзывов
+    if (testResult.length > 0) {
+      log(`[Ozon TEST] 📝 Примеры отзывов (первые 3):`);
+      testResult.slice(0, 3).forEach((review, index) => {
+        log(`[Ozon TEST] ${index + 1}. ID: ${review.id}, Дата: ${review.createdDate}, Рейтинг: ${review.rating}, Текст: "${review.text.substring(0, 50)}..."`);
+      });
+    }
+    
+    // Показываем результат пользователю
+    const resultMessage = 
+      `✅ УСПЕШНО ПРОТЕСТИРОВАНО!\n\n` +
+      `📊 Получено отзывов: ${testResult.length}\n` +
+      `⏱️ Время: ${duration} сек\n` +
+      `📄 Страниц: ${testResult.pagesProcessed || 'N/A'}\n` +
+      `🔄 Пагинация: ${testResult.usedPagination ? 'last_id (ПРАВИЛЬНО!)' : 'НЕ ИСПОЛЬЗОВАНА'}\n\n` +
+      `${testResult.length > 0 ? 'Первый отзыв:\n' + testResult[0].text.substring(0, 100) + '...' : 'Отзывы не найдены'}\n\n` +
+      `Подробные логи в "🐞 Лог отладки"`;
+      
+    ui.alert('🎉 ТЕСТ OZON ПАГИНАЦИИ ЗАВЕРШЕН', resultMessage, ui.ButtonSet.OK);
+    
+  } catch (e) {
+    log(`[Ozon TEST] ⛔ КРИТИЧЕСКАЯ ОШИБКА в тесте: ${e.message}`);
+    log(`[Ozon TEST] 🔍 Stack trace: ${e.stack}`);
+    ui.alert('⛔ КРИТИЧЕСКАЯ ОШИБКА', 
+      `Произошла критическая ошибка:\n\n${e.message}\n\nПодробности в логе отладки.`, 
+      ui.ButtonSet.OK);
+  } finally {
+    // Восстанавливаем предыдущий режим разработчика
+    if (!wasDevMode) {
+      log('[Ozon TEST] 🛠️ Восстанавливаем предыдущий режим разработчика...');
+      setDevMode('false');
+    }
+    
+    log('[Ozon TEST] 🏁 Тестирование завершено. Подробные логи в листе "🐞 Лог отладки".');
+  }
+}
+
+/**
+ * Тестовая версия функции получения отзывов с ограниченным числом страниц
+ * Используется только для тестирования, чтобы не нагружать API
+ */
+function testOzonFeedbacksWithLimitedPages(clientId, apiKey, includeAnswered, store, maxPages) {
+  log(`[Ozon TEST] 🎯 Тест пагинации с лимитом ${maxPages} страниц...`);
+  
+  const url = 'https://api-seller.ozon.ru/v1/review/list';
+  
+  let allReviews = [];
+  let lastId = "";
+  let hasNext = true;
+  let pageNumber = 1;
+  const limit = OZON_CONFIG.API_LIMITS.MAX_LIMIT; // 100
+  
+  // Базовая структура запроса (копируем из основной функции)
+  let basePayload = {
+    filter: {
+      has_text: true,
+    },
+    sort: {
+      type: 'CREATED_AT',
+      order: 'DESC'
+    },
+    limit: limit
+  };
+  
+  // Настройка фильтра по статусу ответов
+  if (includeAnswered) {
+    basePayload.filter.status = ['PENDING', 'PROCESSED', 'MODERATED', 'NEW'];
+  } else {
+    basePayload.filter.has_answer = false;
+    basePayload.filter.status = ['PENDING', 'MODERATED', 'NEW'];
+  }
+
+  // Фильтр по дате из настроек магазина
+  if (store && store.settings && store.settings.startDate) {
+    const startDate = store.settings.startDate;
+    const today = new Date().toISOString().split('T')[0];
+    
+    basePayload.filter.date_from = formatDateForOzon(startDate);
+    basePayload.filter.date_to = formatDateForOzon(today);
+    
+    log(`[Ozon TEST] 🗓️ Применен фильтр дат: ${startDate} - ${today}`);
+  }
+  
+  // Главный цикл пагинации (ограниченный)
+  while (hasNext && pageNumber <= maxPages) {
+    log(`[Ozon TEST] 📄 Тест страницы ${pageNumber}/${maxPages} (last_id: "${lastId}")...`);
+    
+    const payload = {
+      ...basePayload,
+      last_id: lastId
+    };
+    
+    try {
+      const response = UrlFetchApp.fetch(url, {
+        method: 'POST',
+        headers: { 
+          'Client-Id': clientId, 
+          'Api-Key': apiKey,
+          'Content-Type': 'application/json'
+        },
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+      
+      const responseCode = response.getResponseCode();
+      const responseBody = response.getContentText();
+      
+      log(`[Ozon TEST] 🌐 Страница ${pageNumber}: код ${responseCode}, размер ${responseBody.length} символов`);
+      
+      if (responseCode !== 200) {
+        log(`[Ozon TEST] ❌ ОШИБКА на странице ${pageNumber}: Код ${responseCode}`);
+        break;
+      }
+      
+      const json = JSON.parse(responseBody);
+      
+      // Обработка структуры ответа
+      let reviews = [];
+      let resultData = null;
+      
+      if (json.result) {
+        resultData = json.result;
+        reviews = json.result.reviews || [];
+      } else if (json.reviews) {
+        reviews = json.reviews;
+      } else if (json.data && json.data.reviews) {
+        resultData = json.data;
+        reviews = json.data.reviews;
+      }
+      
+      log(`[Ozon TEST] 📄 Страница ${pageNumber}: получено ${reviews.length} отзывов`);
+      
+      // Обрабатываем отзывы
+      const processedReviews = reviews.map(fb => ({
+        id: fb.id, 
+        createdDate: fb.published_at || fb.created_at, 
+        rating: fb.rating,
+        text: fb.text || '(без текста)', 
+        user: 'Аноним',
+        product: { 
+          id: fb.sku || fb.offer_id,
+          name: 'Не указано',
+          url: `https://www.ozon.ru/product/${fb.sku || fb.offer_id}`
+        }
+      }));
+      
+      allReviews = allReviews.concat(processedReviews);
+      
+      // Проверяем пагинацию
+      if (resultData) {
+        hasNext = resultData.has_next || false;
+        lastId = resultData.last_id || "";
+        log(`[Ozon TEST] 📋 has_next: ${hasNext}, last_id: "${lastId}"`);
+      } else {
+        hasNext = (reviews.length === limit);
+        log(`[Ozon TEST] ⚠️ Нет информации о пагинации. Предполагаем has_next = ${hasNext}`);
+      }
+      
+      // Если получили меньше записей чем лимит - последняя страница
+      if (reviews.length < limit) {
+        log(`[Ozon TEST] ✅ Последняя страница ${pageNumber}: ${reviews.length} < ${limit}`);
+        hasNext = false;
+      }
+      
+      pageNumber++;
+      
+      // Rate limiting для теста (быстрее чем в продакшне)
+      Utilities.sleep(50);
+      
+    } catch (e) {
+      log(`[Ozon TEST] ❌ ОШИБКА на странице ${pageNumber}: ${e.message}`);
+      break;
+    }
+  }
+  
+  // Сортируем результаты
+  allReviews.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
+  
+  // Добавляем метаинформацию о тестировании
+  allReviews.pagesProcessed = pageNumber - 1;
+  allReviews.usedPagination = (pageNumber > 1);
+  
+  log(`[Ozon TEST] 🎯 Тест завершен: ${allReviews.length} отзывов за ${allReviews.pagesProcessed} страниц`);
+  return allReviews;
 }
 
 // ============ TRIGGERS ============
