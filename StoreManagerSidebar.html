@@ -341,6 +341,23 @@
       </label>
       <p class="description">Если включено, система будет обрабатывать ВСЕ отзывы (включая уже отвеченные). Если выключено - только неотвеченные.</p>
     </div>
+
+    <!-- 🚀 NEW: Advanced Settings Section -->
+    <div class="form-group" style="border-top: 1px solid #dadce0; padding-top: 16px; margin-top: 20px;">
+      <label style="font-weight: 500; color: var(--text-color); margin-bottom: 12px; display: block;">🔧 Дополнительные настройки</label>
+      
+      <!-- Sort Order Setting -->
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="sort-oldest-first-input" class="checkbox">
+          Сортировать старые отзывы сначала
+        </label>
+        <p class="description">
+          ✨ <strong>НОВИНКА!</strong> Если включено, отзывы будут отсортированы от старых к новым (для хронологической обработки). 
+          По умолчанию: новые отзывы сначала.
+        </p>
+      </div>
+    </div>
     
     <!-- Second Row for Check Button -->
     <div id="check-connection-row">
@@ -431,6 +448,11 @@
       if (store.settings && store.settings.includeAnswered) {
         document.getElementById('include-answered-input').checked = store.settings.includeAnswered;
       }
+      
+      // 🚀 NEW: Load sort order setting
+      if (store.settings && store.settings.sortOldestFirst) {
+        document.getElementById('sort-oldest-first-input').checked = store.settings.sortOldestFirst;
+      }
     }
     toggleApiKeys();
     document.getElementById('store-form').classList.remove('hidden');
@@ -480,6 +502,7 @@
     const marketplace = document.getElementById('marketplace-select').value;
     const startDate = document.getElementById('start-date-input').value;
     const includeAnswered = document.getElementById('include-answered-input').checked;
+    const sortOldestFirst = document.getElementById('sort-oldest-first-input').checked; // 🚀 NEW
 
     if (!name || !marketplace) {
         alert('Название магазина и маркетплейс должны быть указаны.');
@@ -494,7 +517,8 @@
       credentials: {},
       settings: {
         startDate: startDate || null,  // Store null if empty
-        includeAnswered: includeAnswered || false  // Store boolean value
+        includeAnswered: includeAnswered || false,  // Store boolean value
+        sortOldestFirst: sortOldestFirst || false   // 🚀 NEW: Store sort order preference
       }
     };
 
