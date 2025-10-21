@@ -7,6 +7,7 @@
 const CONFIG = {
   PROPERTIES_KEY: 'REGISTERED_STORES',
   DEV_MODE_KEY: 'DEV_MODE_ENABLED',
+  PROGRESS_KEY: 'PROCESSING_PROGRESS', // 🚀 NEW: Ключ для хранения прогресса обработки
   SHEETS: {
     TEMPLATES: 'Шаблоны ответов'
   },
@@ -16,7 +17,7 @@ const CONFIG = {
   DELAY_BETWEEN_REQUESTS: 1100,
   MAX_FEEDBACKS_PER_RUN: 50,
   MIN_REVIEW_TEXT_LENGTH: 3, // Минимальная длина текста отзыва для обработки
-  HEADERS: ['ID отзыва', 'Дата отзыва', 'Артикул', 'Название товара', 'Ссылка', 'Оценка', 'Текст отзыва', 'Подобранный ответ', 'Статус', 'Детали ошибки', 'Время отправки'],
+  HEADERS: ['№', 'ID отзыва', 'Дата отзыва', 'Артикул', 'Название товара', 'Ссылка', 'Оценка', 'Текст отзыва', 'Подобранный ответ', 'Статус', 'Детали ошибки', 'Время отправки'],
   STATUS: {
     PENDING: 'Готово к отправке',
     SENT: 'Отправлено',
@@ -26,6 +27,12 @@ const CONFIG = {
     SKIPPED_PROCESSED: 'Пропущено (уже обработан)',
     SKIPPED_EMPTY: 'Пропущено (пустой отзыв)',
     NO_TEMPLATE: 'Нет шаблона'
+  },
+  // 🚀 NEW: Настройки для системы памяти прогресса
+  PROGRESS: {
+    MAX_EXECUTION_TIME: 5.5 * 60 * 1000, // 5.5 минут (с запасом до 6-минутного лимита)
+    SAVE_PROGRESS_INTERVAL: 30 * 1000,    // Сохранять прогресс каждые 30 секунд
+    RESET_PROGRESS_AFTER_HOURS: 24        // Сбрасывать прогресс старше 24 часов
   }
 };
 
@@ -47,9 +54,8 @@ const WB_CONFIG = {
     MAX_PAGES: 10            // Максимум страниц за один запуск (1000 отзывов)
   },
   PAGINATION: {
-    ENABLED: true,
-    STORAGE_KEY: 'WB_LAST_SKIP_OFFSET',
-    AUTO_RESET_HOURS: 24     // Сброс offset каждые 24 часа
+    ENABLED: false,          // WB работает по-другому, пагинация не нужна
+    SIMPLE_APPROACH: true    // Используем простой подход
   },
   RATE_LIMITS: {
     REQUESTS_PER_MINUTE: 60,        // Максимум запросов в минуту
@@ -125,193 +131,6 @@ const OZON_CONFIG = {
   PRODUCT_URL_TEMPLATE: 'https://www.ozon.ru/product/{sku}'
 };
 
-// ============ AUTHORIZATION HELPERS ============
-
-/**
- * Проверяет наличие разрешений для работы с триггерами
- * @returns {boolean} true если разрешения есть
- */
-function hasScriptAppPermissions() {
-  try {
-    ScriptApp.getProjectTriggers();
-    return true;
-  } catch (e) {
-    if (e.message && e.message.includes('script.scriptapp')) {
-      return false;
-    }
-    // Другие ошибки считаем временными
-    log(`[Auth] Неожиданная ошибка при проверке разрешений: ${e.message}`);
-    return false;
-  }
-}
-
-/**
- * Безопасный вызов ScriptApp.getProjectTriggers() с автоматическим запросом авторизации
- * @returns {GoogleAppsScript.Script.Trigger[]|null} массив триггеров или null если нет разрешений
- */
-function safeGetProjectTriggers() {
-  try {
-    return ScriptApp.getProjectTriggers();
-  } catch (e) {
-    if (e.message && e.message.includes('script.scriptapp')) {
-      log(`[Auth] ❌ Недостаточно разрешений для работы с триггерами: ${e.message}`);
-      requestScriptAppAuthorization();
-      return null;
-    }
-    // Пробрасываем другие ошибки
-    throw e;
-  }
-}
-
-/**
- * Запрашивает дополнительные разрешения для работы с триггерами
- * Показывает пользователю инструкции по авторизации
- */
-function requestScriptAppAuthorization() {
-  log(`[Auth] 🔑 АВТОМАТИЧЕСКИЙ ЗАПРОС АВТОРИЗАЦИИ для ScriptApp разрешений`);
-  
-  try {
-    const ui = SpreadsheetApp.getUi();
-    
-    // Создаем детальное сообщение с инструкциями
-    const message = 'ТРЕБУЕТСЯ ДОПОЛНИТЕЛЬНАЯ АВТОРИЗАЦИЯ\n\n' +
-      'Для работы с автоматическими триггерами необходимы дополнительные разрешения.\n\n' +
-      'ТРЕБУЕМЫЕ РАЗРЕШЕНИЯ:\n' +
-      '• https://www.googleapis.com/auth/script.scriptapp\n\n' +
-      'КАК ПОЛУЧИТЬ РАЗРЕШЕНИЯ:\n' +
-      '1. Нажмите "ОК" в этом диалоге\n' +
-      '2. Откроется запрос авторизации Google\n' +
-      '3. Разрешите доступ к управлению скриптами\n' +
-      '4. После авторизации функция триггеров заработает автоматически\n\n' +
-      'ЧТО ПРОИЗОЙДЕТ БЕЗ АВТОРИЗАЦИИ:\n' +
-      '• Автоматическая синхронизация триггеров будет отключена\n' +
-      '• Ручное управление триггерами будет недоступно\n' +
-      '• Основной функционал обработки отзывов продолжит работать\n\n' +
-      'Разрешить доступ сейчас?';
-
-    const response = ui.alert(
-      '🔑 Требуется авторизация', 
-      message, 
-      ui.ButtonSet.OK_CANCEL
-    );
-    
-    if (response === ui.Button.OK) {
-      log(`[Auth] 👤 Пользователь согласился на авторизацию`);
-      
-      // Попытка принудительного запроса разрешений
-      try {
-        // Этот вызов должен вызвать диалог авторизации
-        forceAuthorizationRequest();
-        log(`[Auth] ✅ Запрос авторизации отправлен`);
-      } catch (authError) {
-        log(`[Auth] ❌ Ошибка при запросе авторизации: ${authError.message}`);
-        
-        // Показываем дополнительные инструкции
-        const fallbackMessage = 'Не удалось автоматически запросить авторизацию.\\n\\n' +
-          'РУЧНАЯ АВТОРИЗАЦИЯ:\\n' +
-          '1. Откройте Редактор скриптов (Расширения → Apps Script)\\n' +
-          '2. Выберите функцию "requestManualAuthorization" в списке\\n' +
-          '3. Нажмите кнопку "Выполнить"\\n' +
-          '4. Разрешите все запрашиваемые права доступа\\n' +
-          '5. Вернитесь в таблицу и попробуйте снова\\n\\n' +
-          'После авторизации триггеры заработают автоматически.';
-
-        ui.alert('⚠️ Требуется ручная авторизация', fallbackMessage, ui.ButtonSet.OK);
-      }
-    } else {
-      log(`[Auth] ❌ Пользователь отклонил авторизацию`);
-      
-      // Показываем последствия отказа
-      const declineMessage = `⚠️ Авторизация отклонена.
-
-🚫 ОГРАНИЧЕНИЯ:
-• Автоматические триггеры НЕ будут работать
-• Синхронизация триггеров ОТКЛЮЧЕНА
-• Управление триггерами из меню НЕДОСТУПНО
-
-✅ ПРОДОЛЖАЕТ РАБОТАТЬ:
-• Ручная обработка отзывов
-• Отправка подготовленных ответов  
-• Все остальные функции таблицы
-
-🔄 Чтобы включить триггеры позже, выберите в меню:
-"🔄 Управление автозапуском" → "🔑 Запросить авторизацию триггеров"`;
-
-      ui.alert('ℹ️ Функционал ограничен', declineMessage, ui.ButtonSet.OK);
-    }
-  } catch (uiError) {
-    log(`[Auth] ❌ Ошибка интерфейса при запросе авторизации: ${uiError.message}`);
-    // Если UI недоступен, просто логируем проблему
-  }
-}
-
-/**
- * Принудительный запрос авторизации через вызов ScriptApp функций
- */
-function forceAuthorizationRequest() {
-  // Попытка получить информацию о проекте - это должно вызвать запрос авторизации
-  try {
-    ScriptApp.getProjectTriggers();
-    log(`[Auth] ✅ Разрешения уже есть`);
-  } catch (e) {
-    // Это и есть наша цель - вызвать диалог авторизации
-    if (e.message.includes('script.scriptapp')) {
-      log(`[Auth] 🔑 Запрос авторизации активирован для: ${e.message}`);
-      throw new Error('Authorization dialog should appear now');
-    }
-  }
-}
-
-/**
- * Функция для ручного запроса авторизации (вызывается пользователем из редактора скриптов)
- * Эта функция должна быть запущена вручную для получения всех необходимых разрешений
- */
-function requestManualAuthorization() {
-  log(`[Manual Auth] 🔑 ЗАПУСК РУЧНОЙ АВТОРИЗАЦИИ`);
-  
-  try {
-    // Запрашиваем все необходимые разрешения
-    const triggers = ScriptApp.getProjectTriggers();
-    log(`[Manual Auth] ✅ ScriptApp разрешения получены. Найдено триггеров: ${triggers.length}`);
-    
-    // Также запрашиваем разрешения для работы с таблицами (на всякий случай)
-    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-    log(`[Manual Auth] ✅ Spreadsheet разрешения получены. Таблица: ${spreadsheet.getName()}`);
-    
-    // Запрашиваем разрешения для HTTP запросов (на всякий случай)  
-    const testResponse = UrlFetchApp.fetch('https://httpbin.org/json', {muteHttpExceptions: true});
-    log(`[Manual Auth] ✅ URL Fetch разрешения получены. Тестовый запрос: ${testResponse.getResponseCode()}`);
-    
-    log(`[Manual Auth] 🎉 ВСЕ РАЗРЕШЕНИЯ УСПЕШНО ПОЛУЧЕНЫ!`);
-    
-    // Показываем сообщение об успехе если возможно
-    try {
-      const ui = SpreadsheetApp.getUi();
-      ui.alert('✅ Авторизация завершена', 
-        '🎉 Все необходимые разрешения получены!\\n\\nТриггеры теперь будут работать автоматически.', 
-        ui.ButtonSet.OK);
-    } catch (uiError) {
-      log(`[Manual Auth] UI недоступен: ${uiError.message}`);
-    }
-    
-    return true;
-    
-  } catch (e) {
-    log(`[Manual Auth] ❌ ОШИБКА авторизации: ${e.message}`);
-    
-    try {
-      const ui = SpreadsheetApp.getUi();
-      ui.alert('❌ Ошибка авторизации', 
-        `Не удалось получить разрешения:\\n\\n${e.message}\\n\\nПопробуйте еще раз или обратитесь к администратору.`, 
-        ui.ButtonSet.OK);
-    } catch (uiError) {
-      log(`[Manual Auth] UI недоступен: ${uiError.message}`);
-    }
-    
-    return false;
-  }
-}
-
 // ============ MENU CREATION ============
 function onOpen(e) {
   const ui = SpreadsheetApp.getUi();
@@ -321,26 +140,18 @@ function onOpen(e) {
   menu.addSeparator();
   menu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
   menu.addItem('▶️ Отправить подготовленные ответы', 'sendPendingAnswers');
+  menu.addItem('🧪 Тест WB: ответ на отзыв', 'testWbFeedbackAnswerById');
+  menu.addItem('🧪 Тест Ozon: получение отзывов', 'testOzonFeedbackPagination');
+  menu.addItem('🗑️ Удалить отзыв по ID', 'manuallyDeleteReviewById');
   menu.addSeparator();
-  
-  // 🛠️ РЕЖИМ РАЗРАБОТЧИКА - содержит все тесты и отладочные функции
   const devMenu = ui.createMenu('🛠️ Режим разработчика');
-  devMenu.addItem('🔧 Включить режим разработчика', 'enableDevMode');
-  devMenu.addItem('🔧 Выключить режим разработчика', 'disableDevMode');
-  devMenu.addSeparator();
-  devMenu.addItem('🧪 Тест: ответ на конкретный отзыв WB', 'testWbFeedbackAnswerById');
-  devMenu.addItem('🗑️ Удалить отзыв по ID', 'manuallyDeleteReviewById');
+  devMenu.addItem('Включить', 'enableDevMode');
+  devMenu.addItem('Выключить', 'disableDevMode');
   menu.addSubMenu(devMenu);
   
   const triggerSubMenu = ui.createMenu('🔄 Управление автозапуском');
-  triggerSubMenu.addItem('🔑 Запросить авторизацию триггеров', 'requestScriptAppAuthorization');
-  triggerSubMenu.addSeparator();
   triggerSubMenu.addItem('Установить автозапуск (5 мин)', 'createTrigger5Min');
   triggerSubMenu.addItem('Установить автозапуск (30 мин)', 'createTrigger30Min');
-  triggerSubMenu.addSeparator();
-  triggerSubMenu.addItem('🎯 Создать индивидуальные триггеры для магазинов', 'createPerStoreTriggers');
-  triggerSubMenu.addItem('🔄 Синхронизировать все триггеры магазинов', 'syncAllStoreTriggersMenu');
-  triggerSubMenu.addItem('🗑️ Удалить все индивидуальные триггеры', 'deletePerStoreTriggers');
   triggerSubMenu.addItem('Установить автозапуск (1 час)', 'createTrigger1Hour');
   triggerSubMenu.addSeparator();
   triggerSubMenu.addItem('❌ Удалить все триггеры автозапуска', 'deleteAllTriggers');
@@ -350,25 +161,6 @@ function onOpen(e) {
   menu.addItem('🐞 Показать/Скрыть лог отладки', 'toggleLogSheet');
   menu.addToUi();
   updateDevModeStatus();
-  
-  // 🎯 АВТОМАТИЧЕСКАЯ СИНХРОНИЗАЦИЯ ТРИГГЕРОВ при открытии таблицы
-  // Проверяем и синхронизируем триггеры для всех магазинов
-  if (!e || e.authMode !== ScriptApp.AuthMode.NONE) {
-    // Только если пользователь авторизован
-    try {
-      // Проверяем наличие разрешений перед синхронизацией
-      if (hasScriptAppPermissions()) {
-        const interval = getTriggerInterval();
-        log(`[onOpen] Автоматическая синхронизация триггеров (интервал: ${interval} мин)...`);
-        const result = syncAllStoreTriggers(interval);
-        log(`[onOpen] Синхронизация завершена: создано ${result.created}, удалено ${result.deleted}`);
-      } else {
-        log(`[onOpen] ⚠️ Нет разрешений для работы с триггерами - синхронизация пропущена`);
-      }
-    } catch (e) {
-      log(`[onOpen] ⚠️ Ошибка синхронизации триггеров: ${e.message}`);
-    }
-  }
 }
 
 // ============ DEV MODE ============
@@ -545,151 +337,6 @@ function getOzonProductNames(offerIds, clientId, apiKey) {
     }
 }
 
-/**
- * НОВАЯ ФУНКЦИЯ: Ozon получение названий товаров через /v3/product/info/list
- * Этот endpoint поддерживает поиск по sku, product_id, offer_id
- * @param {Array} identifiers - Массив {type: 'sku'|'product_id'|'offer_id', value: '...'}
- * @param {string} clientId - Ozon Client ID
- * @param {string} apiKey - Ozon API ключ
- * @returns {Object} Справочник {identifier: {name, price, images, etc}}
- */
-function getOzonProductInfoList(identifiers, clientId, apiKey) {
-    if (!identifiers || identifiers.length === 0) return {};
-    
-    log(`[Ozon Product Info] 🏷️ Запрашиваю детальную информацию для ${identifiers.length} товаров...`);
-    
-    // Проверяем кеш перед запросом
-    const cache = CacheService.getScriptCache();
-    const uncachedIdentifiers = [];
-    const cachedResults = {};
-    
-    identifiers.forEach(id => {
-        const cacheKey = `ozon_product_${id.type}_${id.value}`;
-        const cached = cache.get(cacheKey);
-        if (cached) {
-            try {
-                cachedResults[id.value] = JSON.parse(cached);
-            } catch (e) {
-                log(`[Ozon Product Info] ⚠️ Ошибка парсинга кеша для ${id.value}: ${e.message}`);
-                uncachedIdentifiers.push(id);
-            }
-        } else {
-            uncachedIdentifiers.push(id);
-        }
-    });
-    
-    if (Object.keys(cachedResults).length > 0) {
-        log(`[Ozon Product Info] 💾 Получено из кеша: ${Object.keys(cachedResults).length} товаров`);
-    }
-    
-    if (uncachedIdentifiers.length === 0) {
-        log(`[Ozon Product Info] ✅ Все данные получены из кеша`);
-        return cachedResults;
-    }
-    
-    log(`[Ozon Product Info] 🌐 Запрашиваю с сервера: ${uncachedIdentifiers.length} товаров`);
-    
-    // Разбиваем на батчи по 100 товаров (лимит API)
-    const batches = [];
-    for (let i = 0; i < uncachedIdentifiers.length; i += 100) {
-        batches.push(uncachedIdentifiers.slice(i, i + 100));
-    }
-    
-    log(`[Ozon Product Info] 📦 Разбито на ${batches.length} батчей`);
-    
-    const allResults = { ...cachedResults };
-    
-    batches.forEach((batch, batchIndex) => {
-        log(`[Ozon Product Info] 📤 Обработка батча ${batchIndex + 1}/${batches.length} (${batch.length} товаров)...`);
-        
-        // Группируем по типу идентификатора
-        const skus = batch.filter(id => id.type === 'sku').map(id => parseInt(id.value));
-        const productIds = batch.filter(id => id.type === 'product_id').map(id => parseInt(id.value));
-        const offerIds = batch.filter(id => id.type === 'offer_id').map(id => id.value);
-        
-        const payload = {};
-        if (skus.length > 0) payload.sku = skus;
-        if (productIds.length > 0) payload.product_id = productIds;
-        if (offerIds.length > 0) payload.offer_id = offerIds;
-        
-        if (Object.keys(payload).length === 0) {
-            log(`[Ozon Product Info] ⚠️ Пустой payload для батча ${batchIndex + 1}, пропускаем`);
-            return;
-        }
-        
-        const url = 'https://api-seller.ozon.ru/v3/product/info/list';
-        
-        try {
-            const response = UrlFetchApp.fetch(url, {
-                method: 'POST',
-                headers: { 
-                    'Client-Id': clientId, 
-                    'Api-Key': apiKey,
-                    'Content-Type': 'application/json'
-                },
-                payload: JSON.stringify(payload),
-                muteHttpExceptions: true
-            });
-            
-            const responseCode = response.getResponseCode();
-            const responseBody = response.getContentText();
-            
-            if (responseCode !== 200) {
-                log(`[Ozon Product Info] ❌ ОШИБКА батча ${batchIndex + 1}: ${responseCode}. ${responseBody.substring(0, 200)}`);
-                return;
-            }
-            
-            const json = JSON.parse(responseBody);
-            const items = json.result?.items || [];
-            
-            log(`[Ozon Product Info] ✅ Батч ${batchIndex + 1}: получено ${items.length} товаров`);
-            
-            // Обрабатываем результаты и кешируем
-            items.forEach(item => {
-                const productInfo = {
-                    name: item.name || 'Не указано',
-                    sku: item.sku,
-                    product_id: item.id,
-                    offer_id: item.offer_id,
-                    price: item.price || null,
-                    old_price: item.old_price || null,
-                    currency_code: item.currency_code || 'RUB',
-                    images: item.images || [],
-                    description: item.description || ''
-                };
-                
-                // Сохраняем по всем возможным идентификаторам
-                if (item.sku) {
-                    allResults[item.sku] = productInfo;
-                    const cacheKey = `ozon_product_sku_${item.sku}`;
-                    cache.put(cacheKey, JSON.stringify(productInfo), 86400); // 24 часа
-                }
-                if (item.id) {
-                    allResults[item.id] = productInfo;
-                    const cacheKey = `ozon_product_product_id_${item.id}`;
-                    cache.put(cacheKey, JSON.stringify(productInfo), 86400);
-                }
-                if (item.offer_id) {
-                    allResults[item.offer_id] = productInfo;
-                    const cacheKey = `ozon_product_offer_id_${item.offer_id}`;
-                    cache.put(cacheKey, JSON.stringify(productInfo), 86400);
-                }
-            });
-            
-            // Задержка между батчами для соблюдения rate limits
-            if (batchIndex < batches.length - 1) {
-                Utilities.sleep(OZON_CONFIG.RATE_LIMITS.DELAY_BETWEEN_REQUESTS);
-            }
-            
-        } catch (e) {
-            log(`[Ozon Product Info] ❌ КРИТИЧЕСКАЯ ОШИБКА батча ${batchIndex + 1}: ${e.message}`);
-        }
-    });
-    
-    log(`[Ozon Product Info] 🎯 ИТОГО: получено ${Object.keys(allResults).length} товаров (из них ${Object.keys(cachedResults).length} из кеша)`);
-    return allResults;
-}
-
 // ============ ДАТА УТИЛИТЫ ============
 
 /**
@@ -794,13 +441,168 @@ function getWbUnansweredFeedbacksWithPagination(apiKey, store = null) {
  */
 function getWbFeedbacksByType(apiKey, isAnswered, store = null) {
     const type = isAnswered ? 'отвеченные' : 'неотвеченные';
-    log(`[WB] 📖 Начинаю полную пагинацию для ${type} отзывов...`);
+    log(`[WB] 📖 Начинаю УМНУЮ пагинацию для ${type} отзывов...`);
+    
+    // 🚀 ОПРЕДЕЛЯЕМ СТРАТЕГИЮ на основе наличия даты фильтрации
+    const hasDateFilter = store && store.settings && store.settings.startDate;
+    if (hasDateFilter) {
+        log(`[WB] 🎯 УМНАЯ СТРАТЕГИЯ: есть дата фильтра ${store.settings.startDate} - используем адаптивную пагинацию`);
+        return getWbFeedbacksWithAdaptivePagination(apiKey, isAnswered, store);
+    } else {
+        log(`[WB] 🔄 СТАНДАРТНАЯ СТРАТЕГИЯ: нет даты фильтра - используем обычную пагинацию`);
+        return getWbFeedbacksWithStandardPagination(apiKey, isAnswered, store);
+    }
+}
+
+/**
+ * 🚀 НОВАЯ ФУНКЦИЯ: Адаптивная пагинация с оптимизацией для поиска по датам
+ */
+function getWbFeedbacksWithAdaptivePagination(apiKey, isAnswered, store) {
+    const type = isAnswered ? 'отвеченные' : 'неотвеченные';
+    const targetDate = new Date(store.settings.startDate);
+    
+    log(`[WB Adaptive] 🎯 Цель: найти отзывы начиная с ${store.settings.startDate}`);
     
     let allFeedbacks = [];
     let currentSkip = 0;
     let pageNumber = 1;
     const take = WB_CONFIG.API_LIMITS.PAGINATION_STEP; // 100 отзывов за страницу
-    const maxPages = 100; // Защита от бесконечного цикла (10,000 отзывов максимум)
+    const maxExecutionTime = 4 * 60 * 1000; // 4 минуты лимит
+    const startTime = Date.now();
+    let consecutiveEmptyPages = 0;
+    let oldestDateSeen = null;
+    let reviewsFoundInDateRange = 0;
+    let reviewsSkippedTooNew = 0;
+    let reviewsSkippedTooOld = 0;
+    let shouldContinuePagination = true;
+    
+    // 🚀 СИСТЕМА ПАМЯТИ СТРАНИЦ: Получаем стартовую позицию
+    const startingPageFromMemory = getStartingPageForStore(store, isAnswered);
+    let pageNumberFromMemory = Math.max(1, startingPageFromMemory);
+    
+    // Если продолжаем с сохранённой позиции, корректируем начальные значения
+    if (startingPageFromMemory > 0) {
+      currentSkip = startingPageFromMemory * take;
+      pageNumber = pageNumberFromMemory;
+      log(`[WB Adaptive] 🔄 ПРОДОЛЖЕНИЕ с сохранённой страницы ${pageNumber} (skip=${currentSkip})`);
+    }
+
+    // 🎯 Стратегия: Динамическое увеличение skip для быстрого поиска нужного периода
+    let skipMultiplier = 1;
+    let foundTargetPeriod = false;
+    
+    while (shouldContinuePagination && pageNumber <= 200) { // Увеличен лимит для адаптивного режима
+        const elapsedTime = Date.now() - startTime;
+        if (elapsedTime > maxExecutionTime) {
+            log(`[WB Adaptive] ⏱️ ТАЙМАУТ после ${Math.round(elapsedTime/1000)} сек на странице ${pageNumber}`);
+            break;
+        }
+        
+        log(`[WB Adaptive] 📄 Страница ${pageNumber} (skip=${currentSkip}, найдено в диапазоне: ${reviewsFoundInDateRange})...`);
+        
+        const pageFeedbacks = getWbFeedbacksPage(apiKey, isAnswered, currentSkip, take, pageNumber);
+        if (!pageFeedbacks || pageFeedbacks.length === 0) {
+            consecutiveEmptyPages++;
+            if (consecutiveEmptyPages >= 5) {
+                log(`[WB Adaptive] ✅ Завершено: 5 пустых страниц подряд`);
+                break;
+            }
+            currentSkip += take;
+            pageNumber++;
+            continue;
+        } else {
+            consecutiveEmptyPages = 0;
+        }
+        
+        // 📊 АНАЛИЗ ДАТ НА СТРАНИЦЕ
+        let pageHasTargetPeriod = false;
+        let oldestOnPage = null;
+        let newestOnPage = null;
+        
+        pageFeedbacks.forEach(fb => {
+            const reviewDate = new Date(fb.createdDate);
+            if (!oldestOnPage || reviewDate < oldestOnPage) oldestOnPage = reviewDate;
+            if (!newestOnPage || reviewDate > newestOnPage) newestOnPage = reviewDate;
+            
+            if (!oldestDateSeen || reviewDate < oldestDateSeen) oldestDateSeen = reviewDate;
+            
+            if (reviewDate >= targetDate) {
+                pageHasTargetPeriod = true;
+                reviewsFoundInDateRange++;
+            } else if (reviewDate < targetDate) {
+                reviewsSkippedTooOld++;
+            }
+        });
+        
+        log(`[WB Adaptive] 📊 Диапазон страницы: ${oldestOnPage?.toLocaleDateString('ru-RU')} - ${newestOnPage?.toLocaleDateString('ru-RU')}`);
+        
+        // 🎯 РЕШЕНИЕ О СТРАТЕГИИ ПАГИНАЦИИ
+        if (pageHasTargetPeriod) {
+            foundTargetPeriod = true;
+            skipMultiplier = 1; // Возвращаемся к обычной пагинации
+            
+            // Обрабатываем ВСЕ отзывы на этой странице
+            const processedFeedbacks = processFeedbacksPageForWB(pageFeedbacks);
+            allFeedbacks = allFeedbacks.concat(processedFeedbacks);
+            
+            log(`[WB Adaptive] ✅ Найден целевой период! Обработано ${processedFeedbacks.length} отзывов`);
+            
+        } else if (!foundTargetPeriod && newestOnPage && newestOnPage > targetDate) {
+            // Мы все еще слишком "новые" - увеличиваем skip для ускорения
+            reviewsSkippedTooNew += pageFeedbacks.length;
+            if (skipMultiplier < 10) {
+                skipMultiplier = Math.min(skipMultiplier * 2, 10); // Максимум 10x ускорение
+                log(`[WB Adaptive] ⚡ Ускоряю поиск: multiplier=${skipMultiplier} (слишком новые отзывы)`);
+            }
+            
+        } else if (oldestOnPage && oldestOnPage < targetDate) {
+            // Мы достигли слишком "старых" отзывов - можно остановиться
+            log(`[WB Adaptive] 🏁 СТОП: достигли даты ${oldestOnPage.toLocaleDateString('ru-RU')} < целевой ${targetDate.toLocaleDateString('ru-RU')}`);
+            shouldContinuePagination = false;
+            break;
+        }
+        
+        // 🚀 СОХРАНЕНИЕ ПРОГРЕССА: Записываем обработанную страницу
+        updateStorePageProgress(store, isAnswered, pageNumber - 1, false);
+        
+        // Увеличиваем skip с учетом multiplier
+        currentSkip += take * skipMultiplier;
+        pageNumber++;
+        
+        // Безопасная пауза
+        if (pageNumber % 10 === 0) {
+            Utilities.sleep(500);
+        } else {
+            Utilities.sleep(200);
+        }
+    }
+    
+    // 🚀 ЗАВЕРШЕНИЕ ОБРАБОТКИ: Отмечаем что дошли до конца
+    if (!shouldContinuePagination || pageNumber > 200 || oldestDateSeen < targetDate) {
+      updateStorePageProgress(store, isAnswered, pageNumber - 1, true); // Завершена
+      log(`[WB Adaptive] ✅ ОБРАБОТКА ЗАВЕРШЕНА: дошли до конца диапазона`);
+    }
+
+    const totalTime = Date.now() - startTime;
+    log(`[WB Adaptive] 🎯 ИТОГИ: найдено ${reviewsFoundInDateRange} в диапазоне, пропущено ${reviewsSkippedTooNew} новых + ${reviewsSkippedTooOld} старых за ${Math.round(totalTime/1000)} сек`);
+    
+    // Сортировка по дате (новые первыми)
+    allFeedbacks.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
+    
+    return allFeedbacks;
+}
+
+/**
+ * 📄 СТАНДАРТНАЯ ПАГИНАЦИЯ: Для случаев без даты фильтрации
+ */
+function getWbFeedbacksWithStandardPagination(apiKey, isAnswered, store) {
+    const type = isAnswered ? 'отвеченные' : 'неотвеченные';
+    
+    let allFeedbacks = [];
+    let currentSkip = 0;
+    let pageNumber = 1;
+    const take = WB_CONFIG.API_LIMITS.PAGINATION_STEP; // 100 отзывов за страницу
+    const maxPages = 50; // Ограничение для случаев без даты фильтрации
     let consecutiveEmptyPages = 0; // Счетчик пустых страниц подряд
     
     while (pageNumber <= maxPages) {
@@ -900,6 +702,7 @@ function getWbFeedbacksByType(apiKey, isAnswered, store = null) {
                     rating: actualRating,
                     text: fb.text,
                     user: 'N/A',
+                    hasAnswer: !!(fb.answer && fb.answer.text), // ✅ НОВОЕ: проверка наличия ответа для WB
                     product: {
                         id: fb.productDetails.nmId,
                         name: fb.productDetails.productName,
@@ -960,6 +763,89 @@ function getWbFeedbacksByType(apiKey, isAnswered, store = null) {
     
     log(`[WB] 🎯 ИТОГО для ${type}: получено ${allFeedbacks.length} подходящих отзывов за ${pageNumber - 1} страниц`);
     return allFeedbacks;
+}
+
+// ============ WB HELPER FUNCTIONS FOR ADAPTIVE PAGINATION ============
+
+/**
+ * 🆕 HELPER ФУНКЦИЯ: Получение одной страницы отзывов WB
+ * @param {string} apiKey - WB API ключ
+ * @param {boolean} isAnswered - Флаг отвеченных отзывов
+ * @param {number} currentSkip - Смещение (skip)
+ * @param {number} take - Количество записей
+ * @param {number} pageNumber - Номер страницы (для логирования)
+ * @returns {Array|null} Массив отзывов или null при ошибке
+ */
+function getWbFeedbacksPage(apiKey, isAnswered, currentSkip, take, pageNumber) {
+  try {
+    let url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks?isAnswered=${isAnswered}&take=${take}&skip=${currentSkip}&order=dateDesc`;
+    
+    const response = UrlFetchApp.fetch(url, { 
+      method: 'GET', 
+      headers: { 'Authorization': apiKey }, 
+      muteHttpExceptions: true 
+    });
+    
+    const responseCode = response.getResponseCode();
+    const responseBody = response.getContentText();
+    
+    if (responseCode !== 200) {
+      log(`[WB Helper] ❌ Ошибка на странице ${pageNumber}: код ${responseCode}`);
+      return null;
+    }
+    
+    const json = JSON.parse(responseBody);
+    if (json.error) {
+      log(`[WB Helper] ❌ API ошибка на странице ${pageNumber}: ${json.errorText}`);
+      return null;
+    }
+    
+    return json.data?.feedbacks || [];
+    
+  } catch (e) {
+    log(`[WB Helper] ❌ Критическая ошибка на странице ${pageNumber}: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * 🆕 HELPER ФУНКЦИЯ: Обработка страницы отзывов WB в формат для адаптивной пагинации
+ * @param {Array} pageFeedbacks - Сырые данные отзывов с API
+ * @returns {Array} Обработанные отзывы
+ */
+function processFeedbacksPageForWB(pageFeedbacks) {
+  const processedFeedbacks = [];
+  
+  pageFeedbacks.forEach(fb => {
+    // Проверяем наличие текста ДО обработки
+    const hasText = fb.text && fb.text.trim() && fb.text.trim() !== '(без текста)';
+    
+    if (!hasText) {
+      if (isDevMode()) {
+        log(`[WB Helper DEBUG] ⏭️ Пропущен пустой отзыв ID ${fb.id}: текст="${fb.text || '(нет)'}"`);
+      }
+      return; // Пропускаем пустые отзывы
+    }
+    
+    // Обрабатываем отзыв с текстом
+    const actualRating = fb.rating || fb.productValuation || 0;
+    
+    processedFeedbacks.push({
+      id: fb.id,
+      createdDate: fb.createdDate,
+      rating: actualRating,
+      text: fb.text,
+      user: 'N/A',
+      hasAnswer: !!(fb.answer && fb.answer.text), // ✅ проверка наличия ответа для WB
+      product: {
+        id: fb.productDetails.nmId,
+        name: fb.productDetails.productName,
+        url: `https://www.wildberries.ru/catalog/${fb.productDetails.nmId}/detail.aspx`
+      }
+    });
+  });
+  
+  return processedFeedbacks;
 }
 
 // ============ HELPER FUNCTIONS FOR API TESTING ============
@@ -1115,6 +1001,167 @@ function testStoreConnection(credentials, marketplace) {
   }
 }
 
+// ============ 🚀 PROGRESS MEMORY FUNCTIONS ============
+
+/**
+ * Получение сохранённого прогресса обработки для всех магазинов
+ * @returns {Object} Объект с прогрессом каждого магазина
+ */
+function getProcessingProgress() {
+  try {
+    const progressJson = PropertiesService.getUserProperties().getProperty(CONFIG.PROGRESS_KEY);
+    if (!progressJson) return {};
+    
+    const progress = JSON.parse(progressJson);
+    const now = Date.now();
+    
+    // 🧹 Очищаем старый прогресс (старше 24 часов)
+    const cleanProgress = {};
+    for (const [storeId, storeProgress] of Object.entries(progress)) {
+      const age = now - (storeProgress.lastUpdated || 0);
+      const maxAge = CONFIG.PROGRESS.RESET_PROGRESS_AFTER_HOURS * 60 * 60 * 1000;
+      
+      if (age < maxAge) {
+        cleanProgress[storeId] = storeProgress;
+      } else {
+        log(`[Progress] 🧹 Удален старый прогресс для магазина ${storeId} (возраст ${Math.round(age/1000/3600)} часов)`);
+      }
+    }
+    
+    // Сохраняем очищенный прогресс
+    if (Object.keys(cleanProgress).length !== Object.keys(progress).length) {
+      saveProcessingProgress(cleanProgress);
+    }
+    
+    return cleanProgress;
+  } catch (e) {
+    log(`[Progress] ❌ Ошибка чтения прогресса: ${e.message}`);
+    return {};
+  }
+}
+
+/**
+ * Сохранение прогресса обработки для всех магазинов
+ * @param {Object} progress - Объект с прогрессом каждого магазина
+ */
+function saveProcessingProgress(progress) {
+  try {
+    const progressJson = JSON.stringify(progress);
+    PropertiesService.getUserProperties().setProperty(CONFIG.PROGRESS_KEY, progressJson);
+    log(`[Progress] 💾 Прогресс сохранён для ${Object.keys(progress).length} магазинов`);
+  } catch (e) {
+    log(`[Progress] ❌ Ошибка сохранения прогресса: ${e.message}`);
+  }
+}
+
+/**
+ * Получение прогресса обработки для конкретного магазина
+ * @param {string} storeId - ID магазина
+ * @returns {Object} Прогресс магазина или null
+ */
+function getStoreProgress(storeId) {
+  const allProgress = getProcessingProgress();
+  return allProgress[storeId] || null;
+}
+
+/**
+ * Обновление прогресса обработки для магазина
+ * @param {string} storeId - ID магазина
+ * @param {Object} storeProgress - Новый прогресс магазина
+ */
+function updateStoreProgress(storeId, storeProgress) {
+  const allProgress = getProcessingProgress();
+  allProgress[storeId] = {
+    ...storeProgress,
+    lastUpdated: Date.now()
+  };
+  saveProcessingProgress(allProgress);
+}
+
+/**
+ * Сброс прогресса для магазина (начать сначала)
+ * @param {string} storeId - ID магазина
+ */
+function resetStoreProgress(storeId) {
+  const allProgress = getProcessingProgress();
+  delete allProgress[storeId];
+  saveProcessingProgress(allProgress);
+  log(`[Progress] 🔄 Сброшен прогресс для магазина ${storeId}`);
+}
+
+/**
+ * 🚀 НОВАЯ ФУНКЦИЯ: Определение начальной страницы для продолжения обработки
+ * @param {Object} store - Конфигурация магазина
+ * @param {boolean} isAnswered - Тип отзывов (отвеченные/неотвеченные)
+ * @returns {number} Номер страницы для начала или 0 для начала сначала
+ */
+function getStartingPageForStore(store, isAnswered) {
+  const progress = getStoreProgress(store.id);
+  if (!progress) {
+    log(`[${store.name}] 🆕 Нет сохранённого прогресса - начинаем с первой страницы`);
+    return 0;
+  }
+  
+  // Определяем ключ для типа обработки
+  const progressKey = isAnswered ? 'answeredReviews' : 'unansweredReviews';
+  const typeProgress = progress[progressKey];
+  
+  if (!typeProgress) {
+    log(`[${store.name}] 🆕 Нет прогресса для ${isAnswered ? 'отвеченных' : 'неотвеченных'} отзывов - начинаем сначала`);
+    return 0;
+  }
+  
+  const lastPage = typeProgress.lastProcessedPage || 0;
+  const completedAt = typeProgress.completedAt;
+  
+  // Если обработка завершена менее чем 1 час назад, начинаем сначала
+  if (completedAt && (Date.now() - completedAt < 60 * 60 * 1000)) {
+    log(`[${store.name}] ✅ Обработка ${isAnswered ? 'отвеченных' : 'неотвеченных'} отзывов завершена недавно - начинаем сначала`);
+    return 0;
+  }
+  
+  const nextPage = lastPage + 1;
+  log(`[${store.name}] 📖 Продолжаем обработку ${isAnswered ? 'отвеченных' : 'неотвеченных'} отзывов с страницы ${nextPage}`);
+  return nextPage;
+}
+
+/**
+ * 🚀 НОВАЯ ФУНКЦИЯ: Обновление прогресса страниц для магазина
+ * @param {Object} store - Конфигурация магазина
+ * @param {boolean} isAnswered - Тип отзывов
+ * @param {number} pageNumber - Номер обработанной страницы
+ * @param {boolean} isCompleted - Завершена ли обработка
+ */
+function updateStorePageProgress(store, isAnswered, pageNumber, isCompleted = false) {
+  const allProgress = getProcessingProgress();
+  
+  if (!allProgress[store.id]) {
+    allProgress[store.id] = { lastUpdated: Date.now() };
+  }
+  
+  const progressKey = isAnswered ? 'answeredReviews' : 'unansweredReviews';
+  
+  if (!allProgress[store.id][progressKey]) {
+    allProgress[store.id][progressKey] = {};
+  }
+  
+  allProgress[store.id][progressKey].lastProcessedPage = pageNumber;
+  allProgress[store.id][progressKey].lastUpdated = Date.now();
+  
+  if (isCompleted) {
+    allProgress[store.id][progressKey].completedAt = Date.now();
+    log(`[${store.name}] ✅ Завершена обработка ${isAnswered ? 'отвеченных' : 'неотвеченных'} отзывов на странице ${pageNumber}`);
+  } else {
+    delete allProgress[store.id][progressKey].completedAt; // Удаляем флаг завершения если продолжаем
+    if (pageNumber % 5 === 0) { // Логируем каждые 5 страниц
+      log(`[${store.name}] 📄 Обработана страница ${pageNumber} (${isAnswered ? 'отвеченные' : 'неотвеченные'} отзывы)`);
+    }
+  }
+  
+  allProgress[store.id].lastUpdated = Date.now();
+  saveProcessingProgress(allProgress);
+}
+
 // ============ LOGGING & INITIAL SETUP ============
 function log(message) {
   try {
@@ -1174,12 +1221,13 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
-// ============ SORTING FUNCTION ============
+// ============ SORTING FUNCTIONS ============
 /**
- * Sorts a sheet by date column (newest first)
+ * Sorts a sheet by date column (newest first by default)
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - The sheet to sort
+ * @param {boolean} ascending - Whether to sort ascending (oldest first) or descending (newest first)
  */
-function sortSheetByDate(sheet) {
+function sortSheetByDate(sheet, ascending = false) {
   if (sheet.getLastRow() <= 2) return; // Нет данных для сортировки (только заголовок и максимум одна строка данных)
   
   const dateColumnIndex = CONFIG.HEADERS.indexOf('Дата отзыва') + 1;
@@ -1188,9 +1236,65 @@ function sortSheetByDate(sheet) {
     return;
   }
   
-  // Сортируем данные (исключая заголовок) по столбцу с датой в убывающем порядке
+  // Сортируем данные (исключая заголовок) по столбцу с датой
   const range = sheet.getRange(2, 1, sheet.getLastRow() - 1, CONFIG.HEADERS.length);
-  range.sort([{column: dateColumnIndex, ascending: false}]);
+  range.sort([{column: dateColumnIndex, ascending: ascending}]);
+  
+  const sortOrder = ascending ? 'старые сначала' : 'новые сначала';
+  log(`Лист отсортирован по дате (${sortOrder}).`);
+}
+
+/**
+ * 🚀 НОВАЯ ФУНКЦИЯ: Сортировка листа по дате (старые отзывы сначала)
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - The sheet to sort
+ */
+function sortSheetByDateOldestFirst(sheet) {
+  return sortSheetByDate(sheet, true);
+}
+
+/**
+ * 🚀 НОВАЯ ФУНКЦИЯ: Применение пользовательских настроек сортировки
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - The sheet to sort
+ * @param {Object} store - Store configuration with sorting preferences
+ */
+function applySortingPreferences(sheet, store) {
+  // Проверяем настройки сортировки в конфигурации магазина
+  const sortOldestFirst = store.settings?.sortOldestFirst || false;
+  
+  if (sortOldestFirst) {
+    log(`[${store.name}] Применена настройка: сортировка старых отзывов сначала.`);
+    sortSheetByDateOldestFirst(sheet);
+  } else {
+    log(`[${store.name}] Применена стандартная сортировка: новые отзывы сначала.`);
+    sortSheetByDate(sheet, false); // Новые сначала (стандартная)
+  }
+}
+
+/**
+ * 🚀 НОВАЯ ФУНКЦИЯ: Обновление порядковых номеров в колонке №
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - Лист для обновления
+ */
+function updateRowNumbers(sheet) {
+  if (sheet.getLastRow() <= 2) return; // Нет данных для нумерации
+  
+  const numberColumnIndex = CONFIG.HEADERS.indexOf('№') + 1;
+  if (numberColumnIndex === 0) {
+    log('ПРЕДУПРЕЖДЕНИЕ: Не найдена колонка "№" для обновления порядковых номеров.');
+    return;
+  }
+  
+  const dataRowsCount = sheet.getLastRow() - 1; // Исключаем заголовок
+  const numbers = [];
+  
+  // Создаем массив порядковых номеров: 1, 2, 3, ...
+  for (let i = 1; i <= dataRowsCount; i++) {
+    numbers.push([i]);
+  }
+  
+  // Обновляем колонку с порядковыми номерами
+  if (numbers.length > 0) {
+    sheet.getRange(2, numberColumnIndex, numbers.length, 1).setValues(numbers);
+  }
 }
 
 // ============ DATE FILTERING FUNCTION ============
@@ -1269,15 +1373,19 @@ function filterFeedbacksByRating(feedbacks, store) {
  */
 function filterFeedbacksByContent(feedbacks, store) {
   const originalCount = feedbacks.length;
+  const emptyReviews = []; // Собираем пустые отзывы для пачкного логирования
   
   const filteredFeedbacks = feedbacks.filter(feedback => {
     const text = (feedback.text || '').trim();
     
     // Skip reviews with no text or very short text
     if (!text || text === '(без текста)' || text.length < CONFIG.MIN_REVIEW_TEXT_LENGTH) {
-      if (isDevMode()) {
-        log(`[${store.marketplace} DEBUG] Пропущен отзыв ID ${feedback.id}: пустой или очень короткий текст ("${text}")`);
-      }
+      // Собираем информацию о пустых отзывах вместо логирования каждого
+      emptyReviews.push({
+        id: feedback.id,
+        text: text || '(нет)',
+        date: feedback.createdDate
+      });
       return false;
     }
     
@@ -1287,9 +1395,160 @@ function filterFeedbacksByContent(feedbacks, store) {
   if (filteredFeedbacks.length !== originalCount) {
     const skippedCount = originalCount - filteredFeedbacks.length;
     log(`[${store.name}] Применен фильтр по содержанию: осталось ${filteredFeedbacks.length} из ${originalCount} отзывов (исключено ${skippedCount} пустых отзывов).`);
+    
+    // 🚀 УЛУЧШЕНИЕ: Показываем статистику пустых отзывов одной записью
+    if (skippedCount > 0) {
+      log(`[${store.name}] 📊 Статистика пустых отзывов: всего ${skippedCount}, примеры: ${emptyReviews.slice(0, 3).map(r => `ID ${r.id} ("${r.text}")`).join(', ')}${skippedCount > 3 ? ` и еще ${skippedCount - 3}...` : ''}`);
+      
+      // В DEV режиме показываем подробности только для первых 10 пустых отзывов
+      if (isDevMode() && skippedCount <= 10) {
+        log(`[${store.marketplace} DEBUG] Детали пустых отзывов: ${emptyReviews.map(r => `${r.id}("${r.text}")`).join(', ')}`);
+      } else if (isDevMode() && skippedCount > 10) {
+        log(`[${store.marketplace} DEBUG] Слишком много пустых отзывов (${skippedCount}) для детального логирования. Показаны только примеры выше.`);
+      }
+    }
   }
   
   return filteredFeedbacks;
+}
+
+// ============ ANSWERED REVIEW FILTERING FUNCTION ============
+/**
+ * Filters out reviews that already have answers from the store
+ * @param {Array} feedbacks - Array of feedback objects
+ * @param {Object} store - Store configuration
+ * @returns {Array} Filtered feedbacks (only those without store answers)
+ */
+function filterFeedbacksByAnswer(feedbacks, store) {
+  const originalCount = feedbacks.length;
+  const answeredReviews = []; // Собираем отзывы с ответами для логирования
+  
+  const filteredFeedbacks = feedbacks.filter(feedback => {
+    // Проверяем наличие ответа от магазина
+    const hasAnswer = !!(feedback.hasAnswer);
+    
+    if (hasAnswer) {
+      // Собираем информацию об отвеченных отзывах
+      answeredReviews.push({
+        id: feedback.id,
+        date: feedback.createdDate,
+        rating: feedback.rating
+      });
+      return false; // Исключаем отзывы с ответами
+    }
+    
+    return true;
+  });
+  
+  if (filteredFeedbacks.length !== originalCount) {
+    const skippedCount = originalCount - filteredFeedbacks.length;
+    log(`[${store.name}] Применен фильтр по наличию ответов: осталось ${filteredFeedbacks.length} из ${originalCount} отзывов (исключено ${skippedCount} уже отвеченных).`);
+    
+    // 🚀 УЛУЧШЕНИЕ: Показываем статистику отвеченных отзывов
+    if (skippedCount > 0) {
+      log(`[${store.name}] 📊 Статистика отвеченных отзывов: всего ${skippedCount}, примеры: ${answeredReviews.slice(0, 3).map(r => `ID ${r.id} (рейтинг ${r.rating})`).join(', ')}${skippedCount > 3 ? ` и еще ${skippedCount - 3}...` : ''}`);
+      
+      // В DEV режиме показываем подробности только для первых 5 отвеченных отзывов
+      if (isDevMode() && skippedCount <= 5) {
+        log(`[${store.marketplace} DEBUG] Детали отвеченных отзывов: ${answeredReviews.map(r => `${r.id}(${r.rating}★)`).join(', ')}`);
+      } else if (isDevMode() && skippedCount > 5) {
+        log(`[${store.marketplace} DEBUG] Слишком много отвеченных отзывов (${skippedCount}) для детального логирования. Показаны только примеры выше.`);
+      }
+    }
+  }
+  
+  return filteredFeedbacks;
+}
+
+// ============ BATCH PROCESSING FUNCTIONS ============
+
+/**
+ * 🚀 НОВАЯ ФУНКЦИЯ: Пачкная обработка отзывов для повышения производительности
+ * @param {Array} feedbacks - Массив отзывов для обработки
+ * @param {Array} templates - Массив шаблонов ответов
+ * @param {Object} store - Конфигурация магазина
+ * @param {boolean} devMode - Режим разработчика
+ * @returns {Array} Массив результатов обработки
+ */
+function processFeedbackBatch(feedbacks, templates, store, devMode) {
+  log(`[${store.name}] 🚀 ПАЧКНАЯ ОБРАБОТКА: начинаю обработку ${feedbacks.length} отзывов...`);
+  
+  const results = [];
+  let skippedByRating = 0;
+  let noTemplateCount = 0;
+  let processedCount = 0;
+  let sentCount = 0;
+  
+  feedbacks.forEach(feedback => {
+    const rowData = [
+      '', // № - будет заполнен автоматически при добавлении в лист
+      feedback.id, 
+      new Date(feedback.createdDate), 
+      feedback.product.id, 
+      feedback.product.name, 
+      feedback.product.url, 
+      feedback.rating, 
+      feedback.text
+    ];
+    
+    // Проверка рейтинга
+    if (!CONFIG.RESPOND_TO_RATINGS.includes(feedback.rating)) {
+      rowData.push('', CONFIG.STATUS.SKIPPED_RATING, `Рейтинг ${feedback.rating} не входит в список для ответа.`, '');
+      results.push({
+        rowData: rowData,
+        logMessage: `[${store.name}] Пропущен отзыв ID: ${feedback.id} (рейтинг ${feedback.rating}). Дата: ${new Date(feedback.createdDate).toLocaleDateString('ru-RU')}`,
+        status: CONFIG.STATUS.SKIPPED_RATING
+      });
+      skippedByRating++;
+      return;
+    }
+    
+    // Подбор шаблона
+    const template = selectRandomTemplate(templates, feedback.rating);
+    if (!template) {
+      rowData.push('', CONFIG.STATUS.NO_TEMPLATE, `Не найден подходящий шаблон для рейтинга ${feedback.rating}.`, '');
+      results.push({
+        rowData: rowData,
+        logMessage: `[${store.name}] Нет шаблона для отзыва ID: ${feedback.id} (рейтинг ${feedback.rating}). Дата: ${new Date(feedback.createdDate).toLocaleDateString('ru-RU')}`,
+        status: CONFIG.STATUS.NO_TEMPLATE
+      });
+      noTemplateCount++;
+      return;
+    }
+    
+    // Обработка в зависимости от режима
+    if (devMode) {
+      rowData.push(template, CONFIG.STATUS.PENDING, '', '');
+      results.push({
+        rowData: rowData,
+        logMessage: `[${store.name}] DEV: Подготовлен ответ для отзыва ID: ${feedback.id}. Дата: ${new Date(feedback.createdDate).toLocaleDateString('ru-RU')}`,
+        status: CONFIG.STATUS.PENDING
+      });
+      processedCount++;
+    } else {
+      // PROD режим: отправляем ответ
+      const result = sendAnswer(store, feedback.id, template);
+      rowData.push(template, result.status, result.error, result.timestamp);
+      results.push({
+        rowData: rowData,
+        logMessage: `[${store.name}] PROD: Отправлен ответ для ID: ${feedback.id}. Статус: ${result.status}. Дата: ${new Date(feedback.createdDate).toLocaleDateString('ru-RU')}`,
+        status: result.status
+      });
+      if (result.status === CONFIG.STATUS.SENT) {
+        sentCount++;
+      }
+      processedCount++;
+    }
+  });
+  
+  // 📊 ИТОГОВАЯ СТАТИСТИКА ПАЧКНОЙ ОБРАБОТКИ
+  const statsMessage = devMode 
+    ? `[${store.name}] 📊 ПАЧКА ОБРАБОТАНА: подготовлено ${processedCount}, пропущено по рейтингу ${skippedByRating}, нет шаблонов ${noTemplateCount}`
+    : `[${store.name}] 📊 ПАЧКА ОБРАБОТАНА: отправлено ${sentCount}/${processedCount}, пропущено по рейтингу ${skippedByRating}, нет шаблонов ${noTemplateCount}`;
+  
+  log(statsMessage);
+  
+  return results;
 }
 
 // ============ CORE PROCESSING LOGIC ============
@@ -1308,12 +1567,51 @@ function processAllStores() {
   }
   
   log(`Найдено ${activeStores.length} активных магазинов.`);
-  activeStores.forEach(store => {
-    log(`--- Начинаю обработку магазина: ${store.name} [${store.marketplace}] ---`);
+  
+  // 🚀 ИНТЕЛЛЕКТУАЛЬНАЯ БАТЧЕВАЯ ОБРАБОТКА
+  const maxExecutionTime = 5 * 60 * 1000; // 5 минут лимит
+  const startTime = Date.now();
+  
+  // Группируем магазины по платформам для оптимальной обработки
+  const wbStores = activeStores.filter(s => s.marketplace === 'Wildberries');
+  const ozonStores = activeStores.filter(s => s.marketplace === 'Ozon');
+  const otherStores = activeStores.filter(s => s.marketplace !== 'Wildberries' && s.marketplace !== 'Ozon');
+  
+  log(`📊 Распределение: WB=${wbStores.length}, Ozon=${ozonStores.length}, Другие=${otherStores.length}`);
+  
+  // Обработка с контролем времени и приоритизацией
+  let processedCount = 0;
+  const allStoresToProcess = [...wbStores, ...ozonStores, ...otherStores]; // WB и Ozon в приоритете
+  
+  for (const store of allStoresToProcess) {
+    // Проверяем оставшееся время перед каждым магазином
+    const elapsedTime = Date.now() - startTime;
+    const remainingTime = maxExecutionTime - elapsedTime;
+    
+    if (remainingTime < 30000) { // Менее 30 секунд осталось
+      log(`⏱️ ОСТАНОВКА: осталось ${Math.round(remainingTime/1000)} сек (недостаточно для обработки магазина)`);
+      log(`📊 Успешно обработано: ${processedCount}/${activeStores.length} магазинов`);
+      
+      if (processedCount < activeStores.length) {
+        log(`📋 Необработанные магазины: ${activeStores.length - processedCount}`);
+        log(`💡 Рекомендация: запустите обработку повторно для оставшихся магазинов`);
+      }
+      break;
+    }
+    
+    log(`--- Начинаю обработку магазина: ${store.name} [${store.marketplace}] (${processedCount + 1}/${activeStores.length}) ---`);
+    log(`⏱️ Времени осталось: ${Math.round(remainingTime/1000)} сек`);
+    
+    const storeStartTime = Date.now();
     processSingleStore(store, devMode);
-    log(`--- Завершение обработки магазина: ${store.name} ---`);
-  });
-  log('--- ОБРАБОТКА ВСЕХ МАГАЗИНОВ ЗАВЕРШЕНА ---');
+    const storeDuration = Date.now() - storeStartTime;
+    
+    processedCount++;
+    log(`--- Завершение обработки магазина: ${store.name} (${Math.round(storeDuration/1000)} сек) ---`);
+  }
+  
+  const totalDuration = Date.now() - startTime;
+  log(`--- ОБРАБОТКА ЗАВЕРШЕНА: ${processedCount}/${activeStores.length} магазинов за ${Math.round(totalDuration/1000)} сек ---`);
 }
 
 function processSingleStore(store, devMode) {
@@ -1341,6 +1639,9 @@ function processSingleStore(store, devMode) {
   // Apply content filter first - remove empty reviews
   feedbacks = filterFeedbacksByContent(feedbacks, store);
   
+  // Apply answer filter - remove reviews with existing answers
+  feedbacks = filterFeedbacksByAnswer(feedbacks, store);
+  
   // Apply date filter
   feedbacks = filterFeedbacksByDate(feedbacks, store);
   
@@ -1351,141 +1652,175 @@ function processSingleStore(store, devMode) {
   log(`[${store.name}] Из них ${newFeedbacks.length} действительно новых (нет в таблице).`);
   if (newFeedbacks.length === 0) return;
 
-  // 🚀 ПАРАЛЛЕЛЬНОЕ СОХРАНЕНИЕ: обрабатываем и сохраняем каждый отзыв сразу
-  log(`[${store.name}] 🚀 ПАРАЛЛЕЛЬНОЕ СОХРАНЕНИЕ: обработка и немедленная запись результатов...`);
+  const rowsToAppend = [];
   
-  let processedCount = 0;
-  const maxToProcess = Math.min(newFeedbacks.length, CONFIG.MAX_FEEDBACKS_PER_RUN);
+  // 🚀 УЛУЧШЕНИЕ: Пачкная обработка отзывов
+  const processingBatch = newFeedbacks.slice(0, CONFIG.MAX_FEEDBACKS_PER_RUN);
+  const batchResults = processFeedbackBatch(processingBatch, templates, store, devMode);
   
-  newFeedbacks.slice(0, maxToProcess).forEach((feedback, index) => {
-    const progressInfo = `[${index + 1}/${maxToProcess}]`;
+  batchResults.forEach(result => {
+    rowsToAppend.push(result.rowData);
+    log(result.logMessage);
     
-    let rowData = [
-        feedback.id, new Date(feedback.createdDate), feedback.product.id, 
-        feedback.product.name, feedback.product.url, feedback.rating, 
-        feedback.text
-      ];
-
-    if (!CONFIG.RESPOND_TO_RATINGS.includes(feedback.rating)) {
-      rowData.push('', CONFIG.STATUS.SKIPPED_RATING, `Рейтинг ${feedback.rating} не входит в список для ответа.`, '');
-      
-      // 💾 СРАЗУ СОХРАНЯЕМ В ТАБЛИЦУ
-      sheet.appendRow(rowData);
-      processedCount++;
-      
-      log(`${progressInfo} [${store.name}] Пропущен отзыв ID: ${feedback.id} (рейтинг ${feedback.rating}). Ссылка: ${feedback.product.url}`);
-      return;
-    }
-      
-    const template = selectRandomTemplate(templates, feedback.rating);
-    if (!template) {
-      rowData.push('', CONFIG.STATUS.NO_TEMPLATE, `Не найден подходящий шаблон для рейтинга ${feedback.rating}.`, '');
-      
-      // 💾 СРАЗУ СОХРАНЯЕМ В ТАБЛИЦУ
-      sheet.appendRow(rowData);
-      processedCount++;
-      
-      log(`${progressInfo} [${store.name}] Нет шаблона для отзыва ID: ${feedback.id} (рейтинг ${feedback.rating}). Ссылка: ${feedback.product.url}`);
-      return;
-    }
-
-    if (devMode) {
-      rowData.push(template, CONFIG.STATUS.PENDING, '', '');
-      
-      // 💾 СРАЗУ СОХРАНЯЕМ В ТАБЛИЦУ
-      sheet.appendRow(rowData);
-      processedCount++;
-      
-      log(`${progressInfo} [${store.name}] DEV: Подготовлен ответ для отзыва ID: ${feedback.id}. Ссылка: ${feedback.product.url}`);
-    } else {
-      // Production mode: send answer immediately
-      const result = sendAnswer(store, feedback.id, template);
-      rowData.push(template, result.status, result.error, result.timestamp);
-      
-      // 💾 СРАЗУ СОХРАНЯЕМ В ТАБЛИЦУ ПОСЛЕ ОТПРАВКИ
-      sheet.appendRow(rowData);
-      processedCount++;
-      
-      log(`${progressInfo} [${store.name}] PROD: Отправлен ответ для ID: ${feedback.id}. Статус: ${result.status}. Ссылка: ${feedback.product.url}`);
-      
-      // Задержка только если это не последний отзыв
-      if (index < maxToProcess - 1) {
-        Utilities.sleep(CONFIG.DELAY_BETWEEN_REQUESTS);
-      }
+    // Задержка только в PROD режиме и только для отправленных ответов
+    if (!devMode && result.status === CONFIG.STATUS.SENT) {
+      Utilities.sleep(CONFIG.DELAY_BETWEEN_REQUESTS);
     }
   });
   
-  if (processedCount > 0) {
-    log(`[${store.name}] ✅ Сохранено ${processedCount} отзывов в режиме параллельной записи`);
+  if (rowsToAppend.length > 0) {
+    const startRow = sheet.getLastRow() + 1;
     
-    // Автоматическая сортировка по дате - новые отзывы наверх
-    sortSheetByDate(sheet);
-    log(`[${store.name}] Таблица отсортирована по дате (новые отзывы наверху).`);
+    // 🚀 УЛУЧШЕНИЕ: Заполняем порядковые номера перед добавлением
+    rowsToAppend.forEach((row, index) => {
+      row[0] = startRow + index - 1; // № = номер строки - 1 (исключаем заголовок)
+    });
+    
+    sheet.getRange(startRow, 1, rowsToAppend.length, CONFIG.HEADERS.length).setValues(rowsToAppend);
+    
+    // 🚀 УЛУЧШЕНИЕ: Применяем пользовательские настройки сортировки
+    applySortingPreferences(sheet, store);
+    
+    // 📊 ПЕРЕСЧЕТ ПОРЯДКОВЫХ НОМЕРОВ после сортировки
+    updateRowNumbers(sheet);
+    log(`[${store.name}] Обновлены порядковые номера отзывов.`);
   }
 }
 
 /**
- * Sends all pending answers from all store sheets.
+ * 🚀 УЛУЧШЕННАЯ ФУНКЦИЯ: Пачкная отправка всех подготовленных ответов
  */
 function sendPendingAnswers() {
-  log('--- ЗАПУСК ОТПРАВКИ ПОДГОТОВЛЕННЫХ ОТВЕТОВ ---');
+  log('--- 🚀 ЗАПУСК ПАЧКНОЙ ОТПРАВКИ ПОДГОТОВЛЕННЫХ ОТВЕТОВ ---');
   const allStores = getStores().filter(s => s.isActive);
   
-  allStores.forEach(store => {
-    log(`--- Проверяю магазин: ${store.name} ---`);
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(`Отзывы (${store.name})`);
-    if (!sheet) return;
-
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0];
-    const statusCol = headers.indexOf('Статус') + 1;
-    const answerCol = headers.indexOf('Подобранный ответ') + 1;
-    const idCol = headers.indexOf('ID отзыва') + 1;
-    const errorCol = headers.indexOf('Детали ошибки') + 1;
-    const timeCol = headers.indexOf('Время отправки') + 1;
-    const linkCol = headers.indexOf('Ссылка') + 1;
-
-    if (statusCol === 0) {
-        log(`[${store.name}] Ошибка: не найден столбец "Статус".`);
-        return;
+  let totalSent = 0;
+  let totalSuccess = 0;
+  const maxExecutionTime = 4 * 60 * 1000; // 4 минуты лимит (оставляем запас)
+  const startTime = Date.now();
+  
+  for (const store of allStores) {
+    // Проверяем оставшееся время
+    const elapsedTime = Date.now() - startTime;
+    const remainingTime = maxExecutionTime - elapsedTime;
+    
+    if (remainingTime < 30000) { // Менее 30 секунд
+      log(`⏱️ ОСТАНОВКА отправки: осталось ${Math.round(remainingTime/1000)} сек`);
+      break;
     }
-
-    let sentCount = 0;
-    let successCount = 0;
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][statusCol - 1] === CONFIG.STATUS.PENDING) {
-        const feedbackId = data[i][idCol - 1];
-        const answerText = data[i][answerCol - 1];
-        const reviewLink = data[i][linkCol - 1] || '';
-        
-        const result = sendAnswer(store, feedbackId, answerText);
-        
-        sheet.getRange(i + 1, statusCol).setValue(result.status);
-        sheet.getRange(i + 1, errorCol).setValue(result.error);
-        sheet.getRange(i + 1, timeCol).setValue(result.timestamp);
-        
-        // Детальное логирование с ответом API
-        let logMessage = `[${store.name}] Отправлен ответ для ID ${feedbackId}. Статус: ${result.status}${reviewLink ? '. Ссылка: ' + reviewLink : ''}`;
-        if (result.apiResponse) {
-          logMessage += `. Ответ API: ${result.apiResponse}`;
-        }
-        log(logMessage);
-        
-        sentCount++;
-        if (result.status === CONFIG.STATUS.SENT) {
-          successCount++;
-        }
-        Utilities.sleep(CONFIG.DELAY_BETWEEN_REQUESTS);
-      }
+    
+    log(`--- 📤 Обрабатываю магазин: ${store.name} ---`);
+    const storeResult = sendPendingAnswersForStore(store);
+    
+    totalSent += storeResult.sentCount;
+    totalSuccess += storeResult.successCount;
+    
+    log(`--- ✅ Завершено для ${store.name}: отправлено ${storeResult.successCount}/${storeResult.sentCount} ---`);
+    
+    // Пауза между магазинами для снижения нагрузки
+    if (storeResult.sentCount > 0) {
+      Utilities.sleep(2000);
     }
+  }
+  
+  const totalDuration = Date.now() - startTime;
+  log(`--- 🎯 ПАЧКНАЯ ОТПРАВКА ЗАВЕРШЕНА: ${totalSuccess}/${totalSent} за ${Math.round(totalDuration/1000)} сек ---`);
+}
 
-    if (sentCount > 0) {
-        log(`[${store.name}] Попыток отправки: ${sentCount}. Успешно: ${successCount}. Ошибок: ${sentCount - successCount}.`);
+/**
+ * 🚀 НОВАЯ ФУНКЦИЯ: Пачкная отправка ответов для одного магазина
+ * @param {Object} store - Конфигурация магазина
+ * @returns {Object} Результат отправки {sentCount, successCount}
+ */
+function sendPendingAnswersForStore(store) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(`Отзывы (${store.name})`);
+  if (!sheet) {
+    log(`[${store.name}] ⚠️ Лист не найден`);
+    return { sentCount: 0, successCount: 0 };
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const statusCol = headers.indexOf('Статус') + 1;
+  const answerCol = headers.indexOf('Подобранный ответ') + 1;
+  const idCol = headers.indexOf('ID отзыва') + 1;
+  const errorCol = headers.indexOf('Детали ошибки') + 1;
+  const timeCol = headers.indexOf('Время отправки') + 1;
+  const dateCol = headers.indexOf('Дата отзыва') + 1;
+
+  if (statusCol === 0) {
+    log(`[${store.name}] ❌ Ошибка: не найден столбец "Статус".`);
+    return { sentCount: 0, successCount: 0 };
+  }
+
+  // 📊 СОБИРАЕМ ПАЧКУ ОТВЕТОВ ДЛЯ ОТПРАВКИ
+  const pendingAnswers = [];
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][statusCol - 1] === CONFIG.STATUS.PENDING) {
+      pendingAnswers.push({
+        rowIndex: i + 1,
+        feedbackId: data[i][idCol - 1],
+        answerText: data[i][answerCol - 1],
+        reviewDate: data[i][dateCol - 1] || new Date()
+      });
+    }
+  }
+
+  if (pendingAnswers.length === 0) {
+    log(`[${store.name}] 📭 Нет ответов, ожидающих отправки.`);
+    return { sentCount: 0, successCount: 0 };
+  }
+
+  log(`[${store.name}] 🚀 ПАЧКА ОТПРАВКИ: найдено ${pendingAnswers.length} ответов для отправки...`);
+
+  // 📤 ПАЧКНАЯ ОТПРАВКА С СТАТИСТИКОЙ
+  const results = [];
+  let successCount = 0;
+  let errorCount = 0;
+  const errors = [];
+
+  pendingAnswers.forEach((answer, index) => {
+    log(`[${store.name}] 📤 Отправляю ${index + 1}/${pendingAnswers.length}: ID ${answer.feedbackId}`);
+    
+    const result = sendAnswer(store, answer.feedbackId, answer.answerText);
+    
+    // Обновляем данные в листе
+    sheet.getRange(answer.rowIndex, statusCol).setValue(result.status);
+    sheet.getRange(answer.rowIndex, errorCol).setValue(result.error);
+    sheet.getRange(answer.rowIndex, timeCol).setValue(result.timestamp);
+    
+    // Собираем статистику
+    if (result.status === CONFIG.STATUS.SENT) {
+      successCount++;
+      log(`[${store.name}] ✅ Успешно отправлен ответ для ID ${answer.feedbackId}. Дата отзыва: ${new Date(answer.reviewDate).toLocaleDateString('ru-RU')}`);
     } else {
-        log(`[${store.name}] Нет ответов, ожидающих отправки.`);
+      errorCount++;
+      errors.push({
+        id: answer.feedbackId,
+        error: result.error || 'Неизвестная ошибка'
+      });
+      log(`[${store.name}] ❌ Ошибка отправки для ID ${answer.feedbackId}: ${result.error || 'неизвестная ошибка'}`);
+    }
+    
+    results.push(result);
+    
+    // Задержка между запросами
+    if (index < pendingAnswers.length - 1) {
+      Utilities.sleep(CONFIG.DELAY_BETWEEN_REQUESTS);
     }
   });
-  log('--- ОТПРАВКА ПОДГОТОВЛЕННЫХ ОТВЕТОВ ЗАВЕРШЕНА ---');
+
+  // 📊 ИТОГОВАЯ СТАТИСТИКА ДЛЯ МАГАЗИНА
+  const sentCount = pendingAnswers.length;
+  log(`[${store.name}] 📊 ИТОГИ ПАЧКНОЙ ОТПРАВКИ: успешно ${successCount}/${sentCount}, ошибок ${errorCount}`);
+  
+  if (errorCount > 0 && errors.length <= 3) {
+    log(`[${store.name}] 🔍 Примеры ошибок: ${errors.slice(0, 3).map(e => `${e.id}(${e.error})`).join(', ')}`);
+  } else if (errorCount > 3) {
+    log(`[${store.name}] 🔍 Слишком много ошибок (${errorCount}) для детального логирования. Проверьте таблицу.`);
+  }
+  
+  return { sentCount, successCount };
 }
 
 // ============ API-SPECIFIC FUNCTIONS ============
@@ -1520,14 +1855,103 @@ function sendAnswer(store, feedbackId, text) {
   }
 }
 
-// ============ WILDBERRIES API ============
+// ======================================================================
+// ======================== WILDBERRIES API ============================
+// ======================================================================
+// ВАЖНО: Этот раздел содержит всю логику работы с API Wildberries.
+// Изменения в других разделах не должны затрагивать эти функции.
+// ======================================================================
 
 /**
- * Главная функция получения отзывов WB с полной пагинацией
+ * ГЛАВНАЯ ФУНКЦИЯ WB: Получение отзывов с ПОЛНОЙ пагинацией
+ * Теперь использует новые функции с пагинацией "до победного"!
+ * @param {string} apiKey - WB API ключ
+ * @param {boolean} includeAnswered - Включать ли отвеченные отзывы
+ * @param {Object} store - Настройки магазина для фильтрации по дате
+ * @returns {Array} Массив всех подходящих отзывов
  */
 function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
-    log(`[WB] 🔄 Получение отзывов (включая отвеченные: ${includeAnswered})`);
-    return getWbFeedbacksWithFullPagination(apiKey, includeAnswered, store);
+    log(`[WB] 🚀 ПРОСТОЕ получение отзывов WB (includeAnswered=${includeAnswered})`);
+    
+    try {
+        // Простой запрос WB API - без сложной пагинации
+        const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks?isAnswered=${includeAnswered}&take=1000&order=dateDesc`;
+        
+        log(`[WB] 📤 Запрос: ${url}`);
+        
+        const response = UrlFetchApp.fetch(url, { 
+            method: 'GET', 
+            headers: { 'Authorization': apiKey }, 
+            muteHttpExceptions: true 
+        });
+        
+        const responseCode = response.getResponseCode();
+        const responseBody = response.getContentText();
+        
+        log(`[WB] 📥 Ответ: код ${responseCode}, размер ${responseBody.length} символов`);
+        
+        if (responseCode !== 200) {
+            log(`[WB] ❌ ОШИБКА: Код ${responseCode}. Тело: ${responseBody.substring(0, 500)}`);
+            return [];
+        }
+        
+        const json = JSON.parse(responseBody);
+        if (json.error) {
+            log(`[WB] ❌ API ОШИБКА: ${json.errorText}`);
+            return [];
+        }
+        
+        const feedbacks = json.data?.feedbacks || [];
+        log(`[WB] 📄 Получено отзывов: ${feedbacks.length}`);
+        
+        // Обрабатываем отзывы (убираем пустые)
+        const processedFeedbacks = [];
+        let emptyCount = 0;
+        
+        feedbacks.forEach(fb => {
+            // Проверяем наличие текста
+            const hasText = fb.text && fb.text.trim() && fb.text.trim() !== '(без текста)';
+            
+            if (!hasText) {
+                emptyCount++;
+                return;
+            }
+            
+            // Добавляем отзыв
+            const actualRating = fb.rating || fb.productValuation || 0;
+            
+            processedFeedbacks.push({
+                id: fb.id,
+                createdDate: fb.createdDate,
+                rating: actualRating,
+                text: fb.text,
+                user: 'N/A',
+                hasAnswer: !!(fb.answer && fb.answer.text),
+                product: {
+                    id: fb.productDetails?.nmId,
+                    name: fb.productDetails?.productName || 'Не указано',
+                    url: `https://www.wildberries.ru/catalog/${fb.productDetails?.nmId}/detail.aspx`
+                }
+            });
+        });
+        
+        log(`[WB] ✅ Обработано ${processedFeedbacks.length} подходящих отзывов, пропущено ${emptyCount} пустых`);
+        
+        // Фильтрация по дате если есть
+        if (store && store.settings && store.settings.startDate) {
+            const startDate = new Date(store.settings.startDate);
+            const filtered = processedFeedbacks.filter(fb => new Date(fb.createdDate) >= startDate);
+            log(`[WB] 🗓️ Фильтр по дате ${store.settings.startDate}: осталось ${filtered.length} из ${processedFeedbacks.length}`);
+            return filtered;
+        }
+        
+        return processedFeedbacks;
+        
+    } catch (e) {
+        log(`[WB] ⛔ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
+        log(`[WB] Stack: ${e.stack}`);
+        return [];
+    }
 }
 
 function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
@@ -1535,19 +1959,42 @@ function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
     log(`[WB API] 📝 Текст ответа: "${text}" (длина: ${text.length} символов)`);
     log(`[WB API] 🔑 API ключ: ${apiKey.substring(0, 15)}... (длина: ${apiKey.length})`);
     
-    // 🚀 ИСПОЛЬЗУЕМ ТОЛЬКО РАБОЧИЙ METHOD 2 (ID в теле запроса) 
-    // Method 1 (ID в URL) всегда возвращает 404, удален из кода
-    const result = attemptWbFeedbackAnswerMethod2(feedbackId, text, apiKey);
-    if (result[0]) {
-        log(`[WB API] ✅ УСПЕХ! Ответ отправлен (Method 2)`);
-        return result;
+    // 🔥 НОВАЯ СТРАТЕГИЯ: Пробуем ОБА endpoint'а последовательно
+    // Вариант 1: ID в URL (текущий подход)
+    const result1 = attemptWbFeedbackAnswerMethod1(feedbackId, text, apiKey);
+    if (result1[0]) {
+        log(`[WB API] ✅ УСПЕХ с Method 1 (ID в URL)!`);
+        return result1;
     }
     
-    log(`[WB API] ❌ Не удалось отправить ответ. Возможно, проблемы с API или ID отзыва.`);
-    return result;
+    log(`[WB API] ⚠️ Method 1 не сработал, пробуем Method 2...`);
+    
+    // Вариант 2: ID в теле запроса (альтернативный подход)
+    const result2 = attemptWbFeedbackAnswerMethod2(feedbackId, text, apiKey);
+    if (result2[0]) {
+        log(`[WB API] ✅ УСПЕХ с Method 2 (ID в теле)!`);
+        return result2;
+    }
+    
+    log(`[WB API] ❌ ОБА метода не сработали. Возвращаем результат последней попытки.`);
+    return result2;
 }
 
-// Method 1 (ID в URL) УДАЛЕН - всегда возвращал 404 ошибку
+/**
+ * Method 1: ID в URL - текущий подход из документации
+ * Endpoint: POST /api/v1/feedbacks/{feedbackId}/answer
+ */
+function attemptWbFeedbackAnswerMethod1(feedbackId, text, apiKey) {
+    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/${feedbackId}/answer`;
+    const payload = { 
+        text: text  // Только текст в payload, ID в URL
+    };
+    
+    log(`[WB API Method 1] 🚀 URL: ${url}`);
+    log(`[WB API Method 1] 📝 Payload: ${JSON.stringify(payload)}`);
+    
+    return sendWbApiRequest(url, payload, apiKey, "Method 1 (ID в URL)");
+}
 
 /**
  * Method 2: ID в теле запроса - альтернативный подход
@@ -1634,7 +2081,12 @@ function sendWbApiRequest(url, payload, apiKey, methodName) {
     }
 }
 
-// ============ OZON API ============
+// ======================================================================
+// ============================ OZON API ===============================
+// ======================================================================
+// ВАЖНО: Этот раздел содержит всю логику работы с API Ozon.
+// Изменения в других разделах не должны затрагивать эти функции.
+// ======================================================================
 
 /**
  * Fetches reviews from Ozon API
@@ -1644,133 +2096,274 @@ function sendWbApiRequest(url, payload, apiKey, methodName) {
  * @returns {Array} Array of normalized feedback objects
  */
 function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = null) {
+    log(`[Ozon] 🚀 ЗАПУСК полной пагинации для получения ВСЕХ отзывов (включая отвеченные: ${includeAnswered})`);
+    
+    try {
+        // 🚀 НОВОЕ: Используем стратегию выбора как в WB
+        return getOzonFeedbacksByType(clientId, apiKey, includeAnswered, store);
+    } catch (e) {
+        log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.stack}`);
+        return [];
+    }
+}
+
+/**
+ * 🚀 НОВАЯ ФУНКЦИЯ: Выбор стратегии пагинации для Ozon (аналогично WB)
+ * @param {string} clientId - Client ID для Ozon API
+ * @param {string} apiKey - API Key для Ozon API  
+ * @param {boolean} includeAnswered - Включать отвеченные отзывы
+ * @param {Object} store - Конфигурация магазина
+ */
+function getOzonFeedbacksByType(clientId, apiKey, includeAnswered, store) {
+  log(`[Ozon] 🎯 Определяю стратегию пагинации...`);
+  
+  // Определяем стратегию на основе настроек магазина
+  const hasDateFilter = store?.settings?.startDate;
+  
+  if (hasDateFilter) {
+    log(`[Ozon] ⚡ Выбрана АДАПТИВНАЯ пагинация (есть дата фильтра: ${store.settings.startDate})`);
+    return getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswered, store);
+  } else {
+    log(`[Ozon] 📊 Выбрана СТАНДАРТНАЯ пагинация (нет даты фильтра)`);
+    return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
+  }
+}
+
+/**
+ * НОВАЯ РЕАЛИЗАЦИЯ: Ozon API с правильной пагинацией через last_id
+ * Решает проблему лимита в 100 отзывов за запрос
+ * @param {string} clientId - Ozon Client ID
+ * @param {string} apiKey - Ozon API Key  
+ * @param {boolean} includeAnswered - Включать ли отвеченные отзывы
+ * @param {Object} store - Настройки магазина
+ * @returns {Array} Все подходящие отзывы
+ */
+function getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered, store) {
     const url = 'https://api-seller.ozon.ru/v1/review/list';
     
-    let payload = {
+    let allReviews = [];
+    let lastId = "";
+    let hasNext = true;
+    let pageNumber = 1;
+    const limit = OZON_CONFIG.API_LIMITS.MAX_LIMIT; // 100 - максимум
+    const maxPages = 15; // ⚡ УМЕНЬШЕНО для предотвращения таймаута (1,500 отзывов за раз)
+    const startTime = Date.now(); // Отслеживание времени выполнения  
+    const maxExecutionTime = 5 * 60 * 1000; // 5 минут максимум (оставляем запас)
+    
+    // Базовая структура запроса
+    let basePayload = {
         filter: {
             has_text: true,  // Только отзывы с текстом
-            has_answer: includeAnswered ? undefined : false,  // Фильтр по ответам
-            status: includeAnswered ? ['MODERATED', 'NEW'] : ['MODERATED']  // Статусы отзывов
         },
         sort: {
-            field: 'CREATED_AT',
-            direction: 'DESC'  // Новые первыми
+            type: 'CREATED_AT',  // ✅ ИСПРАВЛЕНО: type вместо field
+            order: 'DESC'        // ✅ ИСПРАВЛЕНО: order вместо direction  
         },
-        page: 1,
-        limit: OZON_CONFIG.API_LIMITS.MAX_LIMIT  // 100 - максимум
+        limit: limit
     };
+    
+    // ✅ ПРАВИЛЬНАЯ настройка фильтра по статусу ответов
+    if (includeAnswered) {
+        // Получаем ВСЕ отзывы (отвеченные + неотвеченные)
+        basePayload.filter.status = ['PENDING', 'PROCESSED', 'MODERATED', 'NEW'];
+        log(`[Ozon] 🔄 Режим: ВСЕ отзывы (отвеченные + неотвеченные)`);
+    } else {
+        // Получаем только неотвеченные отзывы
+        basePayload.filter.has_answer = false;
+        basePayload.filter.status = ['PENDING', 'MODERATED', 'NEW'];
+        log(`[Ozon] 🎯 Режим: только НЕОТВЕЧЕННЫЕ отзывы`);
+    }
 
-    // Применяем фильтр дат из настроек магазина
+    // ✅ ФИЛЬТР ПО ДАТЕ из настроек магазина
     if (store && store.settings && store.settings.startDate) {
         const startDate = store.settings.startDate;
         const today = new Date().toISOString().split('T')[0];
         
-        const dateFrom = formatDateForOzon(startDate);
-        const dateTo = formatDateForOzon(today);
+        basePayload.filter.date_from = formatDateForOzon(startDate);
+        basePayload.filter.date_to = formatDateForOzon(today);
         
-        payload.filter.date_from = dateFrom;
-        payload.filter.date_to = dateTo;
-        
-        log(`[Ozon] 🗓️ Применен фильтр дат магазина: ${startDate} - ${today} (RFC3339: ${dateFrom} - ${dateTo})`);
+        log(`[Ozon] 🗓️ Фильтр дат: ${startDate} - ${today}`);
     } else {
-        log(`[Ozon] 🗓️ Фильтр по дате не применен - получаем все доступные отзывы`);
+        log(`[Ozon] 🗓️ Фильтр по дате НЕ применен - получаем все доступные отзывы`);
     }
-    try {
-        const response = UrlFetchApp.fetch(url, {
-            method: 'POST', headers: { 'Client-Id': clientId, 'Api-Key': apiKey },
-            contentType: 'application/json', payload: JSON.stringify(payload),
-            muteHttpExceptions: true
-        });
-        const responseCode = response.getResponseCode();
-        const responseBody = response.getContentText();
-        if (responseCode !== 200) {
-            log(`[Ozon] ОШИБКА: Не удалось получить отзывы. Код: ${responseCode}. Тело: ${responseBody}`);
-            return [];
+    
+    // ✅ ГЛАВНЫЙ ЦИКЛ ПАГИНАЦИИ с last_id и контролем времени выполнения
+    while (hasNext && pageNumber <= maxPages) {
+        // 🚨 КОНТРОЛЬ ВРЕМЕНИ ВЫПОЛНЕНИЯ для предотвращения таймаута
+        const elapsedTime = Date.now() - startTime;
+        if (elapsedTime > maxExecutionTime) {
+            log(`[Ozon] ⏱️ ОСТАНОВКА по времени: выполняется ${Math.round(elapsedTime/1000)} сек (лимит ${Math.round(maxExecutionTime/1000)} сек)`);
+            log(`[Ozon] 📊 Успели обработать ${pageNumber - 1} страниц, получено ${allReviews.length} отзывов`);
+            break;
         }
-
-        const json = JSON.parse(responseBody);
+        log(`[Ozon] 📄 Запрашиваю страницу ${pageNumber} (last_id: "${lastId}")...`);
         
-        // ✅ УЛУЧШЕНА обработка различных структур ответа API
-        let reviews = [];
-        if (json.result && json.result.reviews) {
-            reviews = json.result.reviews;
-        } else if (json.reviews) {
-            reviews = json.reviews;
-        } else if (json.data && json.data.reviews) {
-            reviews = json.data.reviews;
-        } else {
-            log(`[Ozon] ⚠️ ПРЕДУПРЕЖДЕНИЕ: Неожиданная структура ответа. Ключи: ${Object.keys(json).join(', ')}. Ответ: ${responseBody.substring(0, 200)}...`);
-            return [];
-        }
+        const payload = {
+            ...basePayload,
+            last_id: lastId  // ✅ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: используем last_id вместо page/offset!
+        };
         
-        if (!Array.isArray(reviews)) {
-            log(`[Ozon] ОШИБКА: reviews не является массивом. Тип: ${typeof reviews}. Значение: ${JSON.stringify(reviews).substring(0, 100)}...`);
-            return [];
-        }
-
-        log(`[Ozon] 📄 Получено ${reviews.length} отзывов через новый API`);
-
-        // КРИТИЧНО: Сортировка по дате (новые отзывы первыми) 
-        reviews.sort((a, b) => new Date(b.created_at || b.published_at) - new Date(a.created_at || a.published_at));
-        
-        let processedReviews = reviews.map(fb => ({
-            id: fb.id, 
-            createdDate: fb.published_at, 
-            rating: fb.rating,
-            text: fb.text || '(без текста)', 
-            user: 'Аноним', // Имя пользователя недоступно в этом методе
-            product: { 
-              id: fb.sku || fb.offer_id, // Используем sku или offer_id
-              name: 'Не указано', // Будет обновлено ниже через Product API
-              url: `https://www.ozon.ru/product/${fb.sku || fb.offer_id}`
-            }
-        }));
-        
-        // ✅ ОБОГАЩАЕМ НАЗВАНИЯМИ ТОВАРОВ через /v3/product/info/list (новая функция с кешированием)
-        if (processedReviews.length > 0 && store && store.credentials) {
-            // Подготавливаем идентификаторы товаров для батч-запроса
-            const identifiers = [];
-            processedReviews.forEach(review => {
-                const productId = review.product.id;
-                if (!productId) return;
-                
-                // Определяем тип идентификатора (sku - числовой, offer_id - строковый)
-                if (/^\d+$/.test(String(productId))) {
-                    identifiers.push({ type: 'sku', value: String(productId) });
-                } else {
-                    identifiers.push({ type: 'offer_id', value: String(productId) });
-                }
+        try {
+            const response = UrlFetchApp.fetch(url, {
+                method: 'POST',
+                headers: { 
+                    'Client-Id': clientId, 
+                    'Api-Key': apiKey,
+                    'Content-Type': 'application/json'
+                },
+                payload: JSON.stringify(payload),
+                muteHttpExceptions: true
             });
             
-            log(`[Ozon] 🏷️ Подготовлено ${identifiers.length} идентификаторов товаров для обогащения данными`);
+            const responseCode = response.getResponseCode();
+            const responseBody = response.getContentText();
             
-            // Получаем детальную информацию о товарах с кешированием
-            const productInfo = getOzonProductInfoList(identifiers, store.credentials.clientId, store.credentials.apiKey);
+            log(`[Ozon] 🌐 API ответ страница ${pageNumber}: код ${responseCode}, размер ${responseBody.length} символов`);
             
-            if (Object.keys(productInfo).length > 0) {
-                let enrichedCount = 0;
-                processedReviews.forEach(review => {
-                    const info = productInfo[review.product.id];
-                    if (info && info.name) {
-                        review.product.name = info.name;
-                        // Опционально: можем также обогатить ценой и изображениями
-                        if (info.price) {
-                            review.product.price = info.price;
-                        }
-                        enrichedCount++;
-                    }
-                });
-                log(`[Ozon] 🏷️ Обогащено ${enrichedCount} отзывов из ${Object.keys(productInfo).length} полученных товаров`);
-            } else {
-                log(`[Ozon] ⚠️ Не удалось получить информацию о товарах через Product API`);
+            if (responseCode !== 200) {
+                log(`[Ozon] ❌ ОШИБКА на странице ${pageNumber}: Код ${responseCode}. Тело: ${responseBody.substring(0, 500)}`);
+                
+                // Специальная обработка типичных ошибок Ozon
+                if (responseCode === 401) log(`[Ozon] 🔎 401 Unauthorized - проверьте Client-Id и Api-Key`);
+                if (responseCode === 403) log(`[Ozon] 🔎 403 Forbidden - API ключ не имеет прав на чтение отзывов`);
+                if (responseCode === 429) log(`[Ozon] 🔎 429 Too Many Requests - превышен лимит 50 RPS`);
+                if (responseCode >= 500) log(`[Ozon] 🔎 ${responseCode} Server Error - временные проблемы на стороне Ozon`);
+                
+                break;
             }
+            
+            const json = JSON.parse(responseBody);
+            
+            // 🚨 ЭКСТРЕННАЯ ОТЛАДКА: Показываем структуру ответа
+            if (isDevMode() || pageNumber <= 2) {
+                log(`[Ozon DEBUG] Страница ${pageNumber} - структура JSON: ${JSON.stringify(Object.keys(json), null, 2)}`);
+                if (json.result) {
+                    log(`[Ozon DEBUG] json.result содержит: ${JSON.stringify(Object.keys(json.result), null, 2)}`);
+                }
+            }
+            
+            // ✅ ИСПРАВЛЕНА обработка структуры ответа - данные в корне JSON!
+            let reviews = [];
+            let resultData = null;
+            
+            // ГЛАВНОЕ ИСПРАВЛЕНИЕ: Ozon API возвращает данные в корне, не в json.result!
+            if (json.reviews && Array.isArray(json.reviews)) {
+                // Структура: { "reviews": [...], "last_id": "...", "has_next": true }
+                reviews = json.reviews;
+                resultData = json; // Вся структура пагинации в корне!
+                log(`[Ozon] ✅ Найдена корневая структура: reviews=${reviews.length}, has_next=${json.has_next}, last_id="${json.last_id}"`);
+            } else if (json.result && json.result.reviews) {
+                // Альтернативная структура: { "result": { "reviews": [...], "has_next": true } }
+                resultData = json.result;
+                reviews = json.result.reviews || [];
+                log(`[Ozon] ✅ Найдена result структура: reviews=${reviews.length}`);
+            } else if (json.data && json.data.reviews) {
+                // Еще одна возможная структура: { "data": { "reviews": [...] } }
+                resultData = json.data;
+                reviews = json.data.reviews;
+                log(`[Ozon] ✅ Найдена data структура: reviews=${reviews.length}`);
+            } else {
+                log(`[Ozon] ❌ Неожиданная структура ответа на странице ${pageNumber}. Ключи: ${Object.keys(json).join(', ')}`);
+                // 🚨 ЭКСТРЕННАЯ МЕРА: Показываем полный ответ если структура неожиданная
+                if (pageNumber <= 3) {
+                    log(`[Ozon EMERGENCY] Первые 1000 символов ответа: ${responseBody.substring(0, 1000)}`);
+                }
+                break;
+            }
+            
+            if (!Array.isArray(reviews)) {
+                log(`[Ozon] ❌ reviews не является массивом на странице ${pageNumber}. Тип: ${typeof reviews}`);
+                break;
+            }
+            
+            log(`[Ozon] 📄 Страница ${pageNumber}: получено ${reviews.length} отзывов`);
+            
+            // ✅ ОБРАБАТЫВАЕМ ОТЗЫВЫ И ДОБАВЛЯЕМ К ОБЩЕМУ СПИСКУ
+            const processedReviews = reviews.map(fb => ({
+                id: fb.id, 
+                createdDate: fb.published_at || fb.created_at, 
+                rating: fb.rating,
+                text: fb.text || '(без текста)', 
+                user: 'Аноним',
+                hasAnswer: !!(fb.answer && fb.answer.text) || !!(fb.comment && fb.comment.text) || fb.has_answer === true, // ✅ НОВОЕ: проверка наличия ответа
+                product: { 
+                    id: fb.sku || fb.offer_id,
+                    name: 'Не указано', // Будет обновлено через Product API
+                    url: `https://www.ozon.ru/product/${fb.sku || fb.offer_id}`
+                }
+            }));
+            
+            allReviews = allReviews.concat(processedReviews);
+            
+            // ✅ КРИТИЧНО: Проверяем наличие следующей страницы
+            if (resultData) {
+                hasNext = resultData.has_next || false;
+                lastId = resultData.last_id || "";
+                
+                if (isDevMode()) {
+                    log(`[Ozon DEBUG] has_next: ${hasNext}, last_id: "${lastId}"`);
+                }
+            } else {
+                // 🚨 АВАРИЙНАЯ МЕРА: Если lastId пустой 3 раза подряд - СТОП
+                if (!lastId && pageNumber > 3) {
+                    log(`[Ozon] 🛑 АВАРИЙНАЯ ОСТАНОВКА: last_id пустой ${pageNumber - 1} страниц подряд - возможна ошибка в API или парсинге`);
+                    hasNext = false;
+                } else {
+                    // Если структура не содержит информацию о пагинации, 
+                    // проверяем по количеству записей
+                    hasNext = (reviews.length === limit);
+                    log(`[Ozon] ⚠️ Нет информации о пагинации. Предполагаем has_next = ${hasNext} на основе размера ответа`);
+                }
+            }
+            
+            // Если получили меньше записей чем лимит - это последняя страница
+            if (reviews.length < limit) {
+                log(`[Ozon] ✅ Последняя страница ${pageNumber}: получено ${reviews.length} < ${limit}`);
+                hasNext = false;
+            }
+            
+            pageNumber++;
+            
+            // ✅ RATE LIMITING: Соблюдаем лимит 50 RPS (20мс минимум между запросами)
+            Utilities.sleep(25); // 40 RPS для безопасности
+            
+            // Дополнительная пауза каждые 20 запросов
+            if (pageNumber % 20 === 0) {
+                log(`[Ozon] 💤 Пауза после ${pageNumber - 1} страниц для стабильности...`);
+                Utilities.sleep(1000);
+            }
+            
+        } catch (e) {
+            log(`[Ozon] ❌ КРИТИЧЕСКАЯ ОШИБКА на странице ${pageNumber}: ${e.message}`);
+            log(`[Ozon] 🔍 Stack trace: ${e.stack}`);
+            break;
         }
-        
-        return processedReviews;
-    } catch (e) {
-        log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА при запросе отзывов: ${e.stack}`);
-        return [];
     }
+    
+    if (pageNumber > maxPages) {
+        log(`[Ozon] ⚠️ ПРЕДУПРЕЖДЕНИЕ: Достигнут максимум страниц (${maxPages}). Возможно есть еще данные.`);
+    }
+    
+    // ✅ ФИНАЛЬНАЯ СОРТИРОВКА (новые отзывы первыми)
+    allReviews.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
+    
+    // ✅ ОБОГАЩЕНИЕ НАЗВАНИЯМИ ТОВАРОВ
+    if (allReviews.length > 0 && store && store.credentials) {
+        const offerIds = allReviews.map(review => review.product.id).filter(id => id);
+        const productNames = getOzonProductNames(offerIds, store.credentials.clientId, store.credentials.apiKey);
+        
+        if (Object.keys(productNames).length > 0) {
+            allReviews.forEach(review => {
+                if (productNames[review.product.id]) {
+                    review.product.name = productNames[review.product.id];
+                }
+            });
+            log(`[Ozon] 🏷️ Названия товаров обновлены для ${Object.keys(productNames).length} отзывов`);
+        }
+    }
+    
+    log(`[Ozon] 🎯 ИТОГО получено ${allReviews.length} отзывов за ${pageNumber - 1} страниц`);
+    return allReviews;
 }
 
 function sendOzonFeedbackAnswer(feedbackId, text, clientId, apiKey) {
@@ -1817,20 +2410,50 @@ function saveStore(store) {
   // Ensure settings object exists
   if (!store.settings) store.settings = {};
   
+  // 🚀 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Проверяем изменения настроек
+  let shouldResetProgress = false;
   if (storeIndex > -1) {
+    const oldStore = stores[storeIndex];
+    
+    // Проверяем изменение важных настроек, влияющих на пагинацию
+    const oldStartDate = oldStore.settings?.startDate;
+    const newStartDate = store.settings?.startDate;
+    const oldIncludeAnswered = oldStore.settings?.includeAnswered;
+    const newIncludeAnswered = store.settings?.includeAnswered;
+    const oldSortOldestFirst = oldStore.settings?.sortOldestFirst;
+    const newSortOldestFirst = store.settings?.sortOldestFirst;
+    
+    if (oldStartDate !== newStartDate) {
+      log(`[${store.name}] 📅 ИЗМЕНЕНА дата начала поиска: "${oldStartDate}" → "${newStartDate}"`);
+      shouldResetProgress = true;
+    }
+    
+    if (oldIncludeAnswered !== newIncludeAnswered) {
+      log(`[${store.name}] 🔄 ИЗМЕНЕНА настройка включения отвеченных: ${oldIncludeAnswered} → ${newIncludeAnswered}`);
+      shouldResetProgress = true;
+    }
+    
+    if (oldSortOldestFirst !== newSortOldestFirst) {
+      log(`[${store.name}] 📊 ИЗМЕНЕНА настройка сортировки: sortOldestFirst ${oldSortOldestFirst} → ${newSortOldestFirst}`);
+      // Сортировка не влияет на пагинацию, но обнуляем для чистоты
+      shouldResetProgress = true;
+    }
+    
     stores[storeIndex] = store; 
   } else {
     store.id = store.id || new Date().getTime().toString(); 
-    stores.push(store); 
+    stores.push(store);
+    shouldResetProgress = false; // Новый магазин - нет старого прогресса для сброса
   }
+  
+  // 🚀 СБРАСЫВАЕМ ПРОГРЕСС при изменении критических настроек
+  if (shouldResetProgress) {
+    resetStoreProgress(store.id);
+    log(`[${store.name}] 🔄 СБРОШЕН прогресс обработки из-за изменения настроек`);
+  }
+  
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
   createOrGetSheet(`Отзывы (${store.name})`, CONFIG.HEADERS);
-  
-  // 🎯 АВТОМАТИЧЕСКОЕ УПРАВЛЕНИЕ ТРИГГЕРОМ при сохранении магазина
-  const triggerInterval = getTriggerInterval();
-  ensureStoreTrigger(store, triggerInterval);
-  log(`[saveStore] Триггер для магазина "${store.name}" синхронизирован (активен: ${store.isActive})`);
-  
   return getStores();
 }
 
@@ -1839,11 +2462,6 @@ function deleteStore(storeId) {
   let stores = getStores();
   stores = stores.filter(s => s.id !== storeId);
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
-  
-  // 🎯 АВТОМАТИЧЕСКОЕ УДАЛЕНИЕ ТРИГГЕРА при удалении магазина
-  deleteStoreTrigger(storeId);
-  log(`[deleteStore] Триггер для магазина ID ${storeId} удален`);
-  
   return getStores();
 }
 
@@ -1906,6 +2524,10 @@ function selectRandomTemplate(templates, rating) {
 function getProcessedIdsFromSheet(sheet) {
   if (sheet.getLastRow() < 2) return new Set();
   const idCol = CONFIG.HEADERS.indexOf('ID отзыва') + 1;
+  if (idCol === 0) {
+    log('ОШИБКА: Не найдена колонка "ID отзыва" для проверки обработанных отзывов.');
+    return new Set();
+  }
   const ids = sheet.getRange(2, idCol, sheet.getLastRow() - 1, 1).getDisplayValues().flat();
   return new Set(ids.filter(id => id));
 }
@@ -2109,174 +2731,354 @@ function checkWbFeedbackStatus(feedbackId, apiKey) {
   }
 }
 
-// ============ TRIGGERS ============
-
-// ============ АВТОМАТИЧЕСКОЕ УПРАВЛЕНИЕ ТРИГГЕРАМИ МАГАЗИНОВ ============
-
+// ============ OZON TESTING FUNCTIONS ============
 /**
- * 🎯 АВТОМАТИЧЕСКОЕ СОЗДАНИЕ/ОБНОВЛЕНИЕ триггера для магазина
- * Вызывается при сохранении или изменении статуса магазина
- * @param {Object} store - Конфигурация магазина
- * @param {number} intervalMinutes - Интервал запуска в минутах (по умолчанию 5)
+ * Функция для тестирования новой пагинации Ozon API
+ * Показывает, как работает правильный last_id пагинация и сколько отзывов можно получить
  */
-function ensureStoreTrigger(store, intervalMinutes = 5) {
-  if (!store || !store.id) {
-    log('[Trigger] ❌ ОШИБКА: Некорректный объект магазина');
-    return false;
+function testOzonFeedbackPagination() {
+  const ui = SpreadsheetApp.getUi();
+  
+  // Получаем список активных Ozon магазинов
+  const stores = getStores().filter(s => s.isActive && s.marketplace === 'Ozon');
+  if (stores.length === 0) {
+    ui.alert('❌ Ошибка', 'Не найдено активных магазинов Ozon для тестирования.', ui.ButtonSet.OK);
+    return;
   }
   
-  const functionName = `processStore_${store.id}`;
+  // Выбираем магазин (пока берем первый)
+  const store = stores[0];
+  log(`[Ozon TEST] 🧪 Начало тестирования пагинации для магазина: ${store.name}`);
   
-  if (store.isActive) {
-    // Магазин включен - создаем/обновляем триггер
-    log(`[Trigger] 🔄 Синхронизация триггера для магазина "${store.name}" (ID: ${store.id})...`);
+  // Выбираем режим тестирования
+  const testModeResponse = ui.alert('🧪 Тест Ozon API', 
+    'Выберите режим тестирования:\n\n' +
+    'ДА = Получить ВСЕ отзывы (отвеченные + неотвеченные)\n' +
+    'НЕТ = Получить только неотвеченные отзывы\n' +
+    'ОТМЕНА = Выход', 
+    ui.ButtonSet.YES_NO_CANCEL);
+  
+  if (testModeResponse === ui.Button.CANCEL) {
+    log('[Ozon TEST] ❌ Тестирование отменено пользователем.');
+    return;
+  }
+  
+  const includeAnswered = (testModeResponse === ui.Button.YES);
+  log(`[Ozon TEST] 🎯 Режим тестирования: ${includeAnswered ? 'ВСЕ отзывы' : 'только неотвеченные'}`);
+  
+  // Выбираем лимит страниц для тестирования
+  const pageLimitResponse = ui.prompt('🧪 Тест Ozon API', 
+    'Сколько страниц максимум запросить?\n(1 страница = до 100 отзывов)\n\nРекомендуется:\n• Для быстрого теста: 1-3\n• Для полноценной проверки: 5-10\n• Для получения ВСЕХ данных: 100', 
+    ui.ButtonSet.OK_CANCEL);
     
-    // Удаляем существующий триггер этого магазина если есть
-    deleteStoreTrigger(store.id);
+  if (pageLimitResponse.getSelectedButton() !== ui.Button.OK) {
+    log('[Ozon TEST] ❌ Тестирование отменено пользователем.');
+    return;
+  }
+  
+  let maxPages;
+  try {
+    maxPages = parseInt(pageLimitResponse.getResponseText().trim()) || 3;
+    if (maxPages < 1) maxPages = 1;
+    if (maxPages > 100) maxPages = 100;
+  } catch (e) {
+    maxPages = 3;
+  }
+  
+  log(`[Ozon TEST] 📊 Лимит страниц для тестирования: ${maxPages}`);
+  
+  // Включаем режим разработчика на время теста для более подробных логов
+  const wasDevMode = isDevMode();
+  if (!wasDevMode) {
+    log('[Ozon TEST] 🛠️ Временно включаем Dev Mode для детального логирования...');
+    setDevMode('true');
+  }
+  
+  try {
+    log('[Ozon TEST] 🚀 ЗАПУСК ТЕСТИРОВАНИЯ пагинации Ozon...');
+    const startTime = new Date();
     
-    try {
-      // Создаем новый триггер
-      ScriptApp.newTrigger(functionName)
-        .timeBased()
-        .everyMinutes(intervalMinutes)
-        .create();
-      
-      // Сохраняем конфигурацию магазина для триггера
-      const props = PropertiesService.getScriptProperties();
-      props.setProperty(`store_${store.id}`, JSON.stringify(store));
-      
-      log(`[Trigger] ✅ Триггер для "${store.name}" создан (функция: ${functionName}, интервал: ${intervalMinutes} мин)`);
-      return true;
-      
-    } catch (e) {
-      log(`[Trigger] ❌ ОШИБКА создания триггера для "${store.name}": ${e.message}`);
-      return false;
+    // Используем улучшенную функцию с правильной пагинацией
+    // Временно ограничиваем количество страниц для теста
+    const originalMaxPages = 100;
+    // Создаем тестовую версию функции с ограниченным числом страниц
+    const testResult = testOzonFeedbacksWithLimitedPages(
+      store.credentials.clientId, 
+      store.credentials.apiKey, 
+      includeAnswered, 
+      store, 
+      maxPages
+    );
+    
+    const endTime = new Date();
+    const duration = Math.round((endTime - startTime) / 1000);
+    
+    log(`[Ozon TEST] 📊 РЕЗУЛЬТАТ ТЕСТА:`);
+    log(`[Ozon TEST] ✅ Получено отзывов: ${testResult.length}`);
+    log(`[Ozon TEST] ⏱️ Время выполнения: ${duration} секунд`);
+    log(`[Ozon TEST] 📄 Страниц обработано: ${testResult.pagesProcessed || 'неизвестно'}`);
+    log(`[Ozon TEST] 🔄 Использована пагинация: ${testResult.usedPagination ? 'ДА (last_id)' : 'НЕТ'}`);
+    
+    // Показываем детали первых нескольких отзывов
+    if (testResult.length > 0) {
+      log(`[Ozon TEST] 📝 Примеры отзывов (первые 3):`);
+      testResult.slice(0, 3).forEach((review, index) => {
+        log(`[Ozon TEST] ${index + 1}. ID: ${review.id}, Дата: ${review.createdDate}, Рейтинг: ${review.rating}, Текст: "${review.text.substring(0, 50)}..."`);
+      });
     }
     
-  } else {
-    // Магазин выключен - удаляем триггер
-    log(`[Trigger] ⏸️ Магазин "${store.name}" выключен, удаляю триггер...`);
-    return deleteStoreTrigger(store.id);
+    // Показываем результат пользователю
+    const resultMessage = 
+      `✅ УСПЕШНО ПРОТЕСТИРОВАНО!\n\n` +
+      `📊 Получено отзывов: ${testResult.length}\n` +
+      `⏱️ Время: ${duration} сек\n` +
+      `📄 Страниц: ${testResult.pagesProcessed || 'N/A'}\n` +
+      `🔄 Пагинация: ${testResult.usedPagination ? 'last_id (ПРАВИЛЬНО!)' : 'НЕ ИСПОЛЬЗОВАНА'}\n\n` +
+      `${testResult.length > 0 ? 'Первый отзыв:\n' + testResult[0].text.substring(0, 100) + '...' : 'Отзывы не найдены'}\n\n` +
+      `Подробные логи в "🐞 Лог отладки"`;
+      
+    ui.alert('🎉 ТЕСТ OZON ПАГИНАЦИИ ЗАВЕРШЕН', resultMessage, ui.ButtonSet.OK);
+    
+  } catch (e) {
+    log(`[Ozon TEST] ⛔ КРИТИЧЕСКАЯ ОШИБКА в тесте: ${e.message}`);
+    log(`[Ozon TEST] 🔍 Stack trace: ${e.stack}`);
+    ui.alert('⛔ КРИТИЧЕСКАЯ ОШИБКА', 
+      `Произошла критическая ошибка:\n\n${e.message}\n\nПодробности в логе отладки.`, 
+      ui.ButtonSet.OK);
+  } finally {
+    // Восстанавливаем предыдущий режим разработчика
+    if (!wasDevMode) {
+      log('[Ozon TEST] 🛠️ Восстанавливаем предыдущий режим разработчика...');
+      setDevMode('false');
+    }
+    
+    log('[Ozon TEST] 🏁 Тестирование завершено. Подробные логи в листе "🐞 Лог отладки".');
   }
 }
 
 /**
- * Удаление триггера конкретного магазина
- * @param {string} storeId - ID магазина
- * @returns {boolean} true если триггер был удален
+ * Тестовая версия функции получения отзывов с ограниченным числом страниц
+ * Используется только для тестирования, чтобы не нагружать API
  */
-function deleteStoreTrigger(storeId) {
-  const functionName = `processStore_${storeId}`;
-  const triggers = safeGetProjectTriggers();
-  if (!triggers) {
-    log(`[Trigger] ❌ Нет разрешений для удаления триггера магазина ID ${storeId}`);
-    return false;
-  }
-  let deleted = false;
+function testOzonFeedbacksWithLimitedPages(clientId, apiKey, includeAnswered, store, maxPages) {
+  log(`[Ozon TEST] 🎯 Тест пагинации с лимитом ${maxPages} страниц...`);
   
-  triggers.forEach(trigger => {
-    if (trigger.getHandlerFunction() === functionName) {
-      ScriptApp.deleteTrigger(trigger);
-      deleted = true;
-      log(`[Trigger] 🗑️ Триггер магазина ID ${storeId} удален (функция: ${functionName})`);
-    }
-  });
+  const url = 'https://api-seller.ozon.ru/v1/review/list';
   
-  // Удаляем конфигурацию из Properties
-  const props = PropertiesService.getScriptProperties();
-  props.deleteProperty(`store_${storeId}`);
+  let allReviews = [];
+  let lastId = "";
+  let hasNext = true;
+  let pageNumber = 1;
+  const limit = OZON_CONFIG.API_LIMITS.MAX_LIMIT; // 100
   
-  return deleted;
-}
-
-/**
- * 🔄 СИНХРОНИЗАЦИЯ ВСЕХ ТРИГГЕРОВ
- * Проверяет состояние всех магазинов и синхронизирует триггеры
- * - Создает триггеры для активных магазинов без триггеров
- * - Удаляет триггеры для неактивных магазинов
- * - Удаляет триггеры для удаленных магазинов
- */
-function syncAllStoreTriggers(intervalMinutes = 5) {
-  log('[Trigger Sync] 🔄 ЗАПУСК СИНХРОНИЗАЦИИ ВСЕХ ТРИГГЕРОВ...');
+  // Базовая структура запроса (копируем из основной функции)
+  let basePayload = {
+    filter: {
+      has_text: true,
+    },
+    sort: {
+      type: 'CREATED_AT',
+      order: 'DESC'
+    },
+    limit: limit
+  };
   
-  const allStores = getStores();
-  const activeStores = allStores.filter(s => s.isActive);
-  const inactiveStores = allStores.filter(s => !s.isActive);
-  
-  log(`[Trigger Sync] 📊 Всего магазинов: ${allStores.length} (активных: ${activeStores.length}, неактивных: ${inactiveStores.length})`);
-  
-  let created = 0;
-  let deleted = 0;
-  let errors = 0;
-  
-  // 1. Обрабатываем активные магазины - создаем триггеры
-  activeStores.forEach(store => {
-    try {
-      const result = ensureStoreTrigger(store, intervalMinutes);
-      if (result) created++;
-    } catch (e) {
-      log(`[Trigger Sync] ❌ Ошибка синхронизации магазина "${store.name}": ${e.message}`);
-      errors++;
-    }
-  });
-  
-  // 2. Обрабатываем неактивные магазины - удаляем триггеры
-  inactiveStores.forEach(store => {
-    try {
-      if (deleteStoreTrigger(store.id)) deleted++;
-    } catch (e) {
-      log(`[Trigger Sync] ❌ Ошибка удаления триггера для "${store.name}": ${e.message}`);
-      errors++;
-    }
-  });
-  
-  // 3. Удаляем триггеры для несуществующих магазинов (очистка мусора)
-  const existingStoreIds = new Set(allStores.map(s => s.id));
-  const triggers = safeGetProjectTriggers();
-  
-  if (!triggers) {
-    log('[Trigger Sync] ❌ Нет разрешений для очистки старых триггеров');
+  // Настройка фильтра по статусу ответов
+  if (includeAnswered) {
+    basePayload.filter.status = ['PENDING', 'PROCESSED', 'MODERATED', 'NEW'];
   } else {
-    triggers.forEach(trigger => {
-      const funcName = trigger.getHandlerFunction();
-      if (funcName.startsWith('processStore_')) {
-        const storeId = funcName.replace('processStore_', '');
-        if (!existingStoreIds.has(storeId)) {
-          ScriptApp.deleteTrigger(trigger);
-          deleted++;
-          log(`[Trigger Sync] 🗑️ Удален триггер для несуществующего магазина ID: ${storeId}`);
-        }
+    basePayload.filter.has_answer = false;
+    basePayload.filter.status = ['PENDING', 'MODERATED', 'NEW'];
+  }
+
+  // Фильтр по дате из настроек магазина
+  if (store && store.settings && store.settings.startDate) {
+    const startDate = store.settings.startDate;
+    const today = new Date().toISOString().split('T')[0];
+    
+    basePayload.filter.date_from = formatDateForOzon(startDate);
+    basePayload.filter.date_to = formatDateForOzon(today);
+    
+    log(`[Ozon TEST] 🗓️ Применен фильтр дат: ${startDate} - ${today}`);
+  }
+  
+  // Главный цикл пагинации (ограниченный)
+  while (hasNext && pageNumber <= maxPages) {
+    log(`[Ozon TEST] 📄 Тест страницы ${pageNumber}/${maxPages} (last_id: "${lastId}")...`);
+    
+    const payload = {
+      ...basePayload,
+      last_id: lastId
+    };
+    
+    try {
+      const response = UrlFetchApp.fetch(url, {
+        method: 'POST',
+        headers: { 
+          'Client-Id': clientId, 
+          'Api-Key': apiKey,
+          'Content-Type': 'application/json'
+        },
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+      
+      const responseCode = response.getResponseCode();
+      const responseBody = response.getContentText();
+      
+      log(`[Ozon TEST] 🌐 Страница ${pageNumber}: код ${responseCode}, размер ${responseBody.length} символов`);
+      
+      if (responseCode !== 200) {
+        log(`[Ozon TEST] ❌ ОШИБКА на странице ${pageNumber}: Код ${responseCode}`);
+        break;
       }
-    });
+      
+      const json = JSON.parse(responseBody);
+      
+      // Обработка структуры ответа
+      let reviews = [];
+      let resultData = null;
+      
+      if (json.result) {
+        resultData = json.result;
+        reviews = json.result.reviews || [];
+      } else if (json.reviews) {
+        reviews = json.reviews;
+      } else if (json.data && json.data.reviews) {
+        resultData = json.data;
+        reviews = json.data.reviews;
+      }
+      
+      log(`[Ozon TEST] 📄 Страница ${pageNumber}: получено ${reviews.length} отзывов`);
+      
+      // Обрабатываем отзывы
+      const processedReviews = reviews.map(fb => ({
+        id: fb.id, 
+        createdDate: fb.published_at || fb.created_at, 
+        rating: fb.rating,
+        text: fb.text || '(без текста)', 
+        user: 'Аноним',
+        product: { 
+          id: fb.sku || fb.offer_id,
+          name: 'Не указано',
+          url: `https://www.ozon.ru/product/${fb.sku || fb.offer_id}`
+        }
+      }));
+      
+      allReviews = allReviews.concat(processedReviews);
+      
+      // Проверяем пагинацию
+      if (resultData) {
+        hasNext = resultData.has_next || false;
+        lastId = resultData.last_id || "";
+        log(`[Ozon TEST] 📋 has_next: ${hasNext}, last_id: "${lastId}"`);
+      } else {
+        hasNext = (reviews.length === limit);
+        log(`[Ozon TEST] ⚠️ Нет информации о пагинации. Предполагаем has_next = ${hasNext}`);
+      }
+      
+      // Если получили меньше записей чем лимит - последняя страница
+      if (reviews.length < limit) {
+        log(`[Ozon TEST] ✅ Последняя страница ${pageNumber}: ${reviews.length} < ${limit}`);
+        hasNext = false;
+      }
+      
+      pageNumber++;
+      
+      // Rate limiting для теста (быстрее чем в продакшне)
+      Utilities.sleep(50);
+      
+    } catch (e) {
+      log(`[Ozon TEST] ❌ ОШИБКА на странице ${pageNumber}: ${e.message}`);
+      break;
+    }
   }
   
-  log(`[Trigger Sync] ✅ СИНХРОНИЗАЦИЯ ЗАВЕРШЕНА: создано ${created}, удалено ${deleted}, ошибок ${errors}`);
+  // Сортируем результаты
+  allReviews.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
   
-  return { created, deleted, errors };
+  // Добавляем метаинформацию о тестировании
+  allReviews.pagesProcessed = pageNumber - 1;
+  allReviews.usedPagination = (pageNumber > 1);
+  
+  log(`[Ozon TEST] 🎯 Тест завершен: ${allReviews.length} отзывов за ${allReviews.pagesProcessed} страниц`);
+  return allReviews;
+}
+
+// ============ ADVANCED PROCESSING FUNCTIONS ============
+
+/**
+ * Обработка только магазинов Wildberries
+ * Полезно когда нужно сфокусироваться на одной платформе
+ */
+function processWildberriesStores() {
+  const devMode = isDevMode();
+  log(`--- ЗАПУСК ОБРАБОТКИ WILDBERRIES (${devMode ? 'РЕЖИМ РАЗРАБОТЧИКА' : 'БОЕВОЙ РЕЖИМ'}) ---`);
+  const wbStores = getStores().filter(s => s.isActive && s.marketplace === 'Wildberries');
+  
+  if (wbStores.length === 0) {
+    log('Нет активных магазинов Wildberries для обработки.');
+    return;
+  }
+  
+  log(`Найдено ${wbStores.length} активных магазинов WB.`);
+  processStoresWithTimeControl(wbStores, devMode);
 }
 
 /**
- * Получение текущего интервала триггеров из настроек
- * @returns {number} Интервал в минутах (по умолчанию 5)
+ * Обработка только магазинов Ozon
+ * Полезно когда нужно сфокусироваться на одной платформе
  */
-function getTriggerInterval() {
-  const props = PropertiesService.getScriptProperties();
-  const interval = props.getProperty('TRIGGER_INTERVAL_MINUTES');
-  return interval ? parseInt(interval) : 5;
+function processOzonStores() {
+  const devMode = isDevMode();
+  log(`--- ЗАПУСК ОБРАБОТКИ OZON (${devMode ? 'РЕЖИМ РАЗРАБОТЧИКА' : 'БОЕВОЙ РЕЖИМ'}) ---`);
+  const ozonStores = getStores().filter(s => s.isActive && s.marketplace === 'Ozon');
+  
+  if (ozonStores.length === 0) {
+    log('Нет активных магазинов Ozon для обработки.');
+    return;
+  }
+  
+  log(`Найдено ${ozonStores.length} активных магазинов Ozon.`);
+  processStoresWithTimeControl(ozonStores, devMode);
 }
 
 /**
- * Сохранение интервала триггеров в настройки
- * @param {number} minutes - Интервал в минутах
+ * Универсальная функция обработки списка магазинов с контролем времени
+ * @param {Array} stores - Список магазинов для обработки
+ * @param {boolean} devMode - Режим разработчика
  */
-function setTriggerInterval(minutes) {
-  const props = PropertiesService.getScriptProperties();
-  props.setProperty('TRIGGER_INTERVAL_MINUTES', String(minutes));
-  log(`[Trigger] 💾 Интервал триггеров установлен: ${minutes} минут`);
+function processStoresWithTimeControl(stores, devMode) {
+  const maxExecutionTime = 5 * 60 * 1000; // 5 минут лимит
+  const startTime = Date.now();
+  let processedCount = 0;
+  
+  for (const store of stores) {
+    const elapsedTime = Date.now() - startTime;
+    const remainingTime = maxExecutionTime - elapsedTime;
+    
+    if (remainingTime < 30000) {
+      log(`⏱️ ОСТАНОВКА: осталось ${Math.round(remainingTime/1000)} сек`);
+      log(`📊 Успешно обработано: ${processedCount}/${stores.length} магазинов`);
+      break;
+    }
+    
+    log(`--- Обрабатываю: ${store.name} [${store.marketplace}] (${processedCount + 1}/${stores.length}) ---`);
+    log(`⏱️ Времени осталось: ${Math.round(remainingTime/1000)} сек`);
+    
+    const storeStartTime = Date.now();
+    processSingleStore(store, devMode);
+    const storeDuration = Date.now() - storeStartTime;
+    
+    processedCount++;
+    log(`--- Завершено: ${store.name} (${Math.round(storeDuration/1000)} сек) ---`);
+  }
+  
+  const totalDuration = Date.now() - startTime;
+  log(`--- ОБРАБОТКА ЗАВЕРШЕНА: ${processedCount}/${stores.length} магазинов за ${Math.round(totalDuration/1000)} сек ---`);
 }
 
-// ============ СТАРЫЕ ФУНКЦИИ ТРИГГЕРОВ (для обратной совместимости) ============
-
+// ============ TRIGGERS ============
 function createTrigger(minutes) {
   deleteAllTriggers();
   ScriptApp.newTrigger('processAllStores').timeBased().everyMinutes(minutes).create();
@@ -2289,11 +3091,7 @@ function createTrigger30Min() { createTrigger(30); }
 function createTrigger1Hour() { createTrigger(60); }
 
 function deleteAllTriggers() {
-  const triggers = safeGetProjectTriggers();
-  if (!triggers) {
-    log('❌ Нет разрешений для удаления триггеров - требуется авторизация');
-    return;
-  }
+  const triggers = ScriptApp.getProjectTriggers();
   let deletedCount = 0;
   triggers.forEach(trigger => {
     if (trigger.getHandlerFunction() === 'processAllStores') {
@@ -2305,513 +3103,3 @@ function deleteAllTriggers() {
     log(`Удалено ${deletedCount} триггеров автозапуска.`);
   }
 }
-
-// ============ НОЧНОЙ КЕШ-ПРОГРЕВ ============
-
-/**
- * 🌙 НОЧНОЙ КЕШ-ПРОГРЕВ: Предзагрузка информации о всех товарах в кеш
- * Запускается по триггеру раз в день (обычно ночью)
- * Загружает информацию о товарах из каталогов всех активных магазинов
- */
-function warmupProductCache() {
-  log('=== 🌙 ЗАПУСК НОЧНОГО КЕШ-ПРОГРЕВА ===');
-  const startTime = new Date();
-  
-  const allStores = getStores();
-  const activeStores = allStores.filter(store => store.isActive);
-  
-  if (activeStores.length === 0) {
-    log('[Warmup] ⚠️ Нет активных магазинов для прогрева кеша');
-    return;
-  }
-  
-  log(`[Warmup] 🏪 Найдено ${activeStores.length} активных магазинов`);
-  
-  let totalProductsWarmed = 0;
-  let successfulStores = 0;
-  let failedStores = 0;
-  
-  activeStores.forEach((store, index) => {
-    log(`[Warmup] 📦 [${index + 1}/${activeStores.length}] Обработка магазина: ${store.name} [${store.marketplace}]`);
-    
-    try {
-      let warmedCount = 0;
-      
-      if (store.marketplace === 'Wildberries') {
-        warmedCount = warmupWildberriesProducts(store);
-      } else if (store.marketplace === 'Ozon') {
-        warmedCount = warmupOzonProducts(store);
-      }
-      
-      if (warmedCount > 0) {
-        totalProductsWarmed += warmedCount;
-        successfulStores++;
-        log(`[Warmup] ✅ ${store.name}: прогрето ${warmedCount} товаров`);
-      } else {
-        log(`[Warmup] ⚠️ ${store.name}: не удалось прогреть товары`);
-      }
-      
-      // Задержка между магазинами для соблюдения rate limits
-      if (index < activeStores.length - 1) {
-        Utilities.sleep(2000);
-      }
-      
-    } catch (e) {
-      failedStores++;
-      log(`[Warmup] ❌ ОШИБКА для ${store.name}: ${e.message}`);
-    }
-  });
-  
-  const endTime = new Date();
-  const duration = Math.round((endTime - startTime) / 1000);
-  
-  log('=== 🌙 ЗАВЕРШЕНИЕ КЕШ-ПРОГРЕВА ===');
-  log(`[Warmup] 📊 ИТОГО: ${totalProductsWarmed} товаров прогрето`);
-  log(`[Warmup] ✅ Успешно: ${successfulStores} магазинов`);
-  log(`[Warmup] ❌ Ошибки: ${failedStores} магазинов`);
-  log(`[Warmup] ⏱️ Время выполнения: ${duration} секунд`);
-}
-
-/**
- * Прогрев кеша для Wildberries
- * Получает список всех товаров и загружает их названия в кеш
- */
-function warmupWildberriesProducts(store) {
-  if (!store.credentials || !store.credentials.apiKey) {
-    log(`[WB Warmup] ❌ Нет API ключа для магазина ${store.name}`);
-    return 0;
-  }
-  
-  try {
-    log(`[WB Warmup] 🔍 Получение списка товаров...`);
-    
-    // Получаем список всех товаров через Content API
-    const url = 'https://content-api.wildberries.ru/content/v2/get/cards/list';
-    const response = UrlFetchApp.fetch(url, {
-      method: 'POST',
-      headers: { 
-        'Authorization': store.credentials.apiKey,
-        'Content-Type': 'application/json'
-      },
-      payload: JSON.stringify({
-        settings: {
-          cursor: {
-            limit: 100  // Максимум за запрос
-          },
-          filter: {
-            withPhoto: -1  // Все товары
-          }
-        }
-      }),
-      muteHttpExceptions: true
-    });
-    
-    const code = response.getResponseCode();
-    if (code !== 200) {
-      log(`[WB Warmup] ❌ Ошибка получения списка: ${code}`);
-      return 0;
-    }
-    
-    const json = JSON.parse(response.getContentText());
-    const cards = json.cards || [];
-    
-    if (cards.length === 0) {
-      log(`[WB Warmup] ⚠️ Список товаров пуст`);
-      return 0;
-    }
-    
-    log(`[WB Warmup] 📦 Найдено ${cards.length} товаров`);
-    
-    // Извлекаем nmId из карточек и загружаем их в кеш
-    const nmIds = cards.map(card => card.nmID).filter(id => id);
-    
-    if (nmIds.length === 0) {
-      log(`[WB Warmup] ⚠️ Не найдено nmID в карточках`);
-      return 0;
-    }
-    
-    // Используем существующую функцию с кешированием
-    const productNames = getWbProductNames(nmIds, store.credentials.apiKey);
-    const warmedCount = Object.keys(productNames).length;
-    
-    log(`[WB Warmup] 💾 Прогрето в кеш: ${warmedCount} товаров`);
-    return warmedCount;
-    
-  } catch (e) {
-    log(`[WB Warmup] ❌ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
-    return 0;
-  }
-}
-
-/**
- * Прогрев кеша для Ozon
- * Получает список всех товаров и загружает их информацию в кеш
- */
-function warmupOzonProducts(store) {
-  if (!store.credentials || !store.credentials.clientId || !store.credentials.apiKey) {
-    log(`[Ozon Warmup] ❌ Нет API ключей для магазина ${store.name}`);
-    return 0;
-  }
-  
-  try {
-    log(`[Ozon Warmup] 🔍 Получение списка товаров...`);
-    
-    // Получаем список всех товаров через /v3/product/list
-    const url = 'https://api-seller.ozon.ru/v3/product/list';
-    let allProducts = [];
-    let lastId = "";
-    let pageCount = 0;
-    const maxPages = 50; // Ограничение для безопасности (5000 товаров максимум)
-    
-    while (pageCount < maxPages) {
-      const payload = {
-        filter: {},
-        last_id: lastId,
-        limit: 100  // Максимум за запрос
-      };
-      
-      const response = UrlFetchApp.fetch(url, {
-        method: 'POST',
-        headers: { 
-          'Client-Id': store.credentials.clientId, 
-          'Api-Key': store.credentials.apiKey,
-          'Content-Type': 'application/json'
-        },
-        payload: JSON.stringify(payload),
-        muteHttpExceptions: true
-      });
-      
-      const code = response.getResponseCode();
-      if (code !== 200) {
-        log(`[Ozon Warmup] ❌ Ошибка получения списка (страница ${pageCount + 1}): ${code}`);
-        break;
-      }
-      
-      const json = JSON.parse(response.getContentText());
-      const items = json.result?.items || [];
-      
-      if (items.length === 0) {
-        log(`[Ozon Warmup] ✅ Получены все товары (страниц: ${pageCount})`);
-        break;
-      }
-      
-      allProducts = allProducts.concat(items);
-      lastId = json.result?.last_id || "";
-      pageCount++;
-      
-      log(`[Ozon Warmup] 📄 Страница ${pageCount}: получено ${items.length} товаров (всего: ${allProducts.length})`);
-      
-      // Если last_id пустой, значит это последняя страница
-      if (!lastId) {
-        log(`[Ozon Warmup] ✅ Достигнута последняя страница`);
-        break;
-      }
-      
-      // Задержка между запросами
-      Utilities.sleep(OZON_CONFIG.RATE_LIMITS.DELAY_BETWEEN_REQUESTS);
-    }
-    
-    if (allProducts.length === 0) {
-      log(`[Ozon Warmup] ⚠️ Список товаров пуст`);
-      return 0;
-    }
-    
-    log(`[Ozon Warmup] 📦 ИТОГО найдено ${allProducts.length} товаров`);
-    
-    // Подготавливаем идентификаторы для загрузки детальной информации
-    const identifiers = [];
-    allProducts.forEach(product => {
-      // Добавляем sku
-      if (product.sku) {
-        identifiers.push({ type: 'sku', value: String(product.sku) });
-      }
-      // Добавляем offer_id если есть
-      if (product.offer_id) {
-        identifiers.push({ type: 'offer_id', value: String(product.offer_id) });
-      }
-    });
-    
-    if (identifiers.length === 0) {
-      log(`[Ozon Warmup] ⚠️ Не найдено идентификаторов для загрузки`);
-      return 0;
-    }
-    
-    log(`[Ozon Warmup] 🔄 Загрузка детальной информации для ${identifiers.length} идентификаторов...`);
-    
-    // Используем существующую функцию с кешированием и батчингом
-    const productInfo = getOzonProductInfoList(identifiers, store.credentials.clientId, store.credentials.apiKey);
-    const warmedCount = Object.keys(productInfo).length;
-    
-    log(`[Ozon Warmup] 💾 Прогрето в кеш: ${warmedCount} товаров`);
-    return warmedCount;
-    
-  } catch (e) {
-    log(`[Ozon Warmup] ❌ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
-    return 0;
-  }
-}
-
-/**
- * Создание ночного триггера для кеш-прогрева
- * Запускается раз в день в 23:00
- */
-function createWarmupTrigger() {
-  // Удаляем существующие триггеры прогрева
-  const triggers = safeGetProjectTriggers();
-  if (!triggers) {
-    log('[Warmup Trigger] ❌ Нет разрешений для управления триггерами - требуется авторизация');
-    return;
-  }
-  triggers.forEach(trigger => {
-    if (trigger.getHandlerFunction() === 'warmupProductCache') {
-      ScriptApp.deleteTrigger(trigger);
-    }
-  });
-  
-  // Создаем новый триггер на 23:00
-  ScriptApp.newTrigger('warmupProductCache')
-    .timeBased()
-    .atHour(23)  // 23:00
-    .everyDays(1)
-    .create();
-  
-  log('[Warmup Trigger] ✅ Создан триггер ночного кеш-прогрева (ежедневно в 23:00)');
-  SpreadsheetApp.getUi().alert('✅ Успех', 'Триггер ночного кеш-прогрева создан.\n\nБудет запускаться ежедневно в 23:00.', SpreadsheetApp.getUi().ButtonSet.OK);
-}
-
-/**
- * Удаление триггера кеш-прогрева
- */
-function deleteWarmupTrigger() {
-  const triggers = safeGetProjectTriggers();
-  if (!triggers) {
-    log('[Warmup Trigger] ❌ Нет разрешений для управления триггерами - требуется авторизация');
-    SpreadsheetApp.getUi().alert('❌ Ошибка', 'Нет разрешений для управления триггерами. Требуется авторизация.', SpreadsheetApp.getUi().ButtonSet.OK);
-    return;
-  }
-  let deletedCount = 0;
-  
-  triggers.forEach(trigger => {
-    if (trigger.getHandlerFunction() === 'warmupProductCache') {
-      ScriptApp.deleteTrigger(trigger);
-      deletedCount++;
-    }
-  });
-  
-  if (deletedCount > 0) {
-    log(`[Warmup Trigger] 🗑️ Удалено ${deletedCount} триггеров кеш-прогрева`);
-    SpreadsheetApp.getUi().alert('✅ Успех', `Удалено ${deletedCount} триггеров ночного кеш-прогрева.`, SpreadsheetApp.getUi().ButtonSet.OK);
-  } else {
-    SpreadsheetApp.getUi().alert('ℹ️ Информация', 'Триггеры ночного кеш-прогрева не найдены.', SpreadsheetApp.getUi().ButtonSet.OK);
-  }
-}
-
-// ============ ИНДИВИДУАЛЬНЫЕ ТРИГГЕРЫ ДЛЯ МАГАЗИНОВ ============
-
-/**
- * 🎯 ПАРАЛЛЕЛЬНАЯ ОБРАБОТКА: Создание индивидуальных триггеров для каждого магазина
- * Каждый магазин получает свой собственный триггер
- * Google Apps Script может выполнять до 30 триггеров одновременно
- */
-function createPerStoreTriggers() {
-  const ui = SpreadsheetApp.getUi();
-  
-  // Запрашиваем интервал
-  const intervalResponse = ui.prompt('🎯 Индивидуальные триггеры',
-    'Введите интервал запуска в минутах (5, 10, 15, 30):', ui.ButtonSet.OK_CANCEL);
-  
-  if (intervalResponse.getSelectedButton() !== ui.Button.OK) {
-    log('[Per-Store Triggers] Отменено пользователем');
-    return;
-  }
-  
-  const interval = parseInt(intervalResponse.getResponseText());
-  if (isNaN(interval) || interval < 1) {
-    ui.alert('❌ Ошибка', 'Неверный интервал. Введите число больше 0.', ui.ButtonSet.OK);
-    return;
-  }
-  
-  log(`[Per-Store Triggers] 🎯 Создание индивидуальных триггеров с интервалом ${interval} минут...`);
-  
-  const allStores = getStores();
-  const activeStores = allStores.filter(store => store.isActive);
-  
-  if (activeStores.length === 0) {
-    ui.alert('⚠️ Предупреждение', 'Нет активных магазинов для создания триггеров.', ui.ButtonSet.OK);
-    return;
-  }
-  
-  log(`[Per-Store Triggers] 🏪 Найдено ${activeStores.length} активных магазинов`);
-  
-  // Удаляем существующие индивидуальные триггеры
-  deletePerStoreTriggersInternal();
-  
-  let createdCount = 0;
-  
-  activeStores.forEach((store, index) => {
-    try {
-      // Создаем функцию-обертку для каждого магазина
-      const functionName = `processStore_${store.id}`;
-      
-      // Создаем триггер с небольшой задержкой между магазинами для распределения нагрузки
-      const offsetMinutes = index * 2; // Каждый магазин запускается с задержкой 2 минуты
-      
-      ScriptApp.newTrigger(functionName)
-        .timeBased()
-        .everyMinutes(interval)
-        .create();
-      
-      createdCount++;
-      log(`[Per-Store Triggers] ✅ [${index + 1}/${activeStores.length}] Создан триггер для "${store.name}" (функция: ${functionName})`);
-      
-    } catch (e) {
-      log(`[Per-Store Triggers] ❌ Ошибка создания триггера для "${store.name}": ${e.message}`);
-    }
-  });
-  
-  log(`[Per-Store Triggers] 🎯 ИТОГО: создано ${createdCount} триггеров`);
-  
-  // Создаем функции-обертки для каждого магазина
-  savePerStoreFunctions(activeStores);
-  
-  ui.alert('✅ Успех', 
-    `Создано ${createdCount} индивидуальных триггеров.\n\n` +
-    `Интервал: каждые ${interval} минут.\n\n` +
-    `⚠️ ВАЖНО: Перезагрузите редактор скриптов для активации новых функций.`,
-    ui.ButtonSet.OK);
-}
-
-/**
- * Сохраняет информацию о магазинах для индивидуальных триггеров
- */
-function savePerStoreFunctions(stores) {
-  const props = PropertiesService.getScriptProperties();
-  const storeMap = {};
-  
-  stores.forEach(store => {
-    storeMap[`store_${store.id}`] = JSON.stringify(store);
-  });
-  
-  props.setProperties(storeMap);
-  log(`[Per-Store Triggers] 💾 Сохранено ${stores.length} конфигураций магазинов`);
-}
-
-/**
- * Универсальная функция обработки одного магазина по ID
- * Используется индивидуальными триггерами
- */
-function processSingleStoreById(storeId) {
-  const devMode = isDevMode();
-  log(`--- 🎯 ЗАПУСК ОБРАБОТКИ МАГАЗИНА ID: ${storeId} (${devMode ? 'DEV' : 'PROD'}) ---`);
-  
-  const props = PropertiesService.getScriptProperties();
-  const storeJson = props.getProperty(`store_${storeId}`);
-  
-  if (!storeJson) {
-    log(`[Store ${storeId}] ❌ ОШИБКА: Конфигурация магазина не найдена`);
-    return;
-  }
-  
-  try {
-    const store = JSON.parse(storeJson);
-    
-    if (!store.isActive) {
-      log(`[Store ${storeId}] ⚠️ Магазин "${store.name}" неактивен, пропускаю`);
-      return;
-    }
-    
-    log(`[Store ${storeId}] 🏪 Обработка магазина: ${store.name} [${store.marketplace}]`);
-    processSingleStore(store, devMode);
-    log(`[Store ${storeId}] ✅ Обработка завершена`);
-    
-  } catch (e) {
-    log(`[Store ${storeId}] ❌ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
-  }
-}
-
-/**
- * Удаление всех индивидуальных триггеров магазинов
- */
-function deletePerStoreTriggers() {
-  const deletedCount = deletePerStoreTriggersInternal();
-  
-  const ui = SpreadsheetApp.getUi();
-  if (deletedCount > 0) {
-    ui.alert('✅ Успех', `Удалено ${deletedCount} индивидуальных триггеров магазинов.`, ui.ButtonSet.OK);
-  } else {
-    ui.alert('ℹ️ Информация', 'Индивидуальные триггеры магазинов не найдены.', ui.ButtonSet.OK);
-  }
-}
-
-/**
- * Внутренняя функция удаления индивидуальных триггеров
- */
-function deletePerStoreTriggersInternal() {
-  const triggers = safeGetProjectTriggers();
-  if (!triggers) {
-    log('[Per-Store Triggers] ❌ Нет разрешений для управления индивидуальными триггерами');
-    return 0;
-  }
-  let deletedCount = 0;
-  
-  triggers.forEach(trigger => {
-    const functionName = trigger.getHandlerFunction();
-    // Удаляем триггеры, которые начинаются с processStore_
-    if (functionName.startsWith('processStore_')) {
-      ScriptApp.deleteTrigger(trigger);
-      deletedCount++;
-    }
-  });
-  
-  if (deletedCount > 0) {
-    log(`[Per-Store Triggers] 🗑️ Удалено ${deletedCount} индивидуальных триггеров`);
-  }
-  
-  return deletedCount;
-}
-
-/**
- * Функция меню для синхронизации всех триггеров магазинов
- */
-function syncAllStoreTriggersMenu() {
-  const ui = SpreadsheetApp.getUi();
-  
-  // Запрашиваем интервал
-  const intervalResponse = ui.prompt('🔄 Синхронизация триггеров',
-    'Введите интервал запуска в минутах (5, 10, 15, 30):', ui.ButtonSet.OK_CANCEL);
-  
-  if (intervalResponse.getSelectedButton() !== ui.Button.OK) {
-    return;
-  }
-  
-  const interval = parseInt(intervalResponse.getResponseText());
-  if (isNaN(interval) || interval < 1) {
-    ui.alert('❌ Ошибка', 'Неверный интервал. Введите число больше 0.', ui.ButtonSet.OK);
-    return;
-  }
-  
-  // Сохраняем интервал в настройки
-  setTriggerInterval(interval);
-  
-  // Синхронизируем все триггеры
-  const result = syncAllStoreTriggers(interval);
-  
-  ui.alert('✅ Синхронизация завершена', 
-    `Создано триггеров: ${result.created}\n` +
-    `Удалено триггеров: ${result.deleted}\n` +
-    `Ошибок: ${result.errors}\n\n` +
-    `Интервал: каждые ${interval} минут.`,
-    ui.ButtonSet.OK);
-}
-
-// ============ ДИНАМИЧЕСКИЕ ФУНКЦИИ ДЛЯ ТРИГГЕРОВ МАГАЗИНОВ ============
-// Эти функции используются триггерами для обработки отдельных магазинов
-// ⚠️ ВАЖНО: Google Apps Script НЕ может создавать функции динамически!
-// Каждая функция должна быть определена в коде заранее
-// 
-// Решение: используем универсальный подход с одной функцией,
-// которая загружает конфигурацию из Properties
-
-// ПРИМЕРЫ динамических функций (добавляйте по мере создания новых магазинов):
-// Функции для первых 20 магазинов (ID могут быть timestamp-based)
-// Эти функции будут автоматически вызваны триггерами
