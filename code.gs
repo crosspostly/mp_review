@@ -1103,7 +1103,7 @@ function processAllStores() {
   const devMode = isDevMode();
   log(`--- ЗАПУСК ОБРАБОТКИ (${devMode ? 'РЕЖИМ РАЗРАБОТЧИКА' : 'БОЕВОЙ РЕЖИМ'}) ---`);
   const allStores = getStores();
-  const activeStores = allStores.filter(store => store.isActive);
+  const activeStores = allStores.filter(store => store && store.isActive);
   if (activeStores.length === 0) {
     log('Нет активных магазинов для обработки. Завершаю работу.');
     return;
@@ -1116,9 +1116,9 @@ function processAllStores() {
   const startTime = Date.now();
   
   // Группируем магазины по платформам для оптимальной обработки
-  const wbStores = activeStores.filter(s => s.marketplace === 'Wildberries');
-  const ozonStores = activeStores.filter(s => s.marketplace === 'Ozon');
-  const otherStores = activeStores.filter(s => s.marketplace !== 'Wildberries' && s.marketplace !== 'Ozon');
+  const wbStores = activeStores.filter(s => s && s.marketplace === 'Wildberries');
+  const ozonStores = activeStores.filter(s => s && s.marketplace === 'Ozon');
+  const otherStores = activeStores.filter(s => s && s.marketplace !== 'Wildberries' && s.marketplace !== 'Ozon');
   
   log(`📊 Распределение: WB=${wbStores.length}, Ozon=${ozonStores.length}, Другие=${otherStores.length}`);
   
@@ -1127,6 +1127,12 @@ function processAllStores() {
   const allStoresToProcess = [...wbStores, ...ozonStores, ...otherStores]; // WB и Ozon в приоритете
   
   for (const store of allStoresToProcess) {
+    // Проверяем, что store определен
+    if (!store) {
+      log(`⚠️ Пропущен неопределенный магазин в списке обработки`);
+      continue;
+    }
+    
     // Проверяем оставшееся время перед каждым магазином
     const elapsedTime = Date.now() - startTime;
     const remainingTime = maxExecutionTime - elapsedTime;
@@ -1989,7 +1995,7 @@ function getStores() {
   const storesJson = PropertiesService.getUserProperties().getProperty(CONFIG.PROPERTIES_KEY);
   if (!storesJson) return [];
   const stores = JSON.parse(storesJson);
-  return stores.map(store => {
+  return stores.filter(store => store && store.id).map(store => {
       if (typeof store.isActive === 'undefined') store.isActive = true;
       // Ensure settings object exists for backward compatibility
       if (!store.settings) store.settings = {};
@@ -2879,7 +2885,7 @@ function processStore_(storeId) {
     }
     
     if (!store.isActive) {
-      log(`[Trigger] ⏸️ Магазин ${store.name} неактивен, пропускаем`, 'INFO', 'TRIGGER');
+      log(`[Trigger] ⏸️ Магазин ${storeId} неактивен, пропускаем`, 'INFO', 'TRIGGER');
       return;
     }
     
