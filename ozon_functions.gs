@@ -231,8 +231,8 @@ function getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswere
   const duration = Math.round((Date.now() - startTime) / 1000);
   log(`[Ozon Adaptive] 🏁 ЗАВЕРШЕНО: ${allMatchingFeedbacks.length} отзывов за ${duration}с (обработано ${processedPages} страниц, пропущено ${skippedPages})`);
   
-  // Применяем сортировку из настроек магазина
-  return applySortingPreferences(allMatchingFeedbacks, store);
+  // Сортировка будет применена в code.gs после записи в лист
+  return allMatchingFeedbacks;
 }
 
 /**
