@@ -1114,6 +1114,17 @@ function getMskTime() {
 }
 
 /**
+ * Debug logging function
+ * @param {string} message - Debug message
+ * @param {string} category - Debug category
+ */
+function logDebug(message, category = 'DEBUG') {
+  if (isDevMode()) {
+    log(`[${category}] ${message}`);
+  }
+}
+
+/**
  * Main function to process new feedback for all active stores.
  */
 function processAllStores() {
