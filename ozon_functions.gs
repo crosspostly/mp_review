@@ -7,63 +7,8 @@
 
 // ============ MEMORY SYSTEM FUNCTIONS ============
 
-/**
- * 🧠 Получает стартовую страницу для магазина из системы памяти прогресса
- * @param {Object} store - Конфигурация магазина
- * @param {boolean} includeAnswered - Флаг включения отвеченных отзывов
- * @returns {number} Номер страницы для продолжения (0 для начала)
- */
-function getStartingPageForStore(store, includeAnswered) {
-  try {
-    if (!store || !store.id) return 0;
-    
-    const progressKey = `ozon_progress_${store.id}_${includeAnswered ? 'with_answered' : 'no_answered'}`;
-    const savedProgress = PropertiesService.getScriptProperties().getProperty(progressKey);
-    
-    if (savedProgress) {
-      const progress = JSON.parse(savedProgress);
-      log(`[Ozon Memory] 📖 Найден сохраненный прогресс для ${store.name} (${store.id}): страница ${progress.lastPage}`);
-      return progress.lastPage || 0;
-    }
-    
-    return 0;
-  } catch (e) {
-    log(`[Ozon Memory] ⚠️ Ошибка чтения прогресса: ${e.message}`);
-    return 0;
-  }
-}
-
-/**
- * 🧠 Обновляет прогресс обработки страниц для магазина
- * @param {Object} store - Конфигурация магазина
- * @param {boolean} includeAnswered - Флаг включения отвеченных отзывов
- * @param {number} pageNumber - Номер обработанной страницы
- * @param {boolean} isComplete - Завершена ли обработка полностью
- */
-function updateStorePageProgress(store, includeAnswered, pageNumber, isComplete) {
-  try {
-    if (!store || !store.id) return;
-    
-    const progressKey = `ozon_progress_${store.id}_${includeAnswered ? 'with_answered' : 'no_answered'}`;
-    
-    if (isComplete) {
-      // Очищаем прогресс при завершении
-      PropertiesService.getScriptProperties().deleteProperty(progressKey);
-      log(`[Ozon Memory] ✅ Прогресс для ${store.name} (${store.id}) очищен (обработка завершена)`);
-    } else {
-      // Сохраняем текущий прогресс
-      const progress = {
-        lastPage: pageNumber,
-        timestamp: new Date().toISOString(),
-        includeAnswered: includeAnswered
-      };
-      PropertiesService.getScriptProperties().setProperty(progressKey, JSON.stringify(progress));
-      log(`[Ozon Memory] 💾 Сохранен прогресс для ${store.name} (${store.id}): страница ${pageNumber}`);
-    }
-  } catch (e) {
-    log(`[Ozon Memory] ⚠️ Ошибка сохранения прогресса: ${e.message}`);
-  }
-}
+// Функции getStartingPageForStore и updateStorePageProgress удалены из ozon_functions.gs
+// Используются аналогичные функции из code.gs для избежания дублирования
 
 // ============ UTILITY FUNCTIONS ============
 
@@ -107,16 +52,14 @@ function isDevMode() {
   }
 }
 
-/**
- * 🚀 НОВАЯ РЕАЛИЗАЦИЯ: Адаптивная пагинация для Ozon с поддержкой фильтра по дате
- * Аналогично WB функции, с оптимизациями для больших диапазонов дат
- * @param {string} clientId - Client ID для Ozon API
- * @param {string} apiKey - API Key для Ozon API  
- * @param {boolean} includeAnswered - Включать отвеченные отзывы
- * @param {Object} store - Конфигурация магазина с настройками
- * @returns {Array} Все подходящие отзывы
- */
+// Функция getOzonFeedbacksWithAdaptivePagination удалена - избыточна
+// Ozon API не поддерживает фильтрацию по дате, поэтому "адаптивная" пагинация не имеет смысла
+// Все отзывы получаются через стандартную пагинацию, а фильтрация происходит после получения
+
 function getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswered, store) {
+  // Перенаправляем на стандартную пагинацию
+  return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
+}
   log(`[Ozon Adaptive] 🚀 ЗАПУСК адаптивной пагинации...`);
   
   if (!store || !store.settings || !store.settings.startDate) {
@@ -255,7 +198,7 @@ function getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswere
   let pageNumber = 0;
   const limit = OZON_CONFIG.API_LIMITS.MAX_LIMIT;
   
-  // 🚀 Интеграция с системой памяти прогресса
+  // 🚀 Интеграция с системой памяти прогресса (используем функции из code.gs)
   const startingPage = getStartingPageForStore(store, includeAnswered);
   if (startingPage > 0) {
     pageNumber = startingPage;
@@ -316,8 +259,8 @@ function getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswere
   const duration = Math.round((Date.now() - startTime) / 1000);
   log(`[Ozon Standard] 🏁 ЗАВЕРШЕНО: ${allFeedbacks.length} отзывов за ${duration}с (обработано ${pageNumber} страниц)`);
   
-  // Применяем сортировку из настроек магазина
-  return applySortingPreferences(allFeedbacks, store);
+  // Сортировка будет применена в code.gs после записи в лист
+  return allFeedbacks;
 }
 
 /**
@@ -450,19 +393,5 @@ function processFeedbacksPageForOzon(pageFeedbacks) {
  * @param {Object} store - Store configuration with sorting preferences
  * @returns {Array} Отсортированный массив отзывов
  */
-function applySortingPreferences(feedbacks, store) {
-  if (!feedbacks || feedbacks.length === 0) return feedbacks;
-  
-  // Проверяем настройки сортировки в конфигурации магазина
-  const sortOldestFirst = store.settings?.sortOldestFirst || false;
-  
-  if (sortOldestFirst) {
-    log(`[${store.name}] Применена настройка: сортировка старых отзывов сначала.`);
-    feedbacks.sort((a, b) => new Date(a.createdDate) - new Date(b.createdDate)); // Старые первыми
-  } else {
-    log(`[${store.name}] Применена стандартная сортировка: новые отзывы сначала.`);
-    feedbacks.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate)); // Новые первыми
-  }
-  
-  return feedbacks;
-}
+// Функция applySortingPreferences удалена - сортировка теперь происходит только в code.gs
+// после записи данных в лист для избежания дублирования логики

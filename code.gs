@@ -1660,16 +1660,10 @@ function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = nul
     log(`[Ozon] 🚀 ЗАПУСК ИСПРАВЛЕННОЙ пагинации для получения отзывов (includeAnswered=${includeAnswered})`);
     
     try {
-        // 🚀 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Используем адаптивную пагинацию из ozon_functions.gs
-        const hasDateFilter = store && store.settings && store.settings.startDate;
-        
-        if (hasDateFilter) {
-            log(`[Ozon] ⚡ Выбрана АДАПТИВНАЯ пагинация (есть дата фильтра: ${store.settings.startDate})`);
-            return getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswered, store);
-        } else {
-            log(`[Ozon] 📊 Выбрана СТАНДАРТНАЯ пагинация (нет даты фильтра)`);
-            return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
-        }
+        // 🚀 УПРОЩЕНИЕ: Используем только стандартную пагинацию
+        // Ozon API не поддерживает фильтрацию по дате, поэтому "адаптивная" пагинация избыточна
+        log(`[Ozon] 📊 Используем стандартную пагинацию (фильтрация по дате происходит после получения всех отзывов)`);
+        return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
     } catch (e) {
         log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.message}`);
         log(`[Ozon] Stack trace: ${e.stack}`);
