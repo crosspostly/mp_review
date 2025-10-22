@@ -1154,7 +1154,7 @@ function processSingleStore(store, devMode) {
   log(`[${store.name}] Получение отзывов (${includeAnswered ? 'ВСЕ отзывы' : 'только неотвеченные'})...`);
   let feedbacks = (store.marketplace === 'Wildberries') 
       ? getWbFeedbacks(store.credentials.apiKey, includeAnswered, store) 
-      : getOzonFeedbacks(store.credentials.clientId, store.credentials.apiKey, includeAnswered, store);
+      : collectOzonReviewsIncremental(store);
       
   if (!feedbacks || feedbacks.length === 0) { 
       log(`[${store.name}] Новых отзывов не найдено.`);
@@ -1913,6 +1913,60 @@ function sendOzonFeedbackAnswer(feedbackId, text, clientId, apiKey) {
     return [success, errorMessage, responseBody];
 }
 
+// --- Ozon инкрементальный сбор и фильтрация дублей ---
+
+function collectOzonReviewsIncremental(store, overlapHours = 24) {
+  // 1. Получить lastDate из прогресса
+  const progress = getOzonStoreProgress(store.id) || {};
+  let fromDate;
+  if (progress.lastDate) {
+    fromDate = new Date(progress.lastDate);
+    fromDate.setHours(fromDate.getHours() - overlapHours);
+  } else if (store.settings && store.settings.startDate) {
+    fromDate = new Date(store.settings.startDate);
+  } else {
+    fromDate = null; // Получать все с самого начала
+  }
+  const toDate = new Date();
+  log(`[OzonIncr] Диапазон: ${fromDate ? fromDate.toISOString() : 'начало'} — ${toDate.toISOString()}`);
+  // 2. Получить отзывы через getOzonFeedbacks с фильтрами дат
+  const feedbacks = getOzonFeedbacks(store.credentials.clientId, store.credentials.apiKey, false, store).filter(fb => {
+    if (!fromDate) return true;
+    return new Date(fb.createdDate) >= fromDate && new Date(fb.createdDate) <= toDate;
+  });
+  // 3. Отфильтровать дубли по листу
+  const uniqueFeedbacks = filterDuplicateOzonReviews(feedbacks, store);
+  // 4. Обновить прогресс (lastDate = newest createdDate в batch)
+  const lastDate = uniqueFeedbacks.reduce((max, r) => {
+    const d = new Date(r.createdDate);
+    return (!max || d>max) ? d : max;
+  }, fromDate);
+  if (lastDate) updateOzonStoreProgress(store.id, { lastDate: lastDate.toISOString() });
+  log(`[OzonIncr] Получено: ${feedbacks.length}, новых: ${uniqueFeedbacks.length}`);
+  return uniqueFeedbacks;
+}
+
+function filterDuplicateOzonReviews(reviews, store) {
+  const sheet = createOrGetSheet(`Отзывы (${store.name})`, CONFIG.HEADERS);
+  const existingIds = getProcessedIdsFromSheet(sheet);
+  return reviews.filter(r => !existingIds.has(r.id));
+}
+
+function getOzonStoreProgress(storeId) {
+  const raw = PropertiesService.getScriptProperties().getProperty(`ozon_inc_progress_${storeId}`);
+  return raw ? JSON.parse(raw) : {};
+}
+function updateOzonStoreProgress(storeId, data) {
+  const current = getOzonStoreProgress(storeId);
+  const next = { ...current, ...data };
+  PropertiesService.getScriptProperties().setProperty(`ozon_inc_progress_${storeId}`, JSON.stringify(next));
+}
+
+// В универсальной/индивидуальной функции обработки Ozon:
+// вместо вызова getOzonFeedbacks для Ozon
+// - вызывать collectOzonReviewsIncremental(store)
+// - batch сохранить в лист (и обработать)
+
 // ============ DATA (STORE & TEMPLATE) MANAGEMENT ============
 function getStores() {
   const storesJson = PropertiesService.getUserProperties().getProperty(CONFIG.PROPERTIES_KEY);
@@ -2628,3 +2682,82 @@ function deleteAllTriggers() {
     log(`Удалено ${deletedCount} триггеров автозапуска.`);
   }
 }
+
+// ============ INDIVIDUAL STORE TRIGGERS ============
+/**
+ * Создаёт или обновляет индивидуальный триггер для магазина
+ * @param {Object} store - объект магазина
+ * @param {number} intervalMinutes - интервал в минутах (по умолчанию 240)
+ */
+function ensureStoreTrigger(store, intervalMinutes = 240) {
+  if (!store || !store.id) {
+    log(`[Trigger] ❌ Нет данных магазина для создания триггера`);
+    return false;
+  }
+  const functionName = `processStore_${store.id}`;
+  try {
+    deleteStoreTrigger(store.id); // Удаляем старый прежде
+    ScriptApp.newTrigger(functionName)
+      .timeBased()
+      .everyMinutes(intervalMinutes)
+      .create();
+    log(`[Trigger] ✅ Триггер создан для "${store.name}" (${functionName}) каждые ${intervalMinutes} минут.`);
+    return true;
+  } catch (e) {
+    log(`[Trigger] ❌ Ошибка создания триггера для "${store.name}": ${e.message}`);
+    return false;
+  }
+}
+/**
+ * Удаляет индивидуальный триггер для магазина
+ * @param {string} storeId
+ */
+function deleteStoreTrigger(storeId) {
+  try {
+    const triggers = ScriptApp.getProjectTriggers();
+    const fn = `processStore_${storeId}`;
+    triggers.forEach(trig => {
+      if (trig.getHandlerFunction() === fn) {
+        ScriptApp.deleteTrigger(trig);
+      }
+    });
+    log(`[Trigger] 🗑️ Удалён триггер ${fn}`);
+    return true;
+  } catch(e) {
+    log(`[Trigger] ❌ Ошибка удаления триггера для ${storeId}: ${e.message}`);
+    return false;
+  }
+}
+/**
+ * Синхронизирует индивидуальные триггеры: создаёт для активных, удаляет для неактивных магазинов
+ */
+function syncAllStoreTriggers() {
+  const stores = getStores();
+  const active = stores.filter(s=>s.isActive);
+  active.forEach(store => ensureStoreTrigger(store));
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(trig => {
+    const fn = trig.getHandlerFunction();
+    if (fn.startsWith('processStore_')) {
+      const storeId = fn.substring('processStore_'.length);
+      const store = stores.find(s=>s.id===storeId);
+      if (!store || !store.isActive) {
+        ScriptApp.deleteTrigger(trig);
+        log(`[Trigger] 🗑️ Автоматически удалён триггер для неактивного/удалённого магазина: ${storeId}`);
+      }
+    }
+  });
+  log(`[Trigger] 🔄 Синхронизация индивидуальных триггеров завершена.`);
+}
+
+// --- ВСТАВКА В ФУНКЦИЮ saveStore ---
+// Найдите конец функции saveStore (до return getStores();) и добавьте:
+if (store.isActive) {
+  ensureStoreTrigger(store);
+} else {
+  deleteStoreTrigger(store.id);
+}
+
+// --- ВСТАВКА В ФУНКЦИЮ deleteStore ---
+// Перед удалением из массива:
+deleteStoreTrigger(storeId);
