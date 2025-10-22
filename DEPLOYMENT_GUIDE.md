@@ -48,24 +48,22 @@
 // Скопируйте содержимое из файла ozon_functions.gs
 ```
 
-#### `tests.gs` - Базовые тесты
+#### `tests.gs` - Единая система тестирования
 ```javascript
 // Скопируйте содержимое из файла tests.gs
+// Содержит: unit тесты, UI тесты, интеграционные тесты
 ```
 
-#### `comprehensive_tests.gs` - Комплексные тесты
+#### `api_fixes.gs` - Исправления API
 ```javascript
-// Скопируйте содержимое из файла comprehensive_tests.gs
+// Скопируйте содержимое из файла api_fixes.gs
+// Содержит: WB API v2, Ozon API исправления, GAS оптимизации
 ```
 
-#### `test_functions.gs` - Функции тестирования
+#### `api_testing.gs` - Тестирование реальных API
 ```javascript
-// Скопируйте содержимое из файла test_functions.gs
-```
-
-#### `api_fixes_implementation.gs` - Исправления API
-```javascript
-// Скопируйте содержимое из файла api_fixes_implementation.gs
+// Скопируйте содержимое из файла api_testing.gs
+// Содержит: тестирование с логированием, сравнение версий API
 ```
 
 ### Шаг 3: Настройка Google Sheets
@@ -137,22 +135,31 @@ const ozonStore = {
 runQuickComprehensiveTests();
 ```
 
-### 2. Полное тестирование
+### 2. Тестирование реальных API с логированием
 ```javascript
 // Запустите в редакторе Apps Script
-runComprehensiveTests();
+runFullApiTesting();
 ```
 
-### 3. Тест производительности
+### 3. Сравнение WB API v1 vs v2
+```javascript
+// Запустите в редакторе Apps Script
+const comparison = compareWbApiVersions("ваш-wb-api-ключ", store);
+```
+
+### 4. Тест производительности
 ```javascript
 // Запустите в редакторе Apps Script
 runPerformanceTests();
 ```
 
-### 4. Тест API подключений
+### 5. Тест API подключений
 ```javascript
-// Тест WB API
-testWbContentApiAccess("ваш-wb-api-ключ");
+// Тест WB API v1
+testWbApiV1WithLogging("ваш-wb-api-ключ", store);
+
+// Тест WB API v2
+testWbApiV2WithLogging("ваш-wb-api-ключ", store);
 
 // Тест Ozon API
 testOzonProductApiAccess("ваш-ozon-client-id", "ваш-ozon-api-ключ");
