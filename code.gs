@@ -1398,7 +1398,8 @@ function sendAnswer(store, feedbackId, text) {
  * @returns {Array} Массив всех подходящих отзывов
  */
 function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
-    log(`[WB] 🚀 ПРОСТАЯ ПАГИНАЦИЯ WB (includeAnswered=${includeAnswered})`);
+    log(`[WB] 🚀 WB API v2 (includeAnswered=${includeAnswered})`);
+    log(`[WB] Store: ${store?.name || 'null'}`);
     
     const MAX_TAKE = 5000; // Максимум по документации WB API
     const MAX_SKIP = 199990; // Максимум по документации WB API
@@ -1408,8 +1409,8 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
     
     try {
         while (hasMoreData && skip <= MAX_SKIP) {
-            // Официальный endpoint WB API с правильными параметрами
-            const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks?isAnswered=${includeAnswered}&take=${MAX_TAKE}&skip=${skip}&order=dateDesc`;
+            // 🚀 ИСПРАВЛЕНИЕ: Используем v2 endpoint с встроенной фильтрацией
+            const url = buildWbApiV2Url(includeAnswered, skip, MAX_TAKE, store);
             
             log(`[WB] 📄 Страница: skip=${skip}, take=${MAX_TAKE}`);
             
@@ -2748,6 +2749,41 @@ function syncAllStoreTriggers() {
     }
   });
   log(`[Trigger] 🔄 Синхронизация индивидуальных триггеров завершена.`);
+}
+
+/**
+ * 🚀 НОВАЯ ФУНКЦИЯ: Построение URL для WB API v2
+ * Использует встроенную фильтрацию по дате и рейтингу
+ */
+function buildWbApiV2Url(includeAnswered, skip, take, store) {
+    const baseUrl = 'https://feedbacks-api.wildberries.ru/api/v2/feedbacks';
+    const params = new URLSearchParams();
+    
+    // Обязательные параметры
+    params.append('isAnswered', includeAnswered);
+    params.append('take', take);
+    params.append('skip', skip);
+    params.append('order', 'dateDesc');
+    
+    // 🚀 НОВОЕ: Используем встроенную фильтрацию по дате
+    if (store?.settings?.startDate) {
+        params.append('dateFrom', store.settings.startDate);
+        log(`[WB] 📅 Фильтр по дате: ${store.settings.startDate}`);
+    }
+    
+    // 🚀 НОВОЕ: Используем встроенную фильтрацию по рейтингу
+    if (store?.settings?.minRating) {
+        params.append('valuation', store.settings.minRating);
+        log(`[WB] ⭐ Фильтр по рейтингу: ${store.settings.minRating}`);
+    }
+    
+    // 🚀 НОВОЕ: Фильтр по товару (если нужен)
+    if (store?.settings?.nmId) {
+        params.append('nmId', store.settings.nmId);
+        log(`[WB] 🛍️ Фильтр по товару: ${store.settings.nmId}`);
+    }
+    
+    return `${baseUrl}?${params.toString()}`;
 }
 
 // --- ВСТАВКА В ФУНКЦИЮ saveStore ---
