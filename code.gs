@@ -133,34 +133,50 @@ const OZON_CONFIG = {
 
 // ============ MENU CREATION ============
 function onOpen(e) {
-  const ui = SpreadsheetApp.getUi();
-  const menu = ui.createMenu('🤖 Автоответы');
-  menu.addItem('⚙️ Первоначальная настройка', 'initialSetup');
-  menu.addItem('🏪 Управление магазинами', 'showStoreManagerSidebar');
-  menu.addSeparator();
-  menu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
-  menu.addItem('▶️ Отправить подготовленные ответы', 'sendPendingAnswers');
-  menu.addItem('🧪 Тест WB: ответ на отзыв', 'testWbFeedbackAnswerById');
-  menu.addItem('🧪 Тест Ozon: получение отзывов', 'testOzonFeedbackPagination');
-  menu.addItem('🗑️ Удалить отзыв по ID', 'manuallyDeleteReviewById');
-  menu.addSeparator();
-  const devMenu = ui.createMenu('🛠️ Режим разработчика');
-  devMenu.addItem('Включить', 'enableDevMode');
-  devMenu.addItem('Выключить', 'disableDevMode');
-  menu.addSubMenu(devMenu);
-  
-  const triggerSubMenu = ui.createMenu('🔄 Управление автозапуском');
-  triggerSubMenu.addItem('Установить автозапуск (5 мин)', 'createTrigger5Min');
-  triggerSubMenu.addItem('Установить автозапуск (30 мин)', 'createTrigger30Min');
-  triggerSubMenu.addItem('Установить автозапуск (1 час)', 'createTrigger1Hour');
-  triggerSubMenu.addSeparator();
-  triggerSubMenu.addItem('❌ Удалить все триггеры автозапуска', 'deleteAllTriggers');
-  menu.addSubMenu(triggerSubMenu);
-  
-  menu.addSeparator();
-  menu.addItem('🐞 Показать/Скрыть лог отладки', 'toggleLogSheet');
-  menu.addToUi();
-  updateDevModeStatus();
+  try {
+    const ui = SpreadsheetApp.getUi();
+    const menu = ui.createMenu('🤖 Автоответы');
+    menu.addItem('⚙️ Первоначальная настройка', 'initialSetup');
+    menu.addItem('🏪 Управление магазинами', 'showStoreManagerSidebar');
+    menu.addSeparator();
+    menu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
+    menu.addItem('▶️ Отправить подготовленные ответы', 'sendPendingAnswers');
+    menu.addItem('🧪 Тест WB: ответ на отзыв', 'testWbFeedbackAnswerById');
+    menu.addItem('🧪 Тест Ozon: получение отзывов', 'testOzonFeedbackPagination');
+    menu.addItem('🗑️ Удалить отзыв по ID', 'manuallyDeleteReviewById');
+    menu.addSeparator();
+    const devMenu = ui.createMenu('🛠️ Режим разработчика');
+    devMenu.addItem('Включить', 'enableDevMode');
+    devMenu.addItem('Выключить', 'disableDevMode');
+    menu.addSubMenu(devMenu);
+    
+    const triggerSubMenu = ui.createMenu('🔄 Управление автозапуском');
+    triggerSubMenu.addItem('Установить автозапуск (5 мин)', 'createTrigger5Min');
+    triggerSubMenu.addItem('Установить автозапуск (30 мин)', 'createTrigger30Min');
+    triggerSubMenu.addItem('Установить автозапуск (1 час)', 'createTrigger1Hour');
+    triggerSubMenu.addSeparator();
+    triggerSubMenu.addItem('❌ Удалить все триггеры автозапуска', 'deleteAllTriggers');
+    menu.addSubMenu(triggerSubMenu);
+    
+    menu.addSeparator();
+    menu.addItem('🐞 Показать/Скрыть лог отладки', 'toggleLogSheet');
+    menu.addToUi();
+    
+    // Синхронизируем триггеры после создания меню
+    syncAllStoreTriggers();
+    updateDevModeStatus();
+    
+    log('[onOpen] ✅ Меню успешно создано и триггеры синхронизированы');
+  } catch (error) {
+    log(`[onOpen] ❌ Ошибка создания меню: ${error.message}`, 'ERROR', 'SYSTEM');
+    // Показываем простое меню в случае ошибки
+    const ui = SpreadsheetApp.getUi();
+    const simpleMenu = ui.createMenu('🤖 Автоответы');
+    simpleMenu.addItem('⚙️ Первоначальная настройка', 'initialSetup');
+    simpleMenu.addItem('🏪 Управление магазинами', 'showStoreManagerSidebar');
+    simpleMenu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
+    simpleMenu.addToUi();
+  }
 }
 
 // ============ DEV MODE ============
@@ -2034,11 +2050,23 @@ function saveStore(store) {
   
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
   createOrGetSheet(`Отзывы (${store.name})`, CONFIG.HEADERS);
+  
+  // Управляем триггерами для магазина
+  if (store.isActive) {
+    ensureStoreTrigger(store);
+  } else {
+    deleteStoreTrigger(store.id);
+  }
+  
   return getStores();
 }
 
 function deleteStore(storeId) {
   log(`Удаление магазина с ID: ${storeId}`);
+  
+  // Удаляем триггер перед удалением магазина
+  deleteStoreTrigger(storeId);
+  
   let stores = getStores();
   stores = stores.filter(s => s.id !== storeId);
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
@@ -2695,14 +2723,24 @@ function ensureStoreTrigger(store, intervalMinutes = 240) {
     log(`[Trigger] ❌ Нет данных магазина для создания триггера`);
     return false;
   }
-  const functionName = `processStore_${store.id}`;
+  
   try {
-    deleteStoreTrigger(store.id); // Удаляем старый прежде
-    ScriptApp.newTrigger(functionName)
+    // Удаляем старый триггер если есть
+    deleteStoreTrigger(store.id);
+    
+    // Создаем новый триггер, который будет вызывать processAllStores
+    // вместо несуществующей функции processStore_${store.id}
+    const trigger = ScriptApp.newTrigger('processAllStores')
       .timeBased()
       .everyMinutes(intervalMinutes)
       .create();
-    log(`[Trigger] ✅ Триггер создан для "${store.name}" (${functionName}) каждые ${intervalMinutes} минут.`);
+    
+    // Сохраняем ID триггера для магазина
+    const triggerId = trigger.getUniqueId();
+    store.triggerId = triggerId;
+    saveStore(store);
+    
+    log(`[Trigger] ✅ Триггер создан для "${store.name}" каждые ${intervalMinutes} минут (ID: ${triggerId})`);
     return true;
   } catch (e) {
     log(`[Trigger] ❌ Ошибка создания триггера для "${store.name}": ${e.message}`);
@@ -2715,14 +2753,24 @@ function ensureStoreTrigger(store, intervalMinutes = 240) {
  */
 function deleteStoreTrigger(storeId) {
   try {
-    const triggers = ScriptApp.getProjectTriggers();
-    const fn = `processStore_${storeId}`;
-    triggers.forEach(trig => {
-      if (trig.getHandlerFunction() === fn) {
-        ScriptApp.deleteTrigger(trig);
+    // Получаем магазин по ID
+    const stores = getStores();
+    const store = stores.find(s => s.id === storeId);
+    
+    if (store && store.triggerId) {
+      // Удаляем триггер по ID
+      const triggers = ScriptApp.getProjectTriggers();
+      const trigger = triggers.find(t => t.getUniqueId() === store.triggerId);
+      if (trigger) {
+        ScriptApp.deleteTrigger(trigger);
+        log(`[Trigger] 🗑️ Удалён триггер для магазина ${store.name} (ID: ${store.triggerId})`);
       }
-    });
-    log(`[Trigger] 🗑️ Удалён триггер ${fn}`);
+      
+      // Очищаем triggerId из магазина
+      delete store.triggerId;
+      saveStore(store);
+    }
+    
     return true;
   } catch(e) {
     log(`[Trigger] ❌ Ошибка удаления триггера для ${storeId}: ${e.message}`);
@@ -2733,22 +2781,34 @@ function deleteStoreTrigger(storeId) {
  * Синхронизирует индивидуальные триггеры: создаёт для активных, удаляет для неактивных магазинов
  */
 function syncAllStoreTriggers() {
-  const stores = getStores();
-  const active = stores.filter(s=>s.isActive);
-  active.forEach(store => ensureStoreTrigger(store));
-  const triggers = ScriptApp.getProjectTriggers();
-  triggers.forEach(trig => {
-    const fn = trig.getHandlerFunction();
-    if (fn.startsWith('processStore_')) {
-      const storeId = fn.substring('processStore_'.length);
-      const store = stores.find(s=>s.id===storeId);
-      if (!store || !store.isActive) {
-        ScriptApp.deleteTrigger(trig);
-        log(`[Trigger] 🗑️ Автоматически удалён триггер для неактивного/удалённого магазина: ${storeId}`);
+  try {
+    const stores = getStores();
+    const active = stores.filter(s => s.isActive);
+    
+    // Создаем триггеры для активных магазинов
+    let created = 0;
+    active.forEach(store => {
+      if (ensureStoreTrigger(store)) {
+        created++;
       }
-    }
-  });
-  log(`[Trigger] 🔄 Синхронизация индивидуальных триггеров завершена.`);
+    });
+    
+    // Удаляем триггеры для неактивных магазинов
+    let deleted = 0;
+    stores.forEach(store => {
+      if (!store.isActive && store.triggerId) {
+        if (deleteStoreTrigger(store.id)) {
+          deleted++;
+        }
+      }
+    });
+    
+    log(`[Trigger] 🔄 Синхронизация завершена: создано ${created}, удалено ${deleted}`);
+    return { created, deleted };
+  } catch (error) {
+    log(`[Trigger] ❌ Ошибка синхронизации триггеров: ${error.message}`, 'ERROR', 'TRIGGER');
+    return { created: 0, deleted: 0 };
+  }
 }
 
 /**
@@ -2797,3 +2857,38 @@ if (store.isActive) {
 // --- ВСТАВКА В ФУНКЦИЮ deleteStore ---
 // Перед удалением из массива:
 deleteStoreTrigger(storeId);
+
+// ============ ДИНАМИЧЕСКИЕ ФУНКЦИИ ДЛЯ ТРИГГЕРОВ ============
+
+/**
+ * Динамически создаваемая функция для обработки конкретного магазина
+ * Эта функция создается для каждого магазина при создании триггера
+ * @param {string} storeId - ID магазина
+ */
+function processStore_(storeId) {
+  try {
+    log(`[Trigger] 🚀 Запуск обработки магазина: ${storeId}`);
+    
+    // Получаем магазин по ID
+    const stores = getStores();
+    const store = stores.find(s => s.id === storeId);
+    
+    if (!store) {
+      log(`[Trigger] ❌ Магазин с ID ${storeId} не найден`, 'ERROR', 'TRIGGER');
+      return;
+    }
+    
+    if (!store.isActive) {
+      log(`[Trigger] ⏸️ Магазин ${store.name} неактивен, пропускаем`, 'INFO', 'TRIGGER');
+      return;
+    }
+    
+    // Запускаем обработку магазина
+    processSingleStore(store, false);
+    
+    log(`[Trigger] ✅ Обработка магазина ${store.name} завершена`);
+    
+  } catch (error) {
+    log(`[Trigger] ❌ Ошибка обработки магазина ${storeId}: ${error.message}`, 'ERROR', 'TRIGGER');
+  }
+}
