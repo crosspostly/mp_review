@@ -157,10 +157,28 @@ function onOpen(e) {
   triggerSubMenu.addItem('❌ Удалить все триггеры автозапуска', 'deleteAllTriggers');
   menu.addSubMenu(triggerSubMenu);
   
+  // Новое меню для управления триггерами магазинов
+  const storeTriggerSubMenu = ui.createMenu('🔄 Управление триггерами магазинов');
+  storeTriggerSubMenu.addItem('🔄 Синхронизировать все триггеры', 'syncAllStoreTriggers');
+  storeTriggerSubMenu.addItem('📊 Показать статус триггеров', 'showTriggerStatus');
+  storeTriggerSubMenu.addItem('⚙️ Настройки интервалов', 'showTriggerIntervalSettings');
+  storeTriggerSubMenu.addSeparator();
+  storeTriggerSubMenu.addItem('⚠️ Экстренная остановка всех триггеров', 'confirmEmergencyStop');
+  storeTriggerSubMenu.addItem('🔧 Проверка целостности системы', 'runTriggerIntegrityCheck');
+  menu.addSubMenu(storeTriggerSubMenu);
+  
   menu.addSeparator();
   menu.addItem('🐞 Показать/Скрыть лог отладки', 'toggleLogSheet');
   menu.addToUi();
   updateDevModeStatus();
+  
+  // 🎯 АВТОМАТИЧЕСКАЯ СИНХРОНИЗАЦИЯ ТРИГГЕРОВ ПРИ ОТКРЫТИИ
+  try {
+    syncAllStoreTriggers();
+    log('[onOpen] 🔄 Триггеры магазинов синхронизированы');
+  } catch (e) {
+    log(`[onOpen] ⚠️ Ошибка синхронизации триггеров: ${e.message}`);
+  }
 }
 
 // ============ DEV MODE ============
@@ -2033,11 +2051,26 @@ function saveStore(store) {
   
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
   createOrGetSheet(`Отзывы (${store.name})`, CONFIG.HEADERS);
+  
+  // 🎯 АВТОМАТИЧЕСКОЕ УПРАВЛЕНИЕ ТРИГГЕРАМИ
+  if (store.isActive) {
+    ensureStoreTrigger(store);
+    log(`[${store.name}] ✅ Триггер создан/обновлен`);
+  } else {
+    deleteStoreTrigger(store.id);
+    log(`[${store.name}] 🗑️ Триггер удален (магазин неактивен)`);
+  }
+  
   return getStores();
 }
 
 function deleteStore(storeId) {
   log(`Удаление магазина с ID: ${storeId}`);
+  
+  // 🎯 АВТОМАТИЧЕСКОЕ УДАЛЕНИЕ ТРИГГЕРА
+  deleteStoreTrigger(storeId);
+  log(`[Store-${storeId}] 🗑️ Триггер удален`);
+  
   let stores = getStores();
   stores = stores.filter(s => s.id !== storeId);
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
@@ -2729,6 +2762,261 @@ function deleteStoreTrigger(storeId) {
   }
 }
 /**
+ * Обрабатывает конкретный магазин по его ID
+ * Вызывается индивидуальными триггерами
+ * @param {string} storeId - ID магазина для обработки
+ */
+function processSingleStoreById(storeId) {
+  try {
+    log(`[Store-${storeId}] 🚀 Запуск обработки магазина`);
+    
+    // Загружаем конфигурацию магазина из Properties
+    const stores = getStores();
+    const store = stores.find(s => s.id === storeId);
+    
+    if (!store) {
+      log(`[Store-${storeId}] ❌ Магазин не найден`);
+      return;
+    }
+    
+    if (!store.isActive) {
+      log(`[Store-${storeId}] ⏸️ Магазин неактивен, пропускаем`);
+      return;
+    }
+    
+    // Обрабатываем магазин
+    const devMode = isDevMode();
+    processSingleStore(store, devMode);
+    
+    log(`[Store-${storeId}] ✅ Обработка завершена`);
+    
+  } catch (error) {
+    log(`[Store-${storeId}] ❌ Ошибка обработки: ${error.message}`);
+  }
+}
+
+/**
+ * Получает текущий интервал триггера магазина
+ * @param {string} storeId - ID магазина
+ * @returns {number} Интервал в минутах или null
+ */
+function getTriggerInterval(storeId) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const configKey = `STORE_TRIGGER_CONFIG_${storeId}`;
+    const config = props.getProperty(configKey);
+    
+    if (config) {
+      const parsed = JSON.parse(config);
+      return parsed.intervalMinutes || null;
+    }
+    
+    return null;
+  } catch (e) {
+    log(`[Trigger] ⚠️ Ошибка чтения интервала для ${storeId}: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * Изменяет интервал триггера магазина
+ * @param {string} storeId - ID магазина  
+ * @param {number} minutes - Новый интервал в минутах
+ */
+function setTriggerInterval(storeId, minutes) {
+  try {
+    // Валидируем интервал (1-1440 минут)
+    if (minutes < 1 || minutes > 1440) {
+      throw new Error('Интервал должен быть от 1 до 1440 минут');
+    }
+    
+    // Удаляем старый триггер
+    deleteStoreTrigger(storeId);
+    
+    // Получаем магазин и создаем новый триггер
+    const stores = getStores();
+    const store = stores.find(s => s.id === storeId);
+    
+    if (!store) {
+      throw new Error('Магазин не найден');
+    }
+    
+    // Создаем новый с обновленным интервалом
+    ensureStoreTrigger(store, minutes);
+    
+    // Обновляем конфигурацию в Properties
+    const props = PropertiesService.getScriptProperties();
+    const configKey = `STORE_TRIGGER_CONFIG_${storeId}`;
+    const config = {
+      storeId: storeId,
+      intervalMinutes: minutes,
+      lastUpdated: new Date().toISOString()
+    };
+    props.setProperty(configKey, JSON.stringify(config));
+    
+    log(`[Trigger] ✅ Интервал для ${storeId} изменен на ${minutes} минут`);
+    
+  } catch (e) {
+    log(`[Trigger] ❌ Ошибка изменения интервала для ${storeId}: ${e.message}`);
+  }
+}
+
+/**
+ * Возвращает список всех триггеров магазинов с деталями
+ * @returns {Array} Массив объектов с информацией о триггерах
+ */
+function listAllStoreTriggers() {
+  try {
+    const triggers = ScriptApp.getProjectTriggers();
+    const stores = getStores();
+    const storeTriggers = [];
+    
+    // Фильтруем триггеры с именем processStore_*
+    triggers.forEach(trigger => {
+      const functionName = trigger.getHandlerFunction();
+      if (functionName.startsWith('processStore_')) {
+        const storeId = functionName.replace('processStore_', '');
+        const store = stores.find(s => s.id === storeId);
+        
+        storeTriggers.push({
+          storeId: storeId,
+          storeName: store ? store.name : 'Неизвестный магазин',
+          isActive: store ? store.isActive : false,
+          functionName: functionName,
+          triggerType: trigger.getEventType().toString(),
+          intervalMinutes: getTriggerInterval(storeId),
+          lastRun: 'Не отслеживается' // Google Apps Script не предоставляет эту информацию
+        });
+      }
+    });
+    
+    return storeTriggers;
+    
+  } catch (e) {
+    log(`[Trigger] ❌ Ошибка получения списка триггеров: ${e.message}`);
+    return [];
+  }
+}
+
+/**
+ * Проверяет целостность системы триггеров
+ * @returns {Object} Отчет о проблемах и рекомендации
+ */
+function validateTriggerIntegrity() {
+  const issues = [];
+  const recommendations = [];
+  
+  try {
+    const stores = getStores();
+    const activeStores = stores.filter(s => s.isActive);
+    const triggers = ScriptApp.getProjectTriggers();
+    const storeTriggers = triggers.filter(t => t.getHandlerFunction().startsWith('processStore_'));
+    
+    // Находим активные магазины без триггеров
+    activeStores.forEach(store => {
+      const hasTrigger = storeTriggers.some(t => 
+        t.getHandlerFunction() === `processStore_${store.id}`
+      );
+      
+      if (!hasTrigger) {
+        issues.push(`Активный магазин "${store.name}" (${store.id}) не имеет триггера`);
+        recommendations.push(`Создать триггер для магазина "${store.name}"`);
+      }
+    });
+    
+    // Находим триггеры без соответствующих магазинов
+    storeTriggers.forEach(trigger => {
+      const storeId = trigger.getHandlerFunction().replace('processStore_', '');
+      const store = stores.find(s => s.id === storeId);
+      
+      if (!store) {
+        issues.push(`Триггер ${trigger.getHandlerFunction()} ссылается на несуществующий магазин ${storeId}`);
+        recommendations.push(`Удалить триггер ${trigger.getHandlerFunction()}`);
+      } else if (!store.isActive) {
+        issues.push(`Триггер ${trigger.getHandlerFunction()} существует для неактивного магазина "${store.name}"`);
+        recommendations.push(`Удалить триггер для неактивного магазина "${store.name}"`);
+      }
+    });
+    
+    // Проверяем лимиты Google Apps Script
+    if (triggers.length >= 20) {
+      issues.push(`Достигнут лимит триггеров Google Apps Script (${triggers.length}/20)`);
+      recommendations.push('Рассмотреть объединение триггеров или удаление неиспользуемых');
+    }
+    
+    return {
+      issues: issues,
+      recommendations: recommendations,
+      summary: {
+        totalStores: stores.length,
+        activeStores: activeStores.length,
+        totalTriggers: triggers.length,
+        storeTriggers: storeTriggers.length,
+        issuesCount: issues.length
+      }
+    };
+    
+  } catch (e) {
+    log(`[Trigger] ❌ Ошибка проверки целостности: ${e.message}`);
+    return {
+      issues: [`Ошибка проверки целостности: ${e.message}`],
+      recommendations: ['Проверить логи и исправить ошибки'],
+      summary: { error: true }
+    };
+  }
+}
+
+/**
+ * Экстренная остановка всех триггеров магазинов
+ * Используется при критических ошибках или обновлении системы
+ */
+function emergencyStopAllStoreTriggers() {
+  try {
+    log('[Trigger] 🚨 ЭКСТРЕННАЯ ОСТАНОВКА ВСЕХ ТРИГГЕРОВ МАГАЗИНОВ');
+    
+    const triggers = ScriptApp.getProjectTriggers();
+    const storeTriggers = triggers.filter(t => t.getHandlerFunction().startsWith('processStore_'));
+    
+    let stoppedCount = 0;
+    storeTriggers.forEach(trigger => {
+      try {
+        ScriptApp.deleteTrigger(trigger);
+        stoppedCount++;
+        log(`[Trigger] 🗑️ Удален триггер: ${trigger.getHandlerFunction()}`);
+      } catch (e) {
+        log(`[Trigger] ❌ Ошибка удаления триггера ${trigger.getHandlerFunction()}: ${e.message}`);
+      }
+    });
+    
+    // Сохраняем конфигурацию для восстановления
+    const stores = getStores();
+    const activeStores = stores.filter(s => s.isActive);
+    const backupConfig = {
+      timestamp: new Date().toISOString(),
+      activeStores: activeStores.map(s => ({
+        id: s.id,
+        name: s.name,
+        intervalMinutes: getTriggerInterval(s.id) || 240
+      }))
+    };
+    
+    PropertiesService.getScriptProperties().setProperty(
+      'EMERGENCY_STOP_BACKUP', 
+      JSON.stringify(backupConfig)
+    );
+    
+    log(`[Trigger] ✅ Экстренная остановка завершена. Удалено триггеров: ${stoppedCount}`);
+    log(`[Trigger] 💾 Конфигурация сохранена для восстановления`);
+    
+    return stoppedCount;
+    
+  } catch (e) {
+    log(`[Trigger] ❌ Критическая ошибка при экстренной остановке: ${e.message}`);
+    return 0;
+  }
+}
+
+/**
  * Синхронизирует индивидуальные триггеры: создаёт для активных, удаляет для неактивных магазинов
  */
 function syncAllStoreTriggers() {
@@ -2761,3 +3049,135 @@ if (store.isActive) {
 // --- ВСТАВКА В ФУНКЦИЮ deleteStore ---
 // Перед удалением из массива:
 deleteStoreTrigger(storeId);
+
+// ============ МЕНЮ СИНХРОНИЗАЦИИ ТРИГГЕРОВ ============
+
+/**
+ * Показывает диалог со статусом всех триггеров магазинов
+ */
+function showTriggerStatus() {
+  try {
+    const triggers = listAllStoreTriggers();
+    const ui = SpreadsheetApp.getUi();
+    
+    if (triggers.length === 0) {
+      ui.alert('📊 Статус триггеров', 'Нет активных триггеров магазинов.', ui.ButtonSet.OK);
+      return;
+    }
+    
+    let message = '📊 СТАТУС ТРИГГЕРОВ МАГАЗИНОВ\n\n';
+    
+    triggers.forEach((trigger, index) => {
+      const status = trigger.isActive ? '✅ Активен' : '❌ Неактивен';
+      const interval = trigger.intervalMinutes ? `${trigger.intervalMinutes} мин` : 'Не установлен';
+      
+      message += `${index + 1}. ${trigger.storeName}\n`;
+      message += `   ID: ${trigger.storeId}\n`;
+      message += `   Статус: ${status}\n`;
+      message += `   Интервал: ${interval}\n`;
+      message += `   Функция: ${trigger.functionName}\n\n`;
+    });
+    
+    message += `Всего триггеров: ${triggers.length}`;
+    
+    ui.alert('📊 Статус триггеров', message, ui.ButtonSet.OK);
+    
+  } catch (e) {
+    log(`[Menu] ❌ Ошибка показа статуса триггеров: ${e.message}`);
+    SpreadsheetApp.getUi().alert('Ошибка', `Ошибка получения статуса триггеров: ${e.message}`, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+/**
+ * Показывает диалог для настройки интервалов триггеров
+ */
+function showTriggerIntervalSettings() {
+  try {
+    const stores = getStores().filter(s => s.isActive);
+    const ui = SpreadsheetApp.getUi();
+    
+    if (stores.length === 0) {
+      ui.alert('⚙️ Настройки интервалов', 'Нет активных магазинов для настройки.', ui.ButtonSet.OK);
+      return;
+    }
+    
+    let message = '⚙️ НАСТРОЙКА ИНТЕРВАЛОВ ТРИГГЕРОВ\n\n';
+    message += 'Текущие интервалы:\n\n';
+    
+    stores.forEach((store, index) => {
+      const interval = getTriggerInterval(store.id) || 240;
+      message += `${index + 1}. ${store.name}: ${interval} минут\n`;
+    });
+    
+    message += '\nДля изменения интервалов используйте функцию setTriggerInterval(storeId, minutes) в редакторе скриптов.';
+    message += '\n\nРекомендуемые интервалы:';
+    message += '\n• 5-15 минут - для активных магазинов';
+    message += '\n• 30-60 минут - для обычных магазинов';
+    message += '\n• 240 минут (4 часа) - для тестирования';
+    
+    ui.alert('⚙️ Настройки интервалов', message, ui.ButtonSet.OK);
+    
+  } catch (e) {
+    log(`[Menu] ❌ Ошибка показа настроек интервалов: ${e.message}`);
+    SpreadsheetApp.getUi().alert('Ошибка', `Ошибка получения настроек: ${e.message}`, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+/**
+ * Показывает подтверждение экстренной остановки
+ */
+function confirmEmergencyStop() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert(
+    '⚠️ ЭКСТРЕННАЯ ОСТАНОВКА',
+    'Вы уверены что хотите остановить ВСЕ триггеры магазинов?\n' +
+    'Обработка отзывов прекратится до ручного восстановления.',
+    ui.ButtonSet.YES_NO
+  );
+  
+  if (response === ui.Button.YES) {
+    const stoppedCount = emergencyStopAllStoreTriggers();
+    ui.alert('✅ Результат', `Остановлено триггеров: ${stoppedCount}`, ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Запускает и показывает результаты проверки целостности
+ */
+function runTriggerIntegrityCheck() {
+  try {
+    const report = validateTriggerIntegrity();
+    const ui = SpreadsheetApp.getUi();
+    
+    let message = '🔍 РЕЗУЛЬТАТЫ ПРОВЕРКИ ЦЕЛОСТНОСТИ:\n\n';
+    
+    if (report.issues.length === 0) {
+      message += '✅ Система триггеров работает корректно\n\n';
+    } else {
+      message += `❌ Найдено проблем: ${report.issues.length}\n\n`;
+      message += 'ПРОБЛЕМЫ:\n';
+      report.issues.forEach((issue, index) => {
+        message += `${index + 1}. ${issue}\n`;
+      });
+      message += '\nРЕКОМЕНДАЦИИ:\n';
+      report.recommendations.forEach((rec, index) => {
+        message += `${index + 1}. ${rec}\n`;
+      });
+      message += '\n';
+    }
+    
+    if (report.summary && !report.summary.error) {
+      message += 'СТАТИСТИКА:\n';
+      message += `• Всего магазинов: ${report.summary.totalStores}\n`;
+      message += `• Активных магазинов: ${report.summary.activeStores}\n`;
+      message += `• Всего триггеров: ${report.summary.totalTriggers}\n`;
+      message += `• Триггеров магазинов: ${report.summary.storeTriggers}\n`;
+    }
+    
+    ui.alert('🔧 Проверка целостности триггеров', message, ui.ButtonSet.OK);
+    
+  } catch (e) {
+    log(`[Menu] ❌ Ошибка проверки целостности: ${e.message}`);
+    SpreadsheetApp.getUi().alert('Ошибка', `Ошибка проверки целостности: ${e.message}`, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}

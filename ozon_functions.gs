@@ -15,14 +15,14 @@
  */
 function getStartingPageForStore(store, includeAnswered) {
   try {
-    if (!store || !store.name) return 0;
+    if (!store || !store.id) return 0;
     
-    const progressKey = `ozon_progress_${store.name}_${includeAnswered ? 'with_answered' : 'no_answered'}`;
+    const progressKey = `ozon_progress_${store.id}_${includeAnswered ? 'with_answered' : 'no_answered'}`;
     const savedProgress = PropertiesService.getScriptProperties().getProperty(progressKey);
     
     if (savedProgress) {
       const progress = JSON.parse(savedProgress);
-      log(`[Ozon Memory] 📖 Найден сохраненный прогресс для ${store.name}: страница ${progress.lastPage}`);
+      log(`[Ozon Memory] 📖 Найден сохраненный прогресс для ${store.name} (${store.id}): страница ${progress.lastPage}`);
       return progress.lastPage || 0;
     }
     
@@ -42,14 +42,14 @@ function getStartingPageForStore(store, includeAnswered) {
  */
 function updateStorePageProgress(store, includeAnswered, pageNumber, isComplete) {
   try {
-    if (!store || !store.name) return;
+    if (!store || !store.id) return;
     
-    const progressKey = `ozon_progress_${store.name}_${includeAnswered ? 'with_answered' : 'no_answered'}`;
+    const progressKey = `ozon_progress_${store.id}_${includeAnswered ? 'with_answered' : 'no_answered'}`;
     
     if (isComplete) {
       // Очищаем прогресс при завершении
       PropertiesService.getScriptProperties().deleteProperty(progressKey);
-      log(`[Ozon Memory] ✅ Прогресс для ${store.name} очищен (обработка завершена)`);
+      log(`[Ozon Memory] ✅ Прогресс для ${store.name} (${store.id}) очищен (обработка завершена)`);
     } else {
       // Сохраняем текущий прогресс
       const progress = {
@@ -58,7 +58,7 @@ function updateStorePageProgress(store, includeAnswered, pageNumber, isComplete)
         includeAnswered: includeAnswered
       };
       PropertiesService.getScriptProperties().setProperty(progressKey, JSON.stringify(progress));
-      log(`[Ozon Memory] 💾 Сохранен прогресс для ${store.name}: страница ${pageNumber}`);
+      log(`[Ozon Memory] 💾 Сохранен прогресс для ${store.name} (${store.id}): страница ${pageNumber}`);
     }
   } catch (e) {
     log(`[Ozon Memory] ⚠️ Ошибка сохранения прогресса: ${e.message}`);
