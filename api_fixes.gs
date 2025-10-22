@@ -96,33 +96,33 @@ function getWbFeedbacksV2(apiKey, includeAnswered = false, store = null) {
  */
 function buildWbApiV2Url(includeAnswered, skip, take, store) {
   const baseUrl = 'https://feedbacks-api.wildberries.ru/api/v2/feedbacks';
-  const params = new URLSearchParams();
+  const params = [];
   
   // Обязательные параметры
-  params.append('isAnswered', includeAnswered);
-  params.append('take', take);
-  params.append('skip', skip);
-  params.append('order', 'dateDesc');
+  params.push(`isAnswered=${includeAnswered}`);
+  params.push(`take=${take}`);
+  params.push(`skip=${skip}`);
+  params.push(`order=dateDesc`);
   
   // 🚀 НОВОЕ: Используем встроенную фильтрацию по дате
   if (store?.settings?.startDate) {
-    params.append('dateFrom', store.settings.startDate);
+    params.push(`dateFrom=${encodeURIComponent(store.settings.startDate)}`);
     logDebug(`📅 Фильтр по дате: ${store.settings.startDate}`, 'WB-API-V2');
   }
   
   // 🚀 НОВОЕ: Используем встроенную фильтрацию по рейтингу
   if (store?.settings?.minRating) {
-    params.append('valuation', store.settings.minRating);
+    params.push(`valuation=${store.settings.minRating}`);
     logDebug(`⭐ Фильтр по рейтингу: ${store.settings.minRating}`, 'WB-API-V2');
   }
   
   // 🚀 НОВОЕ: Фильтр по товару (если нужен)
   if (store?.settings?.nmId) {
-    params.append('nmId', store.settings.nmId);
+    params.push(`nmId=${store.settings.nmId}`);
     logDebug(`🛍️ Фильтр по товару: ${store.settings.nmId}`, 'WB-API-V2');
   }
   
-  return `${baseUrl}?${params.toString()}`;
+  return `${baseUrl}?${params.join('&')}`;
 }
 
 /**

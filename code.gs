@@ -1664,16 +1664,9 @@ function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = nul
     log(`[Ozon] 🚀 ЗАПУСК ИСПРАВЛЕННОЙ пагинации для получения отзывов (includeAnswered=${includeAnswered})`);
     
     try {
-        // 🚀 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Используем адаптивную пагинацию из ozon_functions.gs
-        const hasDateFilter = store && store.settings && store.settings.startDate;
-        
-        if (hasDateFilter) {
-            log(`[Ozon] ⚡ Выбрана АДАПТИВНАЯ пагинация (есть дата фильтра: ${store.settings.startDate})`);
-            return getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswered, store);
-        } else {
-            log(`[Ozon] 📊 Выбрана СТАНДАРТНАЯ пагинация (нет даты фильтра)`);
-            return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
-        }
+        // 🚀 ИСПРАВЛЕНИЕ: Используем только стандартную пагинацию (адаптивная отключена)
+        log(`[Ozon] 📊 Используется СТАНДАРТНАЯ пагинация`);
+        return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
     } catch (e) {
         log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.message}`);
         log(`[Ozon] Stack trace: ${e.stack}`);
@@ -2840,33 +2833,33 @@ function syncAllStoreTriggers() {
  */
 function buildWbApiV2Url(includeAnswered, skip, take, store) {
     const baseUrl = 'https://feedbacks-api.wildberries.ru/api/v2/feedbacks';
-    const params = new URLSearchParams();
+    const params = [];
     
     // Обязательные параметры
-    params.append('isAnswered', includeAnswered);
-    params.append('take', take);
-    params.append('skip', skip);
-    params.append('order', 'dateDesc');
+    params.push(`isAnswered=${includeAnswered}`);
+    params.push(`take=${take}`);
+    params.push(`skip=${skip}`);
+    params.push(`order=dateDesc`);
     
     // 🚀 НОВОЕ: Используем встроенную фильтрацию по дате
     if (store?.settings?.startDate) {
-        params.append('dateFrom', store.settings.startDate);
+        params.push(`dateFrom=${encodeURIComponent(store.settings.startDate)}`);
         log(`[WB] 📅 Фильтр по дате: ${store.settings.startDate}`);
     }
     
     // 🚀 НОВОЕ: Используем встроенную фильтрацию по рейтингу
     if (store?.settings?.minRating) {
-        params.append('valuation', store.settings.minRating);
+        params.push(`valuation=${store.settings.minRating}`);
         log(`[WB] ⭐ Фильтр по рейтингу: ${store.settings.minRating}`);
     }
     
     // 🚀 НОВОЕ: Фильтр по товару (если нужен)
     if (store?.settings?.nmId) {
-        params.append('nmId', store.settings.nmId);
+        params.push(`nmId=${store.settings.nmId}`);
         log(`[WB] 🛍️ Фильтр по товару: ${store.settings.nmId}`);
     }
     
-    return `${baseUrl}?${params.toString()}`;
+    return `${baseUrl}?${params.join('&')}`;
 }
 
 // --- ВСТАВКА В ФУНКЦИЮ saveStore ---
