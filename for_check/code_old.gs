@@ -2687,13 +2687,21 @@ function deleteAllTriggers() {
 /**
  * Создаёт или обновляет индивидуальный триггер для магазина
  * @param {Object} store - объект магазина
- * @param {number} intervalMinutes - интервал в минутах (по умолчанию 240)
+ * @param {number} intervalMinutes - интервал в минутах (по умолчанию 30)
  */
-function ensureStoreTrigger(store, intervalMinutes = 240) {
+function ensureStoreTrigger(store, intervalMinutes = 30) {
   if (!store || !store.id) {
     log(`[Trigger] ❌ Нет данных магазина для создания триггера`);
     return false;
   }
+  
+  // Валидация интервала - Google Apps Script поддерживает только 1, 5, 10, 15, 30 минут
+  const validIntervals = [1, 5, 10, 15, 30];
+  if (!validIntervals.includes(intervalMinutes)) {
+    log(`[Trigger] ⚠️ Недопустимый интервал ${intervalMinutes} минут. Используем 30 минут по умолчанию.`);
+    intervalMinutes = 30;
+  }
+  
   const functionName = `processStore_${store.id}`;
   try {
     deleteStoreTrigger(store.id); // Удаляем старый прежде

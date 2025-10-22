@@ -5,6 +5,30 @@
  * WB API v2, Ozon API и Google Apps Script best practices.
  */
 
+/**
+ * Debug logging function
+ * @param {string} message - Debug message
+ * @param {string} category - Debug category
+ */
+function logDebug(message, category = 'DEBUG') {
+  if (isDevMode()) {
+    log(`[${category}] ${message}`);
+  }
+}
+
+/**
+ * Проверяет, включен ли режим разработки
+ * @returns {boolean} true если включен режим отладки
+ */
+function isDevMode() {
+  try {
+    const devMode = PropertiesService.getScriptProperties().getProperty('DEV_MODE');
+    return devMode === 'true' || devMode === '1';
+  } catch (e) {
+    return false; // По умолчанию режим отладки выключен
+  }
+}
+
 // ======================================================================
 // ========================== WB API V2 ИСПРАВЛЕНИЯ ====================
 // ======================================================================
