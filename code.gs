@@ -167,6 +167,13 @@ function onOpen(e) {
   storeTriggerSubMenu.addItem('🔧 Проверка целостности системы', 'runTriggerIntegrityCheck');
   menu.addSubMenu(storeTriggerSubMenu);
   
+  // Меню для ночного обновления названий товаров
+  const nightlyUpdateSubMenu = ui.createMenu('🌙 Ночное обновление названий');
+  nightlyUpdateSubMenu.addItem('⏰ Запланировать ночное обновление', 'scheduleNightlyProductNameUpdate');
+  nightlyUpdateSubMenu.addItem('🚀 Запустить обновление сейчас', 'performNightlyProductNameUpdate');
+  nightlyUpdateSubMenu.addItem('🔍 Найти товары без названий', 'showProductsWithoutNames');
+  menu.addSubMenu(nightlyUpdateSubMenu);
+  
   menu.addSeparator();
   menu.addItem('🐞 Показать/Скрыть лог отладки', 'toggleLogSheet');
   menu.addToUi();
@@ -3180,4 +3187,360 @@ function runTriggerIntegrityCheck() {
     log(`[Menu] ❌ Ошибка проверки целостности: ${e.message}`);
     SpreadsheetApp.getUi().alert('Ошибка', `Ошибка проверки целостности: ${e.message}`, SpreadsheetApp.getUi().ButtonSet.OK);
   }
+}
+
+// ============ СИСТЕМА НОЧНОЙ ОБРАБОТКИ НАЗВАНИЙ ТОВАРОВ ============
+
+/**
+ * Планирует ночное обновление названий товаров
+ * Запускается каждую ночь в 2:00 для минимальной нагрузки на API
+ * Обрабатывает все товары в БД без названий
+ */
+function scheduleNightlyProductNameUpdate() {
+  try {
+    // Удаляем предыдущие ночные триггеры
+    const triggers = ScriptApp.getProjectTriggers();
+    triggers.forEach(trigger => {
+      if (trigger.getHandlerFunction() === 'performNightlyProductNameUpdate') {
+        ScriptApp.deleteTrigger(trigger);
+      }
+    });
+    
+    // Создаем новый триггер на 2:00 ночи
+    ScriptApp.newTrigger('performNightlyProductNameUpdate')
+      .timeBased()
+      .everyDays(1)
+      .atHour(2)
+      .create();
+    
+    log('[Nightly Update] ⏰ Запланировано ночное обновление названий товаров на 2:00');
+    
+  } catch (e) {
+    log(`[Nightly Update] ❌ Ошибка планирования ночного обновления: ${e.message}`);
+  }
+}
+
+/**
+ * Основная функция ночного обновления
+ * Сканирует все листы отзывов, находит товары без названий
+ * Группирует по маркетплейсам для батчевой обработки
+ * Обновляет названия через Content API
+ */
+function performNightlyProductNameUpdate() {
+  try {
+    log('[Nightly Update] 🌙 Запуск ночного обновления названий товаров');
+    
+    const productsWithoutNames = getProductsWithoutNames();
+    
+    if (productsWithoutNames.wb.length === 0 && productsWithoutNames.ozon.length === 0) {
+      log('[Nightly Update] ✅ Все товары имеют названия, обновление не требуется');
+      return;
+    }
+    
+    log(`[Nightly Update] 📊 Найдено товаров без названий: WB=${productsWithoutNames.wb.length}, Ozon=${productsWithoutNames.ozon.length}`);
+    
+    // Обрабатываем WB товары
+    if (productsWithoutNames.wb.length > 0) {
+      await updateWbProductNames(productsWithoutNames.wb, productsWithoutNames.sheets);
+    }
+    
+    // Обрабатываем Ozon товары
+    if (productsWithoutNames.ozon.length > 0) {
+      await updateOzonProductNames(productsWithoutNames.ozon, productsWithoutNames.sheets);
+    }
+    
+    log('[Nightly Update] ✅ Ночное обновление названий товаров завершено');
+    
+  } catch (e) {
+    log(`[Nightly Update] ❌ Ошибка ночного обновления: ${e.message}`);
+  }
+}
+
+/**
+ * Сканирует все листы и возвращает товары без названий
+ * @returns {Object} {wb: [nmIds], ozon: [offerIds], sheets: [sheetData]}
+ */
+function getProductsWithoutNames() {
+  try {
+    const wbProducts = [];
+    const ozonProducts = [];
+    const sheetData = [];
+    
+    const stores = getStores();
+    
+    stores.forEach(store => {
+      const sheetName = `Отзывы (${store.name})`;
+      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+      
+      if (!sheet) return;
+      
+      const lastRow = sheet.getLastRow();
+      if (lastRow < 2) return;
+      
+      const data = sheet.getRange(2, 1, lastRow - 1, 6).getValues(); // Артикул, Название товара, Ссылка, Оценка, Текст отзыва, Подобранный ответ
+      
+      data.forEach((row, index) => {
+        const productId = row[0]; // Артикул
+        const productName = row[1]; // Название товара
+        const productUrl = row[2]; // Ссылка
+        
+        if (!productId || productName === 'Не указано') {
+          const rowData = {
+            storeId: store.id,
+            storeName: store.name,
+            marketplace: store.marketplace,
+            sheetName: sheetName,
+            rowIndex: index + 2, // +2 потому что начинаем с 2-й строки
+            productId: productId,
+            productUrl: productUrl
+          };
+          
+          if (store.marketplace === 'WB') {
+            wbProducts.push(productId);
+          } else if (store.marketplace === 'OZON') {
+            ozonProducts.push(productId);
+          }
+          
+          sheetData.push(rowData);
+        }
+      });
+    });
+    
+    return {
+      wb: wbProducts,
+      ozon: ozonProducts,
+      sheets: sheetData
+    };
+    
+  } catch (e) {
+    log(`[Nightly Update] ❌ Ошибка сканирования товаров без названий: ${e.message}`);
+    return { wb: [], ozon: [], sheets: [] };
+  }
+}
+
+/**
+ * Обновляет названия товаров прямо в Google Sheets
+ * @param {Object} productData - Данные о товарах с новыми названиями
+ */
+function updateProductNamesInSheets(productData) {
+  try {
+    const updates = {};
+    
+    // Группируем обновления по листам
+    productData.forEach(item => {
+      if (!updates[item.sheetName]) {
+        updates[item.sheetName] = [];
+      }
+      updates[item.sheetName].push({
+        row: item.rowIndex,
+        column: 2, // Столбец "Название товара"
+        value: item.productName
+      });
+    });
+    
+    // Выполняем batch обновления для каждого листа
+    Object.keys(updates).forEach(sheetName => {
+      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+      if (!sheet) return;
+      
+      const sheetUpdates = updates[sheetName];
+      sheetUpdates.forEach(update => {
+        sheet.getRange(update.row, update.column).setValue(update.value);
+      });
+      
+      log(`[Nightly Update] 📝 Обновлено ${sheetUpdates.length} названий в листе "${sheetName}"`);
+    });
+    
+  } catch (e) {
+    log(`[Nightly Update] ❌ Ошибка обновления названий в листах: ${e.message}`);
+  }
+}
+
+/**
+ * Обновляет названия товаров WB через Content API
+ * @param {Array} nmIds - Массив nmId товаров
+ * @param {Array} sheetData - Данные о строках в листах
+ */
+async function updateWbProductNames(nmIds, sheetData) {
+  try {
+    const stores = getStores().filter(s => s.marketplace === 'WB');
+    if (stores.length === 0) return;
+    
+    const store = stores[0]; // Берем первый WB магазин для API ключа
+    const apiKey = store.credentials?.apiKey;
+    
+    if (!apiKey) {
+      log('[Nightly Update] ❌ Нет API ключа для WB');
+      return;
+    }
+    
+    // Обрабатываем по 100 товаров за раз
+    const batchSize = 100;
+    const productData = [];
+    
+    for (let i = 0; i < nmIds.length; i += batchSize) {
+      const batch = nmIds.slice(i, i + batchSize);
+      
+      try {
+        const response = await fetchWbProductNames(apiKey, batch);
+        
+        if (response && response.cards) {
+          response.cards.forEach(card => {
+            const productInfo = {
+              productId: card.nm_id,
+              productName: card.name || 'Не указано',
+              sheetData: sheetData.filter(s => s.productId === card.nm_id)
+            };
+            productData.push(productInfo);
+          });
+        }
+        
+        // Задержка между запросами
+        if (i + batchSize < nmIds.length) {
+          Utilities.sleep(1000);
+        }
+        
+      } catch (e) {
+        log(`[Nightly Update] ❌ Ошибка получения названий WB (batch ${i}-${i + batchSize}): ${e.message}`);
+      }
+    }
+    
+    // Обновляем листы
+    updateProductNamesInSheets(productData.flatMap(p => p.sheetData.map(s => ({
+      ...s,
+      productName: p.productName
+    }))));
+    
+    log(`[Nightly Update] ✅ Обновлено ${productData.length} названий WB товаров`);
+    
+  } catch (e) {
+    log(`[Nightly Update] ❌ Ошибка обновления названий WB: ${e.message}`);
+  }
+}
+
+/**
+ * Обновляет названия товаров Ozon через Product API
+ * @param {Array} offerIds - Массив offer_id товаров
+ * @param {Array} sheetData - Данные о строках в листах
+ */
+async function updateOzonProductNames(offerIds, sheetData) {
+  try {
+    const stores = getStores().filter(s => s.marketplace === 'OZON');
+    if (stores.length === 0) return;
+    
+    const store = stores[0]; // Берем первый Ozon магазин для API ключей
+    const clientId = store.credentials?.clientId;
+    const apiKey = store.credentials?.apiKey;
+    
+    if (!clientId || !apiKey) {
+      log('[Nightly Update] ❌ Нет API ключей для Ozon');
+      return;
+    }
+    
+    // Обрабатываем по 100 товаров за раз
+    const batchSize = 100;
+    const productData = [];
+    
+    for (let i = 0; i < offerIds.length; i += batchSize) {
+      const batch = offerIds.slice(i, i + batchSize);
+      
+      try {
+        const response = await fetchOzonProductNames(clientId, apiKey, batch);
+        
+        if (response && response.result) {
+          response.result.forEach(product => {
+            const productInfo = {
+              productId: product.offer_id,
+              productName: product.name || 'Не указано',
+              sheetData: sheetData.filter(s => s.productId === product.offer_id)
+            };
+            productData.push(productInfo);
+          });
+        }
+        
+        // Задержка между запросами
+        if (i + batchSize < offerIds.length) {
+          Utilities.sleep(1000);
+        }
+        
+      } catch (e) {
+        log(`[Nightly Update] ❌ Ошибка получения названий Ozon (batch ${i}-${i + batchSize}): ${e.message}`);
+      }
+    }
+    
+    // Обновляем листы
+    updateProductNamesInSheets(productData.flatMap(p => p.sheetData.map(s => ({
+      ...s,
+      productName: p.productName
+    }))));
+    
+    log(`[Nightly Update] ✅ Обновлено ${productData.length} названий Ozon товаров`);
+    
+  } catch (e) {
+    log(`[Nightly Update] ❌ Ошибка обновления названий Ozon: ${e.message}`);
+  }
+}
+
+/**
+ * Получает названия товаров WB через Content API
+ * @param {string} apiKey - API ключ WB
+ * @param {Array} nmIds - Массив nmId товаров
+ * @returns {Object} Ответ API с названиями товаров
+ */
+async function fetchWbProductNames(apiKey, nmIds) {
+  const url = 'https://suppliers-api.wildberries.ru/content/v2/cards/cursor/list';
+  
+  const payload = {
+    sort: {
+      cursor: {
+        limit: nmIds.length
+      },
+      filter: {
+        withPhoto: -1
+      },
+      find: {
+        nmID: nmIds
+      }
+    }
+  };
+  
+  const options = {
+    method: 'POST',
+    headers: {
+      'Authorization': apiKey,
+      'Content-Type': 'application/json'
+    },
+    payload: JSON.stringify(payload)
+  };
+  
+  const response = await UrlFetchApp.fetch(url, options);
+  return JSON.parse(response.getContentText());
+}
+
+/**
+ * Получает названия товаров Ozon через Product API
+ * @param {string} clientId - Client ID Ozon
+ * @param {string} apiKey - API ключ Ozon
+ * @param {Array} offerIds - Массив offer_id товаров
+ * @returns {Object} Ответ API с названиями товаров
+ */
+async function fetchOzonProductNames(clientId, apiKey, offerIds) {
+  const url = 'https://api-seller.ozon.ru/v2/product/info/list';
+  
+  const payload = {
+    offer_id: offerIds
+  };
+  
+  const options = {
+    method: 'POST',
+    headers: {
+      'Client-Id': clientId,
+      'Api-Key': apiKey,
+      'Content-Type': 'application/json'
+    },
+    payload: JSON.stringify(payload)
+  };
+  
+  const response = await UrlFetchApp.fetch(url, options);
+  return JSON.parse(response.getContentText());
 }
