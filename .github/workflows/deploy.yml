@@ -124,6 +124,8 @@ jobs:
           "code.gs"
           "ozon_functions.gs"
           "tests.gs"
+          "api_fixes.gs"
+          "api_testing.gs"
           "StoreManagerSidebar.html"
           "README_GITHUB.md"
           "DEPLOYMENT_GUIDE.md"
