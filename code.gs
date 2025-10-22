@@ -372,481 +372,8 @@ function getDateRange(days = 30) {
     };
 }
 
-// ============ WB PAGINATION FUNCTIONS ============
-
-/**
- * НОВАЯ ФУНКЦИЯ: Получение ВСЕХ подходящих отзывов WB с полной пагинацией "до победного"
- * @param {string} apiKey - WB API ключ
- * @param {boolean} includeAnswered - Включать ли отвеченные отзывы
- * @param {Object} store - Настройки магазина для фильтрации по дате
- * @returns {Array} Массив всех подходящих отзывов
- */
-function getWbFeedbacksWithFullPagination(apiKey, includeAnswered = false, store = null) {
-    log(`[WB] 🚀 Запуск ПОЛНОЙ пагинации "до победного" (includeAnswered=${includeAnswered})...`);
-    
-    try {
-        if (includeAnswered) {
-            return getWbAllFeedbacksWithPagination(apiKey, store);
-        } else {
-            return getWbUnansweredFeedbacksWithPagination(apiKey, store);
-        }
-    } catch (e) {
-        log(`[WB] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.stack}`);
-        return [];
-    }
-}
-
-/**
- * Получение всех отзывов (отвеченные + неотвеченные) с пагинацией
- */
-function getWbAllFeedbacksWithPagination(apiKey, store = null) {
-    log(`[WB] Получение ВСЕХ отзывов (отвеченные + неотвеченные) с пагинацией...`);
-    
-    const answeredFeedbacks = getWbFeedbacksByType(apiKey, true, store);   // isAnswered=true
-    const unansweredFeedbacks = getWbFeedbacksByType(apiKey, false, store); // isAnswered=false
-    
-    const allFeedbacks = [...answeredFeedbacks, ...unansweredFeedbacks];
-    
-    // Удаляем дубликаты по ID
-    const uniqueFeedbacks = [];
-    const seenIds = new Set();
-    allFeedbacks.forEach(fb => {
-        if (!seenIds.has(fb.id)) {
-            seenIds.add(fb.id);
-            uniqueFeedbacks.push(fb);
-        }
-    });
-    
-    // Сортируем по дате (новые первыми)
-    uniqueFeedbacks.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
-    
-    log(`[WB] ✅ Получено ${uniqueFeedbacks.length} уникальных отзывов (отвеченные: ${answeredFeedbacks.length}, неотвеченные: ${unansweredFeedbacks.length})`);
-    return uniqueFeedbacks;
-}
-
-/**
- * Получение только неотвеченных отзывов с пагинацией
- */
-function getWbUnansweredFeedbacksWithPagination(apiKey, store = null) {
-    log(`[WB] Получение только НЕОТВЕЧЕННЫХ отзывов с пагинацией...`);
-    return getWbFeedbacksByType(apiKey, false, store);
-}
-
-/**
- * ЯДРО ПАГИНАЦИИ: Получение отзывов определенного типа с полным перебором страниц
- * @param {string} apiKey - API ключ
- * @param {boolean} isAnswered - true для отвеченных, false для неотвеченных
- * @param {Object} store - Настройки магазина для фильтрации по дате
- * @returns {Array} Все подходящие отзывы
- */
-function getWbFeedbacksByType(apiKey, isAnswered, store = null) {
-    const type = isAnswered ? 'отвеченные' : 'неотвеченные';
-    log(`[WB] 📖 Начинаю УМНУЮ пагинацию для ${type} отзывов...`);
-    
-    // 🚀 ОПРЕДЕЛЯЕМ СТРАТЕГИЮ на основе наличия даты фильтрации
-    const hasDateFilter = store && store.settings && store.settings.startDate;
-    if (hasDateFilter) {
-        log(`[WB] 🎯 УМНАЯ СТРАТЕГИЯ: есть дата фильтра ${store.settings.startDate} - используем адаптивную пагинацию`);
-        return getWbFeedbacksWithAdaptivePagination(apiKey, isAnswered, store);
-    } else {
-        log(`[WB] 🔄 СТАНДАРТНАЯ СТРАТЕГИЯ: нет даты фильтра - используем обычную пагинацию`);
-        return getWbFeedbacksWithStandardPagination(apiKey, isAnswered, store);
-    }
-}
-
-/**
- * 🚀 НОВАЯ ФУНКЦИЯ: Адаптивная пагинация с оптимизацией для поиска по датам
- */
-function getWbFeedbacksWithAdaptivePagination(apiKey, isAnswered, store) {
-    const type = isAnswered ? 'отвеченные' : 'неотвеченные';
-    const targetDate = new Date(store.settings.startDate);
-    
-    log(`[WB Adaptive] 🎯 Цель: найти отзывы начиная с ${store.settings.startDate}`);
-    
-    let allFeedbacks = [];
-    let currentSkip = 0;
-    let pageNumber = 1;
-    const take = WB_CONFIG.API_LIMITS.PAGINATION_STEP; // 100 отзывов за страницу
-    const maxExecutionTime = 4 * 60 * 1000; // 4 минуты лимит
-    const startTime = Date.now();
-    let consecutiveEmptyPages = 0;
-    let oldestDateSeen = null;
-    let reviewsFoundInDateRange = 0;
-    let reviewsSkippedTooNew = 0;
-    let reviewsSkippedTooOld = 0;
-    let shouldContinuePagination = true;
-    
-    // 🚀 СИСТЕМА ПАМЯТИ СТРАНИЦ: Получаем стартовую позицию
-    const startingPageFromMemory = getStartingPageForStore(store, isAnswered);
-    let pageNumberFromMemory = Math.max(1, startingPageFromMemory);
-    
-    // Если продолжаем с сохранённой позиции, корректируем начальные значения
-    if (startingPageFromMemory > 0) {
-      currentSkip = startingPageFromMemory * take;
-      pageNumber = pageNumberFromMemory;
-      log(`[WB Adaptive] 🔄 ПРОДОЛЖЕНИЕ с сохранённой страницы ${pageNumber} (skip=${currentSkip})`);
-    }
-
-    // 🎯 Стратегия: Динамическое увеличение skip для быстрого поиска нужного периода
-    let skipMultiplier = 1;
-    let foundTargetPeriod = false;
-    
-    while (shouldContinuePagination && pageNumber <= 200) { // Увеличен лимит для адаптивного режима
-        const elapsedTime = Date.now() - startTime;
-        if (elapsedTime > maxExecutionTime) {
-            log(`[WB Adaptive] ⏱️ ТАЙМАУТ после ${Math.round(elapsedTime/1000)} сек на странице ${pageNumber}`);
-            break;
-        }
-        
-        log(`[WB Adaptive] 📄 Страница ${pageNumber} (skip=${currentSkip}, найдено в диапазоне: ${reviewsFoundInDateRange})...`);
-        
-        const pageFeedbacks = getWbFeedbacksPage(apiKey, isAnswered, currentSkip, take, pageNumber);
-        if (!pageFeedbacks || pageFeedbacks.length === 0) {
-            consecutiveEmptyPages++;
-            if (consecutiveEmptyPages >= 5) {
-                log(`[WB Adaptive] ✅ Завершено: 5 пустых страниц подряд`);
-                break;
-            }
-            currentSkip += take;
-            pageNumber++;
-            continue;
-        } else {
-            consecutiveEmptyPages = 0;
-        }
-        
-        // 📊 АНАЛИЗ ДАТ НА СТРАНИЦЕ
-        let pageHasTargetPeriod = false;
-        let oldestOnPage = null;
-        let newestOnPage = null;
-        
-        pageFeedbacks.forEach(fb => {
-            const reviewDate = new Date(fb.createdDate);
-            if (!oldestOnPage || reviewDate < oldestOnPage) oldestOnPage = reviewDate;
-            if (!newestOnPage || reviewDate > newestOnPage) newestOnPage = reviewDate;
-            
-            if (!oldestDateSeen || reviewDate < oldestDateSeen) oldestDateSeen = reviewDate;
-            
-            if (reviewDate >= targetDate) {
-                pageHasTargetPeriod = true;
-                reviewsFoundInDateRange++;
-            } else if (reviewDate < targetDate) {
-                reviewsSkippedTooOld++;
-            }
-        });
-        
-        log(`[WB Adaptive] 📊 Диапазон страницы: ${oldestOnPage?.toLocaleDateString('ru-RU')} - ${newestOnPage?.toLocaleDateString('ru-RU')}`);
-        
-        // 🎯 РЕШЕНИЕ О СТРАТЕГИИ ПАГИНАЦИИ
-        if (pageHasTargetPeriod) {
-            foundTargetPeriod = true;
-            skipMultiplier = 1; // Возвращаемся к обычной пагинации
-            
-            // Обрабатываем ВСЕ отзывы на этой странице
-            const processedFeedbacks = processFeedbacksPageForWB(pageFeedbacks);
-            allFeedbacks = allFeedbacks.concat(processedFeedbacks);
-            
-            log(`[WB Adaptive] ✅ Найден целевой период! Обработано ${processedFeedbacks.length} отзывов`);
-            
-        } else if (!foundTargetPeriod && newestOnPage && newestOnPage > targetDate) {
-            // Мы все еще слишком "новые" - увеличиваем skip для ускорения
-            reviewsSkippedTooNew += pageFeedbacks.length;
-            if (skipMultiplier < 10) {
-                skipMultiplier = Math.min(skipMultiplier * 2, 10); // Максимум 10x ускорение
-                log(`[WB Adaptive] ⚡ Ускоряю поиск: multiplier=${skipMultiplier} (слишком новые отзывы)`);
-            }
-            
-        } else if (oldestOnPage && oldestOnPage < targetDate) {
-            // Мы достигли слишком "старых" отзывов - можно остановиться
-            log(`[WB Adaptive] 🏁 СТОП: достигли даты ${oldestOnPage.toLocaleDateString('ru-RU')} < целевой ${targetDate.toLocaleDateString('ru-RU')}`);
-            shouldContinuePagination = false;
-            break;
-        }
-        
-        // 🚀 СОХРАНЕНИЕ ПРОГРЕССА: Записываем обработанную страницу
-        updateStorePageProgress(store, isAnswered, pageNumber - 1, false);
-        
-        // Увеличиваем skip с учетом multiplier
-        currentSkip += take * skipMultiplier;
-        pageNumber++;
-        
-        // Безопасная пауза
-        if (pageNumber % 10 === 0) {
-            Utilities.sleep(500);
-        } else {
-            Utilities.sleep(200);
-        }
-    }
-    
-    // 🚀 ЗАВЕРШЕНИЕ ОБРАБОТКИ: Отмечаем что дошли до конца
-    if (!shouldContinuePagination || pageNumber > 200 || oldestDateSeen < targetDate) {
-      updateStorePageProgress(store, isAnswered, pageNumber - 1, true); // Завершена
-      log(`[WB Adaptive] ✅ ОБРАБОТКА ЗАВЕРШЕНА: дошли до конца диапазона`);
-    }
-
-    const totalTime = Date.now() - startTime;
-    log(`[WB Adaptive] 🎯 ИТОГИ: найдено ${reviewsFoundInDateRange} в диапазоне, пропущено ${reviewsSkippedTooNew} новых + ${reviewsSkippedTooOld} старых за ${Math.round(totalTime/1000)} сек`);
-    
-    // Сортировка по дате (новые первыми)
-    allFeedbacks.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
-    
-    return allFeedbacks;
-}
-
-/**
- * 📄 СТАНДАРТНАЯ ПАГИНАЦИЯ: Для случаев без даты фильтрации
- */
-function getWbFeedbacksWithStandardPagination(apiKey, isAnswered, store) {
-    const type = isAnswered ? 'отвеченные' : 'неотвеченные';
-    
-    let allFeedbacks = [];
-    let currentSkip = 0;
-    let pageNumber = 1;
-    const take = WB_CONFIG.API_LIMITS.PAGINATION_STEP; // 100 отзывов за страницу
-    const maxPages = 50; // Ограничение для случаев без даты фильтрации
-    let consecutiveEmptyPages = 0; // Счетчик пустых страниц подряд
-    
-    while (pageNumber <= maxPages) {
-        log(`[WB] 📄 Запрашиваю страницу ${pageNumber} (skip=${currentSkip}, take=${take})...`);
-        
-        // ✅ ИСПРАВЛЕНО: Используем настройки даты из конфига магазина
-        let url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks?isAnswered=${isAnswered}&take=${take}&skip=${currentSkip}&order=dateDesc`;
-        
-        // ✅ ИСПРАВЛЕНО: WB Feedbacks API НЕ поддерживает dateFrom/dateTo параметры
-        // Фильтрация по дате будет выполнена на клиентской стороне после получения данных
-        if (store && store.settings && store.settings.startDate) {
-            log(`[WB] 🗓️ Настроена дата фильтрации: ${store.settings.startDate} (фильтрация будет выполнена после получения данных)`);
-        } else {
-            log(`[WB] 🗓️ Фильтр по дате не применен - получаем все доступные отзывы`);
-        }
-        
-        try {
-            const response = UrlFetchApp.fetch(url, { 
-                method: 'GET', 
-                headers: { 'Authorization': apiKey }, 
-                muteHttpExceptions: true 
-            });
-            
-            const responseCode = response.getResponseCode();
-            const responseBody = response.getContentText();
-            
-            // РАСШИРЕННЫЕ ЛОГИ API ОТВЕТОВ
-            log(`[WB] 🌐 API ответ страница ${pageNumber}: код ${responseCode}, размер тела ${responseBody.length} символов`);
-            
-            if (responseCode !== 200) {
-                log(`[WB] ❌ ОШИБКА на странице ${pageNumber}: Код ${responseCode}. Тело: ${responseBody.substring(0, 500)}`);
-                break;
-            }
-            
-            const json = JSON.parse(responseBody);
-            if (json.error) {
-                log(`[WB] ❌ API ОШИБКА на странице ${pageNumber}: ${json.errorText}. Полный ответ: ${JSON.stringify(json)}`);
-                break;
-            }
-            
-            const pageFeedbacks = json.data?.feedbacks || [];
-            const totalInResponse = json.data?.countUnanswered || json.data?.countAll || 'неизвестно';
-            log(`[WB] 📄 Страница ${pageNumber}: получено ${pageFeedbacks.length} отзывов (всего в системе: ${totalInResponse})`);
-            
-            // ИСПРАВЛЕНИЕ: НЕ останавливаемся при получении 0 отзывов на ранних страницах!
-            // WB API может иметь пустые промежуточные страницы из-за фильтрации isAnswered
-            if (pageFeedbacks.length === 0) {
-                consecutiveEmptyPages++;
-                log(`[WB] ⚠️ Пустая страница ${pageNumber} (${consecutiveEmptyPages} подряд из максимум 5)`);
-                
-                // ИСПРАВЛЕНО: Проверяем 5 пустых страниц подряд перед остановкой (включая первую!)
-                if (consecutiveEmptyPages >= 5) {
-                    log(`[WB] ✅ Пагинация завершена: ${consecutiveEmptyPages} пустых страниц подряд - конец данных`);
-                    break;
-                }
-                
-                log(`[WB] ⏭️ Продолжаем поиск на странице ${pageNumber + 1} (пропустили ${consecutiveEmptyPages} пустых)...`);
-                currentSkip += take;
-                pageNumber++;
-                Utilities.sleep(200);
-                continue; // Переходим к следующей странице
-            } else {
-                // Сбрасываем счетчик при получении данных
-                if (consecutiveEmptyPages > 0) {
-                    log(`[WB] 🎯 Найдены данные на странице ${pageNumber}! Сбрасываю счетчик пустых страниц (было ${consecutiveEmptyPages})`);
-                }
-                consecutiveEmptyPages = 0;
-            }
-            
-            // Конвертируем и фильтруем отзывы
-            const processedFeedbacks = [];
-            let emptyReviewsCount = 0;
-            
-            pageFeedbacks.forEach(fb => {
-                // Проверяем наличие текста ДО обработки
-                const hasText = fb.text && fb.text.trim() && fb.text.trim() !== '(без текста)';
-                
-                if (!hasText) {
-                    emptyReviewsCount++;
-                    if (isDevMode()) {
-                        log(`[WB DEBUG] ⏭️ Пропущен пустой отзыв ID ${fb.id}: текст="${fb.text || '(нет)'}"`);
-                    }
-                    return;
-                }
-                
-                // Обрабатываем отзыв с текстом
-                const actualRating = fb.rating || fb.productValuation || 0;
-                
-                if (isDevMode()) {
-                    const dataType = fb.rating ? 'ОТЗЫВ+ОЦЕНКА' : 'ТОЛЬКО_ОЦЕНКА_ТОВАРА';
-                    log(`[WB DEBUG] ✅ ID ${fb.id}: ${dataType}, rating=${fb.rating}, используем=${actualRating}`);
-                }
-                
-                processedFeedbacks.push({
-                    id: fb.id,
-                    createdDate: fb.createdDate,
-                    rating: actualRating,
-                    text: fb.text,
-                    user: 'N/A',
-                    hasAnswer: !!(fb.answer && fb.answer.text), // ✅ НОВОЕ: проверка наличия ответа для WB
-                    product: {
-                        id: fb.productDetails.nmId,
-                        name: fb.productDetails.productName,
-                        url: `https://www.wildberries.ru/catalog/${fb.productDetails.nmId}/detail.aspx`
-                    }
-                });
-            });
-            
-            log(`[WB] 📄 Страница ${pageNumber}: обработано ${processedFeedbacks.length} подходящих, пропущено ${emptyReviewsCount} пустых`);
-            
-            allFeedbacks = allFeedbacks.concat(processedFeedbacks);
-            
-            // Если получили меньше отзывов чем запрашивали - это последняя страница
-            if (pageFeedbacks.length < take) {
-                log(`[WB] ✅ Последняя страница ${pageNumber}: получено ${pageFeedbacks.length} < ${take}`);
-                break;
-            }
-            
-            currentSkip += take;
-            pageNumber++;
-            
-            // ✅ ПРАВИЛЬНЫЕ RPS ЛИМИТЫ: WB = 400мс между запросами (3 RPS)
-            Utilities.sleep(400);
-            
-            // Дополнительная пауза каждые 10 запросов для стабильности
-            if (pageNumber % 10 === 0) {
-                log(`[WB] 💤 Дополнительная пауза после ${pageNumber} страниц...`);
-                Utilities.sleep(2000);
-            }
-            
-        } catch (e) {
-            log(`[WB] ❌ КРИТИЧЕСКАЯ ОШИБКА на странице ${pageNumber}: ${e.message}`);
-            break;
-        }
-    }
-    
-    if (pageNumber > maxPages) {
-        log(`[WB] ⚠️ ПРЕДУПРЕЖДЕНИЕ: Достигнут максимум страниц (${maxPages})`);
-    }
-    
-    // Сортируем по дате (новые первыми)
-    allFeedbacks.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
-    
-    // ✅ ОБОГАЩАЕМ НАЗВАНИЯМИ ТОВАРОВ из Content API
-    if (allFeedbacks.length > 0 && store && store.credentials && store.credentials.apiKey) {
-        const nmIds = allFeedbacks.map(fb => fb.product.id).filter(id => id);
-        const productNames = getWbProductNames(nmIds, store.credentials.apiKey);
-        
-        if (Object.keys(productNames).length > 0) {
-            allFeedbacks.forEach(fb => {
-                if (productNames[fb.product.id]) {
-                    fb.product.name = productNames[fb.product.id];
-                }
-            });
-            log(`[WB] 🏷️ Названия товаров обновлены для ${Object.keys(productNames).length} отзывов`);
-        }
-    }
-    
-    log(`[WB] 🎯 ИТОГО для ${type}: получено ${allFeedbacks.length} подходящих отзывов за ${pageNumber - 1} страниц`);
-    return allFeedbacks;
-}
-
-// ============ WB HELPER FUNCTIONS FOR ADAPTIVE PAGINATION ============
-
-/**
- * 🆕 HELPER ФУНКЦИЯ: Получение одной страницы отзывов WB
- * @param {string} apiKey - WB API ключ
- * @param {boolean} isAnswered - Флаг отвеченных отзывов
- * @param {number} currentSkip - Смещение (skip)
- * @param {number} take - Количество записей
- * @param {number} pageNumber - Номер страницы (для логирования)
- * @returns {Array|null} Массив отзывов или null при ошибке
- */
-function getWbFeedbacksPage(apiKey, isAnswered, currentSkip, take, pageNumber) {
-  try {
-    let url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks?isAnswered=${isAnswered}&take=${take}&skip=${currentSkip}&order=dateDesc`;
-    
-    const response = UrlFetchApp.fetch(url, { 
-      method: 'GET', 
-      headers: { 'Authorization': apiKey }, 
-      muteHttpExceptions: true 
-    });
-    
-    const responseCode = response.getResponseCode();
-    const responseBody = response.getContentText();
-    
-    if (responseCode !== 200) {
-      log(`[WB Helper] ❌ Ошибка на странице ${pageNumber}: код ${responseCode}`);
-      return null;
-    }
-    
-    const json = JSON.parse(responseBody);
-    if (json.error) {
-      log(`[WB Helper] ❌ API ошибка на странице ${pageNumber}: ${json.errorText}`);
-      return null;
-    }
-    
-    return json.data?.feedbacks || [];
-    
-  } catch (e) {
-    log(`[WB Helper] ❌ Критическая ошибка на странице ${pageNumber}: ${e.message}`);
-    return null;
-  }
-}
-
-/**
- * 🆕 HELPER ФУНКЦИЯ: Обработка страницы отзывов WB в формат для адаптивной пагинации
- * @param {Array} pageFeedbacks - Сырые данные отзывов с API
- * @returns {Array} Обработанные отзывы
- */
-function processFeedbacksPageForWB(pageFeedbacks) {
-  const processedFeedbacks = [];
-  
-  pageFeedbacks.forEach(fb => {
-    // Проверяем наличие текста ДО обработки
-    const hasText = fb.text && fb.text.trim() && fb.text.trim() !== '(без текста)';
-    
-    if (!hasText) {
-      if (isDevMode()) {
-        log(`[WB Helper DEBUG] ⏭️ Пропущен пустой отзыв ID ${fb.id}: текст="${fb.text || '(нет)'}"`);
-      }
-      return; // Пропускаем пустые отзывы
-    }
-    
-    // Обрабатываем отзыв с текстом
-    const actualRating = fb.rating || fb.productValuation || 0;
-    
-    processedFeedbacks.push({
-      id: fb.id,
-      createdDate: fb.createdDate,
-      rating: actualRating,
-      text: fb.text,
-      user: 'N/A',
-      hasAnswer: !!(fb.answer && fb.answer.text), // ✅ проверка наличия ответа для WB
-      product: {
-        id: fb.productDetails.nmId,
-        name: fb.productDetails.productName,
-        url: `https://www.wildberries.ru/catalog/${fb.productDetails.nmId}/detail.aspx`
-      }
-    });
-  });
-  
-  return processedFeedbacks;
-}
+// ============ WB - ПРОСТАЯ ПАГИНАЦИЯ ============
+// 🚀 ВСЕ СЛОЖНЫЕ ФУНКЦИИ УДАЛЕНЫ! Остается только простая версия в getWbFeedbacks() ниже
 
 // ============ HELPER FUNCTIONS FOR API TESTING ============
 function testWbContentApiAccess(apiKey) {
@@ -1863,94 +1390,101 @@ function sendAnswer(store, feedbackId, text) {
 // ======================================================================
 
 /**
- * ГЛАВНАЯ ФУНКЦИЯ WB: Получение отзывов с ПОЛНОЙ пагинацией
- * Теперь использует новые функции с пагинацией "до победного"!
+ * 🚀 УПРОЩЕННАЯ ФУНКЦИЯ WB: Получение отзывов по официальной документации
+ * Использует простую пагинацию take/skip согласно WB API docs
  * @param {string} apiKey - WB API ключ
- * @param {boolean} includeAnswered - Включать ли отвеченные отзывы
+ * @param {boolean} includeAnswered - Включать ли отвеченные отзывы  
  * @param {Object} store - Настройки магазина для фильтрации по дате
  * @returns {Array} Массив всех подходящих отзывов
  */
 function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
-    log(`[WB] 🚀 ПРОСТОЕ получение отзывов WB (includeAnswered=${includeAnswered})`);
+    log(`[WB] 🚀 ПРОСТАЯ ПАГИНАЦИЯ WB (includeAnswered=${includeAnswered})`);
+    
+    const MAX_TAKE = 5000; // Максимум по документации WB API
+    const MAX_SKIP = 199990; // Максимум по документации WB API
+    let allFeedbacks = [];
+    let skip = 0;
+    let hasMoreData = true;
     
     try {
-        // Простой запрос WB API - без сложной пагинации
-        const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks?isAnswered=${includeAnswered}&take=1000&order=dateDesc`;
-        
-        log(`[WB] 📤 Запрос: ${url}`);
-        
-        const response = UrlFetchApp.fetch(url, { 
-            method: 'GET', 
-            headers: { 'Authorization': apiKey }, 
-            muteHttpExceptions: true 
-        });
-        
-        const responseCode = response.getResponseCode();
-        const responseBody = response.getContentText();
-        
-        log(`[WB] 📥 Ответ: код ${responseCode}, размер ${responseBody.length} символов`);
-        
-        if (responseCode !== 200) {
-            log(`[WB] ❌ ОШИБКА: Код ${responseCode}. Тело: ${responseBody.substring(0, 500)}`);
-            return [];
-        }
-        
-        const json = JSON.parse(responseBody);
-        if (json.error) {
-            log(`[WB] ❌ API ОШИБКА: ${json.errorText}`);
-            return [];
-        }
-        
-        const feedbacks = json.data?.feedbacks || [];
-        log(`[WB] 📄 Получено отзывов: ${feedbacks.length}`);
-        
-        // Обрабатываем отзывы (убираем пустые)
-        const processedFeedbacks = [];
-        let emptyCount = 0;
-        
-        feedbacks.forEach(fb => {
-            // Проверяем наличие текста
-            const hasText = fb.text && fb.text.trim() && fb.text.trim() !== '(без текста)';
+        while (hasMoreData && skip <= MAX_SKIP) {
+            // Официальный endpoint WB API с правильными параметрами
+            const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks?isAnswered=${includeAnswered}&take=${MAX_TAKE}&skip=${skip}&order=dateDesc`;
             
-            if (!hasText) {
-                emptyCount++;
-                return;
+            log(`[WB] 📄 Страница: skip=${skip}, take=${MAX_TAKE}`);
+            
+            const response = UrlFetchApp.fetch(url, { 
+                method: 'GET', 
+                headers: { 'Authorization': apiKey }, 
+                muteHttpExceptions: true 
+            });
+            
+            const responseCode = response.getResponseCode();
+            
+            if (responseCode !== 200) {
+                const responseBody = response.getContentText();
+                log(`[WB] ❌ ОШИБКА: Код ${responseCode}. Тело: ${responseBody.substring(0, 200)}`);
+                break;
             }
             
-            // Добавляем отзыв
-            const actualRating = fb.rating || fb.productValuation || 0;
+            const json = JSON.parse(response.getContentText());
+            if (json.error) {
+                log(`[WB] ❌ API ОШИБКА: ${json.errorText}`);
+                break;
+            }
             
-            processedFeedbacks.push({
-                id: fb.id,
-                createdDate: fb.createdDate,
-                rating: actualRating,
-                text: fb.text,
-                user: 'N/A',
-                hasAnswer: !!(fb.answer && fb.answer.text),
-                product: {
-                    id: fb.productDetails?.nmId,
-                    name: fb.productDetails?.productName || 'Не указано',
-                    url: `https://www.wildberries.ru/catalog/${fb.productDetails?.nmId}/detail.aspx`
-                }
+            const feedbacks = json.data?.feedbacks || [];
+            log(`[WB] 📊 Получено ${feedbacks.length} отзывов на странице skip=${skip}`);
+            
+            if (feedbacks.length === 0) {
+                log(`[WB] ✅ Пустая страница - завершаем пагинацию`);
+                hasMoreData = false;
+                break;
+            }
+            
+            // Обрабатываем отзывы (убираем пустые)
+            feedbacks.forEach(fb => {
+                const hasText = fb.text && fb.text.trim() && fb.text.trim() !== '(без текста)';
+                if (!hasText) return;
+                
+                allFeedbacks.push({
+                    id: fb.id,
+                    createdDate: fb.createdDate,
+                    rating: fb.rating || fb.productValuation || 0,
+                    text: fb.text,
+                    user: 'N/A',
+                    hasAnswer: !!(fb.answer && fb.answer.text),
+                    product: {
+                        id: fb.productDetails?.nmId,
+                        name: fb.productDetails?.productName || 'Не указано',
+                        url: `https://www.wildberries.ru/catalog/${fb.productDetails?.nmId}/detail.aspx`
+                    }
+                });
             });
-        });
+            
+            // Переходим к следующей странице
+            skip += MAX_TAKE;
+            hasMoreData = (feedbacks.length === MAX_TAKE); // Если получили полную страницу, возможно есть еще
+            
+            // Лимит по времени выполнения
+            Utilities.sleep(100); // Пауза между запросами
+        }
         
-        log(`[WB] ✅ Обработано ${processedFeedbacks.length} подходящих отзывов, пропущено ${emptyCount} пустых`);
+        log(`[WB] ✅ ЗАВЕРШЕНО: ${allFeedbacks.length} отзывов получено простой пагинацией`);
         
         // Фильтрация по дате если есть
         if (store && store.settings && store.settings.startDate) {
             const startDate = new Date(store.settings.startDate);
-            const filtered = processedFeedbacks.filter(fb => new Date(fb.createdDate) >= startDate);
-            log(`[WB] 🗓️ Фильтр по дате ${store.settings.startDate}: осталось ${filtered.length} из ${processedFeedbacks.length}`);
+            const filtered = allFeedbacks.filter(fb => new Date(fb.createdDate) >= startDate);
+            log(`[WB] 🗓️ Фильтр по дате ${store.settings.startDate}: осталось ${filtered.length} из ${allFeedbacks.length}`);
             return filtered;
         }
         
-        return processedFeedbacks;
+        return allFeedbacks;
         
     } catch (e) {
         log(`[WB] ⛔ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
-        log(`[WB] Stack: ${e.stack}`);
-        return [];
+        return allFeedbacks; // Возвращаем что успели получить
     }
 }
 
@@ -2089,45 +1623,36 @@ function sendWbApiRequest(url, payload, apiKey, methodName) {
 // ======================================================================
 
 /**
- * Fetches reviews from Ozon API
+ * 🚀 ИСПРАВЛЕННАЯ ФУНКЦИЯ: Главная функция получения отзывов Ozon с адаптивной пагинацией
+ * Интегрирует новые функции из ozon_functions.gs для правильной работы
  * @param {string} clientId - Ozon Client ID
  * @param {string} apiKey - Ozon API Key
  * @param {boolean} includeAnswered - Whether to include answered reviews
+ * @param {Object} store - Store configuration with date filtering and other settings
  * @returns {Array} Array of normalized feedback objects
  */
 function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = null) {
-    log(`[Ozon] 🚀 ЗАПУСК полной пагинации для получения ВСЕХ отзывов (включая отвеченные: ${includeAnswered})`);
+    log(`[Ozon] 🚀 ЗАПУСК ИСПРАВЛЕННОЙ пагинации для получения отзывов (includeAnswered=${includeAnswered})`);
     
     try {
-        // 🚀 НОВОЕ: Используем стратегию выбора как в WB
-        return getOzonFeedbacksByType(clientId, apiKey, includeAnswered, store);
+        // 🚀 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Используем адаптивную пагинацию из ozon_functions.gs
+        const hasDateFilter = store && store.settings && store.settings.startDate;
+        
+        if (hasDateFilter) {
+            log(`[Ozon] ⚡ Выбрана АДАПТИВНАЯ пагинация (есть дата фильтра: ${store.settings.startDate})`);
+            return getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswered, store);
+        } else {
+            log(`[Ozon] 📊 Выбрана СТАНДАРТНАЯ пагинация (нет даты фильтра)`);
+            return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
+        }
     } catch (e) {
-        log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.stack}`);
+        log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.message}`);
+        log(`[Ozon] Stack trace: ${e.stack}`);
         return [];
     }
 }
 
-/**
- * 🚀 НОВАЯ ФУНКЦИЯ: Выбор стратегии пагинации для Ozon (аналогично WB)
- * @param {string} clientId - Client ID для Ozon API
- * @param {string} apiKey - API Key для Ozon API  
- * @param {boolean} includeAnswered - Включать отвеченные отзывы
- * @param {Object} store - Конфигурация магазина
- */
-function getOzonFeedbacksByType(clientId, apiKey, includeAnswered, store) {
-  log(`[Ozon] 🎯 Определяю стратегию пагинации...`);
-  
-  // Определяем стратегию на основе настроек магазина
-  const hasDateFilter = store?.settings?.startDate;
-  
-  if (hasDateFilter) {
-    log(`[Ozon] ⚡ Выбрана АДАПТИВНАЯ пагинация (есть дата фильтра: ${store.settings.startDate})`);
-    return getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswered, store);
-  } else {
-    log(`[Ozon] 📊 Выбрана СТАНДАРТНАЯ пагинация (нет даты фильтра)`);
-    return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
-  }
-}
+
 
 /**
  * НОВАЯ РЕАЛИЗАЦИЯ: Ozon API с правильной пагинацией через last_id
