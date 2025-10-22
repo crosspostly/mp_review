@@ -2797,3 +2797,316 @@ if (store.isActive) {
 // --- ВСТАВКА В ФУНКЦИЮ deleteStore ---
 // Перед удалением из массива:
 deleteStoreTrigger(storeId);
+
+// ============ НОЧНАЯ ОБРАБОТКА НАЗВАНИЙ ТОВАРОВ ============
+
+/**
+ * 🌙 Планирует ночное обновление названий товаров
+ * Запускается каждую ночь в 2:00 для минимальной нагрузки на API
+ * Обрабатывает все товары в БД без названий
+ */
+function scheduleNightlyProductNameUpdate() {
+  logDebug('🌙 Планирование ночного обновления названий товаров', 'NIGHTLY-UPDATE');
+  
+  try {
+    // Удаляем предыдущие ночные триггеры
+    const triggers = ScriptApp.getProjectTriggers();
+    triggers.forEach(trigger => {
+      if (trigger.getHandlerFunction() === 'performNightlyProductNameUpdate') {
+        ScriptApp.deleteTrigger(trigger);
+      }
+    });
+    
+    // Создаем триггер на 2:00 ночи
+    const trigger = ScriptApp.newTrigger('performNightlyProductNameUpdate')
+      .timeBased()
+      .everyDays(1)
+      .atHour(2)
+      .create();
+    
+    logSuccess(`✅ Создан ночной триггер: ${trigger.getUniqueId()}`, 'NIGHTLY-UPDATE');
+    
+    return true;
+    
+  } catch (error) {
+    logError(`❌ Ошибка планирования ночного обновления: ${error.message}`, 'NIGHTLY-UPDATE');
+    return false;
+  }
+}
+
+/**
+ * 🌙 Основная функция ночного обновления
+ * Сканирует все листы отзывов, находит товары без названий
+ * Группирует по маркетплейсам для батчевой обработки
+ * Обновляет названия через Content API
+ */
+function performNightlyProductNameUpdate() {
+  logDebug('🌙 ЗАПУСК ночного обновления названий товаров', 'NIGHTLY-UPDATE');
+  
+  const startTime = Date.now();
+  const stats = {
+    wb: { processed: 0, updated: 0, errors: 0 },
+    ozon: { processed: 0, updated: 0, errors: 0 },
+    totalSheets: 0
+  };
+  
+  try {
+    // Получаем товары без названий
+    const productsWithoutNames = getProductsWithoutNames();
+    stats.totalSheets = productsWithoutNames.sheets.length;
+    
+    logDebug(`📊 Найдено товаров без названий: WB=${productsWithoutNames.wb.length}, Ozon=${productsWithoutNames.ozon.length}`, 'NIGHTLY-UPDATE');
+    
+    // Обрабатываем WB товары
+    if (productsWithoutNames.wb.length > 0) {
+      const wbStores = getStores().filter(s => s.marketplace === 'wb' && s.isActive);
+      if (wbStores.length > 0) {
+        const wbResult = updateWbProductNames(productsWithoutNames.wb, wbStores[0].credentials.apiKey);
+        stats.wb = wbResult;
+      }
+    }
+    
+    // Обрабатываем Ozon товары
+    if (productsWithoutNames.ozon.length > 0) {
+      const ozonStores = getStores().filter(s => s.marketplace === 'ozon' && s.isActive);
+      if (ozonStores.length > 0) {
+        const ozonResult = updateOzonProductNames(productsWithoutNames.ozon, ozonStores[0].credentials.clientId, ozonStores[0].credentials.apiKey);
+        stats.ozon = ozonResult;
+      }
+    }
+    
+    const duration = Math.round((Date.now() - startTime) / 1000);
+    logSuccess(`🌙 Ночное обновление завершено за ${duration}с: WB=${stats.wb.updated}, Ozon=${stats.ozon.updated}`, 'NIGHTLY-UPDATE');
+    
+    return stats;
+    
+  } catch (error) {
+    logError(`❌ Ошибка ночного обновления: ${error.message}`, 'NIGHTLY-UPDATE');
+    return stats;
+  }
+}
+
+/**
+ * 🔍 Сканирует все листы и возвращает товары без названий
+ * @returns {Object} {wb: [nmIds], ozon: [offerIds], sheets: [sheetData]}
+ */
+function getProductsWithoutNames() {
+  logDebug('🔍 Сканирование товаров без названий', 'NIGHTLY-UPDATE');
+  
+  const result = {
+    wb: [],
+    ozon: [],
+    sheets: []
+  };
+  
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheets = spreadsheet.getSheets();
+    
+    sheets.forEach(sheet => {
+      const sheetName = sheet.getName();
+      
+      // Ищем листы с отзывами (содержат "Отзывы" в названии)
+      if (sheetName.includes('Отзывы')) {
+        const data = sheet.getDataRange().getValues();
+        const headers = data[0];
+        
+        // Находим индексы нужных столбцов
+        const nameIndex = headers.indexOf('Название товара');
+        const productIdIndex = headers.indexOf('Артикул');
+        const marketplaceIndex = headers.indexOf('Маркетплейс');
+        
+        if (nameIndex === -1 || productIdIndex === -1) return;
+        
+        // Сканируем строки
+        for (let i = 1; i < data.length; i++) {
+          const row = data[i];
+          const productName = row[nameIndex];
+          const productId = row[productIdIndex];
+          const marketplace = marketplaceIndex !== -1 ? row[marketplaceIndex] : 'wb';
+          
+          // Если название товара пустое или "Не указано"
+          if (!productName || productName === 'Не указано' || productName.trim() === '') {
+            if (marketplace === 'wb' || marketplace === 'Wildberries') {
+              result.wb.push(productId);
+            } else if (marketplace === 'ozon' || marketplace === 'Ozon') {
+              result.ozon.push(productId);
+            }
+          }
+        }
+        
+        result.sheets.push({
+          name: sheetName,
+          wbCount: result.wb.length,
+          ozonCount: result.ozon.length
+        });
+      }
+    });
+    
+    // Убираем дубликаты
+    result.wb = [...new Set(result.wb)];
+    result.ozon = [...new Set(result.ozon)];
+    
+    logDebug(`📊 Найдено уникальных товаров: WB=${result.wb.length}, Ozon=${result.ozon.length}`, 'NIGHTLY-UPDATE');
+    
+    return result;
+    
+  } catch (error) {
+    logError(`❌ Ошибка сканирования товаров: ${error.message}`, 'NIGHTLY-UPDATE');
+    return result;
+  }
+}
+
+/**
+ * 🛒 Обновляет названия товаров WB
+ * @param {Array} nmIds - Массив nmId товаров
+ * @param {string} apiKey - API ключ WB
+ * @returns {Object} Статистика обновления
+ */
+function updateWbProductNames(nmIds, apiKey) {
+  logDebug(`🛒 Обновление названий WB товаров: ${nmIds.length} шт.`, 'NIGHTLY-UPDATE');
+  
+  const stats = { processed: 0, updated: 0, errors: 0 };
+  
+  try {
+    // Обрабатываем батчами по 100 товаров
+    const batchSize = 100;
+    for (let i = 0; i < nmIds.length; i += batchSize) {
+      const batch = nmIds.slice(i, i + batchSize);
+      
+      try {
+        const productNames = getWbProductNames(batch, apiKey);
+        stats.processed += batch.length;
+        
+        if (productNames && productNames.length > 0) {
+          // Обновляем названия в листах
+          updateProductNamesInSheets(productNames, 'wb');
+          stats.updated += productNames.length;
+        }
+        
+        // Пауза между батчами
+        Utilities.sleep(1000);
+        
+      } catch (error) {
+        stats.errors += batch.length;
+        logError(`❌ Ошибка обновления батча WB: ${error.message}`, 'NIGHTLY-UPDATE');
+      }
+    }
+    
+    logSuccess(`✅ WB обновлено: ${stats.updated}/${stats.processed} товаров`, 'NIGHTLY-UPDATE');
+    return stats;
+    
+  } catch (error) {
+    logError(`❌ Критическая ошибка обновления WB: ${error.message}`, 'NIGHTLY-UPDATE');
+    return stats;
+  }
+}
+
+/**
+ * 📦 Обновляет названия товаров Ozon
+ * @param {Array} offerIds - Массив offer_id товаров
+ * @param {string} clientId - Client ID Ozon
+ * @param {string} apiKey - API ключ Ozon
+ * @returns {Object} Статистика обновления
+ */
+function updateOzonProductNames(offerIds, clientId, apiKey) {
+  logDebug(`📦 Обновление названий Ozon товаров: ${offerIds.length} шт.`, 'NIGHTLY-UPDATE');
+  
+  const stats = { processed: 0, updated: 0, errors: 0 };
+  
+  try {
+    // Обрабатываем батчами по 100 товаров
+    const batchSize = 100;
+    for (let i = 0; i < offerIds.length; i += batchSize) {
+      const batch = offerIds.slice(i, i + batchSize);
+      
+      try {
+        const productNames = getOzonProductNames(batch, clientId, apiKey);
+        stats.processed += batch.length;
+        
+        if (productNames && productNames.length > 0) {
+          // Обновляем названия в листах
+          updateProductNamesInSheets(productNames, 'ozon');
+          stats.updated += productNames.length;
+        }
+        
+        // Пауза между батчами
+        Utilities.sleep(250);
+        
+      } catch (error) {
+        stats.errors += batch.length;
+        logError(`❌ Ошибка обновления батча Ozon: ${error.message}`, 'NIGHTLY-UPDATE');
+      }
+    }
+    
+    logSuccess(`✅ Ozon обновлено: ${stats.updated}/${stats.processed} товаров`, 'NIGHTLY-UPDATE');
+    return stats;
+    
+  } catch (error) {
+    logError(`❌ Критическая ошибка обновления Ozon: ${error.message}`, 'NIGHTLY-UPDATE');
+    return stats;
+  }
+}
+
+/**
+ * 📝 Обновляет названия товаров прямо в Google Sheets
+ * @param {Array} productData - Данные о товарах с новыми названиями
+ * @param {string} marketplace - Тип маркетплейса ('wb' или 'ozon')
+ */
+function updateProductNamesInSheets(productData, marketplace) {
+  logDebug(`📝 Обновление названий в листах: ${productData.length} товаров`, 'NIGHTLY-UPDATE');
+  
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheets = spreadsheet.getSheets();
+    
+    sheets.forEach(sheet => {
+      const sheetName = sheet.getName();
+      
+      // Ищем листы с отзывами
+      if (sheetName.includes('Отзывы')) {
+        const data = sheet.getDataRange().getValues();
+        const headers = data[0];
+        
+        // Находим индексы нужных столбцов
+        const nameIndex = headers.indexOf('Название товара');
+        const productIdIndex = headers.indexOf('Артикул');
+        const marketplaceIndex = headers.indexOf('Маркетплейс');
+        
+        if (nameIndex === -1 || productIdIndex === -1) return;
+        
+        // Создаем маппинг ID -> название
+        const nameMap = {};
+        productData.forEach(product => {
+          const id = marketplace === 'wb' ? product.nmId : product.offer_id;
+          nameMap[id] = product.name;
+        });
+        
+        // Обновляем строки
+        let updatedCount = 0;
+        for (let i = 1; i < data.length; i++) {
+          const row = data[i];
+          const productId = row[productIdIndex];
+          const currentName = row[nameIndex];
+          const rowMarketplace = marketplaceIndex !== -1 ? row[marketplaceIndex] : 'wb';
+          
+          // Проверяем, нужно ли обновить эту строку
+          if (nameMap[productId] && 
+              (!currentName || currentName === 'Не указано' || currentName.trim() === '') &&
+              (rowMarketplace === marketplace || rowMarketplace === marketplace.charAt(0).toUpperCase() + marketplace.slice(1))) {
+            
+            sheet.getRange(i + 1, nameIndex + 1).setValue(nameMap[productId]);
+            updatedCount++;
+          }
+        }
+        
+        if (updatedCount > 0) {
+          logDebug(`📝 Обновлено ${updatedCount} товаров в листе ${sheetName}`, 'NIGHTLY-UPDATE');
+        }
+      }
+    });
+    
+  } catch (error) {
+    logError(`❌ Ошибка обновления названий в листах: ${error.message}`, 'NIGHTLY-UPDATE');
+  }
+}

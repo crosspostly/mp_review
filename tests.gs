@@ -430,6 +430,183 @@ function testStoreManagementFunctions() {
 }
 
 /**
+ * 🧪 Тест функций ночного обновления
+ */
+function testNightlyUpdateFunctions() {
+  logDebug('🧪 Тест функций ночного обновления', 'UNIT-TEST');
+  
+  try {
+    // Тест 1: Планирование ночного обновления
+    testScheduleNightlyUpdate();
+    
+    // Тест 2: Сканирование товаров без названий
+    testGetProductsWithoutNames();
+    
+    // Тест 3: Обновление названий WB
+    testUpdateWbProductNames();
+    
+    // Тест 4: Обновление названий Ozon
+    testUpdateOzonProductNames();
+    
+    logSuccess('✅ Все тесты ночного обновления пройдены', 'UNIT-TEST');
+    return true;
+    
+  } catch (error) {
+    logError(`❌ Тест ночного обновления провален: ${error.message}`, 'UNIT-TEST');
+    return false;
+  }
+}
+
+/**
+ * Тест планирования ночного обновления
+ */
+function testScheduleNightlyUpdate() {
+  logDebug('Тест: Планирование ночного обновления', 'UNIT-TEST');
+  
+  try {
+    const result = scheduleNightlyProductNameUpdate();
+    
+    if (typeof result !== 'boolean') {
+      throw new Error('scheduleNightlyProductNameUpdate должен возвращать boolean');
+    }
+    
+    logSuccess('✅ Планирование ночного обновления работает', 'UNIT-TEST');
+    
+  } catch (error) {
+    logError(`❌ Ошибка планирования ночного обновления: ${error.message}`, 'UNIT-TEST');
+    throw error;
+  }
+}
+
+/**
+ * Тест сканирования товаров без названий
+ */
+function testGetProductsWithoutNames() {
+  logDebug('Тест: Сканирование товаров без названий', 'UNIT-TEST');
+  
+  try {
+    const result = getProductsWithoutNames();
+    
+    if (!result || typeof result !== 'object') {
+      throw new Error('getProductsWithoutNames должен возвращать объект');
+    }
+    
+    if (!Array.isArray(result.wb) || !Array.isArray(result.ozon) || !Array.isArray(result.sheets)) {
+      throw new Error('Неправильная структура результата getProductsWithoutNames');
+    }
+    
+    logSuccess('✅ Сканирование товаров без названий работает', 'UNIT-TEST');
+    
+  } catch (error) {
+    logError(`❌ Ошибка сканирования товаров: ${error.message}`, 'UNIT-TEST');
+    throw error;
+  }
+}
+
+/**
+ * Тест обновления названий WB
+ */
+function testUpdateWbProductNames() {
+  logDebug('Тест: Обновление названий WB', 'UNIT-TEST');
+  
+  try {
+    const nmIds = ['12345', '67890'];
+    const apiKey = 'test-api-key';
+    
+    // Мокаем UrlFetchApp
+    const originalUrlFetchApp = UrlFetchApp;
+    global.UrlFetchApp = {
+      fetch: function(url, options) {
+        return {
+          getResponseCode: function() { return 200; },
+          getContentText: function() { 
+            return JSON.stringify({
+              result: [
+                { nmId: 12345, name: 'Тестовый товар WB 1' },
+                { nmId: 67890, name: 'Тестовый товар WB 2' }
+              ]
+            });
+          }
+        };
+      }
+    };
+    
+    try {
+      const result = updateWbProductNames(nmIds, apiKey);
+      
+      if (!result || typeof result !== 'object') {
+        throw new Error('updateWbProductNames должен возвращать объект');
+      }
+      
+      if (typeof result.processed !== 'number' || typeof result.updated !== 'number' || typeof result.errors !== 'number') {
+        throw new Error('Неправильная структура результата updateWbProductNames');
+      }
+      
+      logSuccess('✅ Обновление названий WB работает', 'UNIT-TEST');
+      
+    } finally {
+      global.UrlFetchApp = originalUrlFetchApp;
+    }
+    
+  } catch (error) {
+    logError(`❌ Ошибка обновления названий WB: ${error.message}`, 'UNIT-TEST');
+    throw error;
+  }
+}
+
+/**
+ * Тест обновления названий Ozon
+ */
+function testUpdateOzonProductNames() {
+  logDebug('Тест: Обновление названий Ozon', 'UNIT-TEST');
+  
+  try {
+    const offerIds = ['ozon-123', 'ozon-456'];
+    const clientId = 'test-client-id';
+    const apiKey = 'test-api-key';
+    
+    // Мокаем UrlFetchApp
+    const originalUrlFetchApp = UrlFetchApp;
+    global.UrlFetchApp = {
+      fetch: function(url, options) {
+        return {
+          getResponseCode: function() { return 200; },
+          getContentText: function() { 
+            return JSON.stringify({
+              result: [
+                { offer_id: 'ozon-123', name: 'Тестовый товар Ozon 1' },
+                { offer_id: 'ozon-456', name: 'Тестовый товар Ozon 2' }
+              ]
+            });
+          }
+        };
+      }
+    };
+    
+    try {
+      const result = updateOzonProductNames(offerIds, clientId, apiKey);
+      
+      if (!result || typeof result !== 'object') {
+        throw new Error('updateOzonProductNames должен возвращать объект');
+      }
+      
+      if (typeof result.processed !== 'number' || typeof result.updated !== 'number' || typeof result.errors !== 'number') {
+        throw new Error('Неправильная структура результата updateOzonProductNames');
+      }
+      
+      logSuccess('✅ Обновление названий Ozon работает', 'UNIT-TEST');
+      
+    } finally {
+      global.UrlFetchApp = originalUrlFetchApp;
+    }
+    
+  } catch (error) {
+    logError(`❌ Ошибка обновления названий Ozon: ${error.message}`, 'UNIT-TEST');
+    throw error;
+  }
+}
+
+/**
  * Тест получения списка магазинов
  */
 function testGetStores() {
@@ -1698,6 +1875,7 @@ function runAllTestsInternal() {
     { name: 'WB API v2 Tests', test: testWbApiV2GetFeedbacks },
     { name: 'Product Names Functions', test: testProductNamesFunctions },
     { name: 'Store Management Functions', test: testStoreManagementFunctions },
+    { name: 'Nightly Update Functions', test: testNightlyUpdateFunctions },
     { name: 'Trigger System', test: testTriggerSystem },
     { name: 'Data Processing', test: testDataProcessing },
     { name: 'Full Store Processing', test: testFullStoreProcessing },
