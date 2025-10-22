@@ -1027,9 +1027,9 @@ function processFeedbackBatch(feedbacks, templates, store, devMode) {
       '', // № - будет заполнен автоматически при добавлении в лист
       feedback.id, 
       new Date(feedback.createdDate), 
-      feedback.product.id, 
-      feedback.product.name, 
-      feedback.product.url, 
+      feedback.product?.id || 'Не указано', 
+      feedback.product?.name || 'Не указано', 
+      feedback.product?.url || '', 
       feedback.rating, 
       feedback.text
     ];
@@ -1095,6 +1095,23 @@ function processFeedbackBatch(feedbacks, templates, store, devMode) {
 }
 
 // ============ CORE PROCESSING LOGIC ============
+
+/**
+ * Получение текущего времени в формате МСК
+ * @returns {string} Время в формате ДД.ММ.ГГГГ ЧЧ:ММ:СС
+ */
+function getMskTime() {
+  return new Date().toLocaleString('ru-RU', { 
+    timeZone: 'Europe/Moscow', 
+    year: 'numeric', 
+    month: '2-digit', 
+    day: '2-digit', 
+    hour: '2-digit', 
+    minute: '2-digit', 
+    second: '2-digit',
+    hour12: false 
+  });
+}
 
 /**
  * Main function to process new feedback for all active stores.
@@ -1396,17 +1413,17 @@ function sendAnswer(store, feedbackId, text) {
     } else if (store.marketplace === OZON_CONFIG.MARKETPLACE_NAME) {
       [success, message, apiResponse] = sendOzonFeedbackAnswer(feedbackId, text, store.credentials.clientId, store.credentials.apiKey);
     } else {
-      return { status: CONFIG.STATUS.ERROR, error: 'Неизвестный маркетплейс', timestamp: '', apiResponse: '' };
+      return { status: CONFIG.STATUS.ERROR, error: 'Неизвестный маркетплейс', timestamp: getMskTime(), apiResponse: '' };
     }
     
     if (success) {
-      return { status: CONFIG.STATUS.SENT, error: '', timestamp: new Date(), apiResponse: apiResponse || 'OK' };
+      return { status: CONFIG.STATUS.SENT, error: '', timestamp: getMskTime(), apiResponse: apiResponse || 'OK' };
     } else {
-      return { status: CONFIG.STATUS.ERROR, error: message, timestamp: new Date(), apiResponse: apiResponse || message };
+      return { status: CONFIG.STATUS.ERROR, error: message, timestamp: getMskTime(), apiResponse: apiResponse || message };
     }
   } catch (e) {
     log(`КРИТИЧЕСКАЯ ОШИБКА при отправке ответа для ID ${feedbackId}: ${e.stack}`);
-    return { status: CONFIG.STATUS.ERROR, error: e.message, timestamp: new Date(), apiResponse: e.message };
+    return { status: CONFIG.STATUS.ERROR, error: e.message, timestamp: getMskTime(), apiResponse: e.message };
   }
 }
 
