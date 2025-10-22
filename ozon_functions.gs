@@ -188,7 +188,8 @@ function getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswere
  * @returns {Array} Все подходящие отзывы
  */
 function getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store) {
-  log(`[Ozon Standard] 🚀 ЗАПУСК стандартной пагинации...`);
+  logDebug(`🚀 ЗАПУСК стандартной пагинации Ozon`, 'OZON-PAGINATION');
+  logDebug(`Параметры: includeAnswered=${includeAnswered}, store=${store?.name || 'null'}`, 'OZON-PAGINATION');
   
   const MAX_EXECUTION_TIME = 5 * 60 * 1000; // 5 минут
   const startTime = Date.now();

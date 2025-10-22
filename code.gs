@@ -174,6 +174,13 @@ function onOpen(e) {
   nightlyUpdateSubMenu.addItem('🔍 Найти товары без названий', 'showProductsWithoutNames');
   menu.addSubMenu(nightlyUpdateSubMenu);
   
+  // Меню для тестирования
+  const testSubMenu = ui.createMenu('🧪 Тестирование');
+  testSubMenu.addItem('🚀 Запустить все тесты', 'runAllTests');
+  testSubMenu.addItem('⚡ Быстрые тесты', 'runQuickTests');
+  testSubMenu.addItem('📊 Тест производительности', 'runPerformanceTests');
+  menu.addSubMenu(testSubMenu);
+  
   menu.addSeparator();
   menu.addItem('🐞 Показать/Скрыть лог отладки', 'toggleLogSheet');
   menu.addToUi();
@@ -715,19 +722,46 @@ function updateStorePageProgress(store, isAnswered, pageNumber, isCompleted = fa
 }
 
 // ============ LOGGING & INITIAL SETUP ============
-function log(message) {
-  try {
-    const logSheet = createOrGetLogSheet_();
-    const timestamp = new Date().toLocaleString('ru-RU', { hour12: false });
-    logSheet.insertRowBefore(2).getRange(2, 1, 1, 2).setValues([[timestamp, message]]);
-    
-    const lastRow = logSheet.getLastRow();
-    if (lastRow > CONFIG.LOG_MAX_ROWS) {
-      logSheet.deleteRows(CONFIG.LOG_MAX_ROWS + 1, lastRow - CONFIG.LOG_MAX_ROWS);
+function log(message, level = 'INFO', context = '') {
+  const devMode = isDevMode();
+  const timestamp = new Date().toLocaleString('ru-RU', { hour12: false });
+  const logMessage = `[${level}]${context ? ` [${context}]` : ''} ${message}`;
+  
+  // Всегда выводим в консоль
+  console.log(`[${timestamp}] ${logMessage}`);
+  
+  // В режиме разработки записываем в лист логов
+  if (devMode) {
+    try {
+      const logSheet = createOrGetLogSheet_();
+      logSheet.insertRowBefore(2).getRange(2, 1, 1, 4).setValues([[timestamp, level, context, message]]);
+      
+      const lastRow = logSheet.getLastRow();
+      if (lastRow > CONFIG.LOG_MAX_ROWS) {
+        logSheet.deleteRows(CONFIG.LOG_MAX_ROWS + 1, lastRow - CONFIG.LOG_MAX_ROWS);
+      }
+    } catch (e) {
+      console.error(`Failed to write to log sheet: ${e.stack}. Log message was: "${message}".`);
     }
-  } catch (e) {
-    console.error(`Failed to write to log sheet: ${e.stack}. Log message was: "${message}".`);
   }
+}
+
+function logDebug(message, context = '') {
+  if (isDevMode()) {
+    log(message, 'DEBUG', context);
+  }
+}
+
+function logError(message, context = '') {
+  log(message, 'ERROR', context);
+}
+
+function logWarning(message, context = '') {
+  log(message, 'WARNING', context);
+}
+
+function logSuccess(message, context = '') {
+  log(message, 'SUCCESS', context);
 }
 
 function createOrGetLogSheet_() {
@@ -735,10 +769,12 @@ function createOrGetLogSheet_() {
   let sheet = ss.getSheetByName(CONFIG.LOG_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(CONFIG.LOG_SHEET_NAME, ss.getNumSheets());
-    sheet.getRange('A1:B1').setValues([['Время', 'Сообщение']])
+    sheet.getRange('A1:D1').setValues([['Время', 'Уровень', 'Контекст', 'Сообщение']])
            .setFontWeight('bold').setBackground('#f3f3f3');
     sheet.setColumnWidth(1, 150);
-    sheet.setColumnWidth(2, 800);
+    sheet.setColumnWidth(2, 80);
+    sheet.setColumnWidth(3, 120);
+    sheet.setColumnWidth(4, 800);
     sheet.hideSheet();
   }
   return sheet;
@@ -1423,20 +1459,24 @@ function sendAnswer(store, feedbackId, text) {
  * @returns {Array} Массив всех подходящих отзывов
  */
 function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
-    log(`[WB] 🚀 ПРОСТАЯ ПАГИНАЦИЯ WB (includeAnswered=${includeAnswered})`);
+    logDebug(`🚀 ЗАПУСК простой пагинации WB`, 'WB-API');
+    logDebug(`Параметры: includeAnswered=${includeAnswered}, store=${store?.name || 'null'}`, 'WB-API');
     
     const MAX_TAKE = 5000; // Максимум по документации WB API
     const MAX_SKIP = 199990; // Максимум по документации WB API
     let allFeedbacks = [];
     let skip = 0;
     let hasMoreData = true;
+    let pageCount = 0;
     
     try {
         while (hasMoreData && skip <= MAX_SKIP) {
+            pageCount++;
             // Официальный endpoint WB API с правильными параметрами
             const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks?isAnswered=${includeAnswered}&take=${MAX_TAKE}&skip=${skip}&order=dateDesc`;
             
-            log(`[WB] 📄 Страница: skip=${skip}, take=${MAX_TAKE}`);
+            logDebug(`📄 Страница ${pageCount}: skip=${skip}, take=${MAX_TAKE}`, 'WB-API');
+            logDebug(`URL: ${url}`, 'WB-API');
             
             const response = UrlFetchApp.fetch(url, { 
                 method: 'GET', 
@@ -1445,21 +1485,22 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
             });
             
             const responseCode = response.getResponseCode();
+            logDebug(`HTTP Response Code: ${responseCode}`, 'WB-API');
             
             if (responseCode !== 200) {
                 const responseBody = response.getContentText();
-                log(`[WB] ❌ ОШИБКА: Код ${responseCode}. Тело: ${responseBody.substring(0, 200)}`);
+                logError(`HTTP ${responseCode}: ${responseBody.substring(0, 200)}`, 'WB-API');
                 break;
             }
             
             const json = JSON.parse(response.getContentText());
             if (json.error) {
-                log(`[WB] ❌ API ОШИБКА: ${json.errorText}`);
+                logError(`API Error: ${json.errorText}`, 'WB-API');
                 break;
             }
             
             const feedbacks = json.data?.feedbacks || [];
-            log(`[WB] 📊 Получено ${feedbacks.length} отзывов на странице skip=${skip}`);
+            logDebug(`📊 Получено ${feedbacks.length} отзывов на странице ${pageCount}`, 'WB-API');
             
             if (feedbacks.length === 0) {
                 log(`[WB] ✅ Пустая страница - завершаем пагинацию`);
@@ -1657,16 +1698,22 @@ function sendWbApiRequest(url, payload, apiKey, methodName) {
  * @returns {Array} Array of normalized feedback objects
  */
 function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = null) {
-    log(`[Ozon] 🚀 ЗАПУСК ИСПРАВЛЕННОЙ пагинации для получения отзывов (includeAnswered=${includeAnswered})`);
+    logDebug(`🚀 ЗАПУСК пагинации Ozon`, 'OZON-API');
+    logDebug(`Параметры: includeAnswered=${includeAnswered}, store=${store?.name || 'null'}`, 'OZON-API');
+    logDebug(`Client ID: ${clientId ? 'установлен' : 'НЕ УСТАНОВЛЕН'}`, 'OZON-API');
     
     try {
         // 🚀 УПРОЩЕНИЕ: Используем только стандартную пагинацию
         // Ozon API не поддерживает фильтрацию по дате, поэтому "адаптивная" пагинация избыточна
-        log(`[Ozon] 📊 Используем стандартную пагинацию (фильтрация по дате происходит после получения всех отзывов)`);
-        return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
+        logDebug(`📊 Используем стандартную пагинацию`, 'OZON-API');
+        logDebug(`Фильтрация по дате будет происходить после получения всех отзывов`, 'OZON-API');
+        
+        const result = getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
+        logSuccess(`Получено ${result.length} отзывов Ozon`, 'OZON-API');
+        return result;
     } catch (e) {
-        log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.message}`);
-        log(`[Ozon] Stack trace: ${e.stack}`);
+        logError(`КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.message}`, 'OZON-API');
+        logDebug(`Stack trace: ${e.stack}`, 'OZON-API');
         return [];
     }
 }
