@@ -1172,7 +1172,7 @@ function showSystemStatus() {
   try {
     // Получаем информацию о системе
     const stores = getStores();
-    const activeStores = stores.filter(store => store.isActive);
+    const activeStores = stores.filter(store => store && store.isActive);
     const triggers = ScriptApp.getProjectTriggers();
     
     // Получаем статистику логов

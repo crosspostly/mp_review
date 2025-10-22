@@ -588,7 +588,7 @@ function runFullApiTesting() {
   
   try {
     // Получаем первый активный магазин для тестирования
-    const stores = getStores().filter(store => store.isActive);
+    const stores = getStores().filter(store => store && store.isActive);
     if (stores.length === 0) {
       log('❌ Нет активных магазинов для тестирования', 'ERROR', 'API-TESTING');
       return null;

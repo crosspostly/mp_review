@@ -458,7 +458,7 @@ function processAllActiveStoresOptimized() {
   logDebug('🚀 ЗАПУСК оптимизированной обработки всех магазинов', 'GAS-OPTIMIZED');
   
   const startTime = Date.now();
-  const stores = getStores().filter(store => store.isActive);
+  const stores = getStores().filter(store => store && store.isActive);
   
   logDebug(`📊 Найдено ${stores.length} активных магазинов`, 'GAS-OPTIMIZED');
   
@@ -471,6 +471,11 @@ function processAllActiveStoresOptimized() {
   };
   
   for (const store of stores) {
+    if (!store) {
+      logDebug(`⚠️ Пропущен неопределенный магазин`, 'GAS-OPTIMIZED');
+      continue;
+    }
+    
     try {
       logDebug(`🔄 Обработка магазина: ${store.name} (${store.id})`, 'GAS-OPTIMIZED');
       

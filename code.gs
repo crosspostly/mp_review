@@ -1249,6 +1249,12 @@ function sendPendingAnswers() {
   const startTime = Date.now();
   
   for (const store of allStores) {
+    // Проверяем, что store определен
+    if (!store) {
+      log(`⚠️ Пропущен неопределенный магазин в списке отправки`);
+      continue;
+    }
+    
     // Проверяем оставшееся время
     const elapsedTime = Date.now() - startTime;
     const remainingTime = maxExecutionTime - elapsedTime;
@@ -2160,6 +2166,11 @@ function manuallyDeleteReviewById() {
   let foundAndDeleted = false;
 
   stores.forEach(store => {
+    if (!store) {
+      log(`⚠️ Пропущен неопределенный магазин при удалении отзыва`);
+      return;
+    }
+    
     const sheetName = `Отзывы (${store.name})`;
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
     if (sheet && sheet.getLastRow() > 1) {
@@ -2668,6 +2679,12 @@ function processStoresWithTimeControl(stores, devMode) {
   let processedCount = 0;
   
   for (const store of stores) {
+    // Проверяем, что store определен
+    if (!store) {
+      log(`⚠️ Пропущен неопределенный магазин в списке обработки`);
+      continue;
+    }
+    
     const elapsedTime = Date.now() - startTime;
     const remainingTime = maxExecutionTime - elapsedTime;
     
@@ -2789,12 +2806,12 @@ function deleteStoreTrigger(storeId) {
 function syncAllStoreTriggers() {
   try {
     const stores = getStores();
-    const active = stores.filter(s => s.isActive);
+    const active = stores.filter(s => s && s.isActive);
     
     // Создаем триггеры для активных магазинов
     let created = 0;
     active.forEach(store => {
-      if (ensureStoreTrigger(store)) {
+      if (store && ensureStoreTrigger(store)) {
         created++;
       }
     });
@@ -2802,7 +2819,7 @@ function syncAllStoreTriggers() {
     // Удаляем триггеры для неактивных магазинов
     let deleted = 0;
     stores.forEach(store => {
-      if (!store.isActive && store.triggerId) {
+      if (store && !store.isActive && store.triggerId) {
         if (deleteStoreTrigger(store.id)) {
           deleted++;
         }
