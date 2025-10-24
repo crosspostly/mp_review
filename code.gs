@@ -28,6 +28,8 @@ const CONFIG = {
     SKIPPED_EMPTY: 'Пропущено (пустой отзыв)',
     NO_TEMPLATE: 'Нет шаблона'
   },
+  // Управление обогащением названий товаров (Ozon)
+  ENRICH_PRODUCT_NAMES: false,
   // 🚀 NEW: Настройки для системы памяти прогресса
   PROGRESS: {
     MAX_EXECUTION_TIME: 5.5 * 60 * 1000, // 5.5 минут (с запасом до 6-минутного лимита)
@@ -40,10 +42,10 @@ const CONFIG = {
 const WB_CONFIG = {
   MARKETPLACE_NAME: 'Wildberries',
   MARKETPLACE_CODE: 'WB',
-  API_BASE_URL: 'https://feedbacks-api.wildberries.ru/api/v1',
+  API_BASE_URL: 'https://feedbacks-api.wildberries.ru/api',
   ENDPOINTS: {
-    GET_FEEDBACKS: '/feedbacks',
-    SEND_ANSWER: '/feedbacks'  // {id} будет добавлен динамически
+    GET_FEEDBACKS: '/v2/feedbacks',
+    SEND_ANSWER: '/v2/feedbacks'  // {id} будет добавлен динамически
   },
   API_LIMITS: {
     MAX_TAKE: 1000,          // Консервативный увеличенный лимит (протестирован)
@@ -162,11 +164,9 @@ function onOpen(e) {
     menu.addItem('🐞 Показать/Скрыть лог отладки', 'toggleLogSheet');
     menu.addToUi();
     
-    // Синхронизируем триггеры после создания меню
-    syncAllStoreTriggers();
+    // Обновляем индикатор режима разработчика; настройка триггеров выполняется вручную из меню
     updateDevModeStatus();
-    
-    log('[onOpen] ✅ Меню успешно создано и триггеры синхронизированы');
+    log('[onOpen] ✅ Меню создано');
   } catch (error) {
     log(`[onOpen] ❌ Ошибка создания меню: ${error.message}`, 'ERROR', 'SYSTEM');
     // Показываем простое меню в случае ошибки
@@ -1481,6 +1481,11 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
             if (responseCode !== 200) {
                 const responseBody = response.getContentText();
                 log(`[WB] ❌ ОШИБКА: Код ${responseCode}. Тело: ${responseBody.substring(0, 200)}`);
+                // Fallback на v1 при некорректности пути/версии
+                if (responseCode === 404 || responseCode === 405 || /path not found|openapi/i.test(responseBody)) {
+                    log(`[WB] 🔁 FALLBACK: Переключаюсь на v1 endpoint для совместимости`);
+                    return getWbFeedbacksV1(apiKey, includeAnswered, store);
+                }
                 break;
             }
             
@@ -1543,6 +1548,83 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
         log(`[WB] ⛔ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
         return allFeedbacks; // Возвращаем что успели получить
     }
+}
+
+/**
+ * Fallback: Получение отзывов WB API v1 (без dateFrom/dateTo)
+ */
+function getWbFeedbacksV1(apiKey, includeAnswered = false, store = null) {
+    log(`[WB V1] 🚀 Fallback WB API v1 (includeAnswered=${includeAnswered})`);
+    const MAX_TAKE = 1000; // Консервативный лимит для v1
+    const MAX_SKIP = 199000;
+    let allFeedbacks = [];
+    let skip = 0;
+    let page = 0;
+    try {
+        while (skip <= MAX_SKIP) {
+            page++;
+            const url = buildWbApiV1Url(includeAnswered, skip, MAX_TAKE);
+            log(`[WB V1] 📄 Страница ${page}: skip=${skip}, take=${MAX_TAKE}`);
+            const response = UrlFetchApp.fetch(url, {
+                method: 'GET',
+                headers: { 'Authorization': apiKey },
+                muteHttpExceptions: true
+            });
+            const code = response.getResponseCode();
+            const body = response.getContentText();
+            if (code !== 200) {
+                log(`[WB V1] ❌ ОШИБКА: Код ${code}. Тело: ${body.substring(0, 200)}`);
+                break;
+            }
+            const json = JSON.parse(body);
+            let feedbacks = [];
+            if (json?.data?.feedbacks && Array.isArray(json.data.feedbacks)) {
+                feedbacks = json.data.feedbacks;
+            } else if (Array.isArray(json?.feedbacks)) {
+                feedbacks = json.feedbacks;
+            } else if (Array.isArray(json?.data)) {
+                feedbacks = json.data;
+            }
+            log(`[WB V1] 📊 Получено ${feedbacks.length} отзывов`);
+            if (feedbacks.length === 0) break;
+            feedbacks.forEach(fb => {
+                const hasText = fb.text && fb.text.trim() && fb.text.trim() !== '(без текста)';
+                if (!hasText) return;
+                const pd = fb.productDetails || {};
+                allFeedbacks.push({
+                    id: fb.id,
+                    createdDate: fb.createdDate,
+                    rating: fb.rating || fb.productValuation || 0,
+                    text: fb.text,
+                    user: 'N/A',
+                    hasAnswer: !!(fb.answer && fb.answer.text),
+                    product: {
+                        id: pd.nmId || pd.nmid || pd.nmID,
+                        name: pd.productName || 'Не указано',
+                        url: pd.nmId ? `https://www.wildberries.ru/catalog/${pd.nmId}/detail.aspx` : ''
+                    }
+                });
+            });
+            skip += MAX_TAKE;
+            Utilities.sleep(200);
+        }
+        log(`[WB V1] ✅ ЗАВЕРШЕНО: ${allFeedbacks.length} отзывов`);
+        return allFeedbacks;
+    } catch (e) {
+        log(`[WB V1] ⛔ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
+        return allFeedbacks;
+    }
+}
+
+function buildWbApiV1Url(includeAnswered, skip, take) {
+    const baseUrl = 'https://feedbacks-api.wildberries.ru/api/v1/feedbacks';
+    const params = [
+        `isAnswered=${includeAnswered}`,
+        `take=${take}`,
+        `skip=${skip}`,
+        `order=dateDesc`
+    ];
+    return `${baseUrl}?${params.join('&')}`;
 }
 
 function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
@@ -1689,12 +1771,10 @@ function sendWbApiRequest(url, payload, apiKey, methodName) {
  * @returns {Array} Array of normalized feedback objects
  */
 function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = null) {
-    log(`[Ozon] 🚀 ЗАПУСК ИСПРАВЛЕННОЙ пагинации для получения отзывов (includeAnswered=${includeAnswered})`);
-    
+    log(`[Ozon] 🚀 ЗАПУСК получения отзывов через composer API (includeAnswered=${includeAnswered})`);
     try {
-        // 🚀 ИСПРАВЛЕНИЕ: Используем только стандартную пагинацию (адаптивная отключена)
-        log(`[Ozon] 📊 Используется СТАНДАРТНАЯ пагинация`);
-        return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
+        const reviews = getOzonFeedbacksFixed(clientId, apiKey, includeAnswered, store);
+        return reviews;
     } catch (e) {
         log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.message}`);
         log(`[Ozon] Stack trace: ${e.stack}`);
@@ -1922,11 +2002,10 @@ function getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered,
     // ✅ ФИНАЛЬНАЯ СОРТИРОВКА (новые отзывы первыми)
     allReviews.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
     
-    // ✅ ОБОГАЩЕНИЕ НАЗВАНИЯМИ ТОВАРОВ
-    if (allReviews.length > 0 && store && store.credentials) {
+    // 🔕 Обогащение названиями товаров временно отключено
+    if (CONFIG.ENRICH_PRODUCT_NAMES && allReviews.length > 0 && store && store.credentials) {
         const offerIds = allReviews.map(review => review.product.id).filter(id => id);
         const productNames = getOzonProductNames(offerIds, store.credentials.clientId, store.credentials.apiKey);
-        
         if (Object.keys(productNames).length > 0) {
             allReviews.forEach(review => {
                 if (productNames[review.product.id]) {
@@ -2062,9 +2141,8 @@ function saveStore(store) {
       shouldResetProgress = true;
     }
     
-    if (oldSortOldestFirst !== newSortOldestFirst) {
+    if (typeof oldSortOldestFirst !== 'undefined' && oldSortOldestFirst !== newSortOldestFirst) {
       log(`[${store.name}] 📊 ИЗМЕНЕНА настройка сортировки: sortOldestFirst ${oldSortOldestFirst} → ${newSortOldestFirst}`);
-      // Сортировка не влияет на пагинацию, но обнуляем для чистоты
       shouldResetProgress = true;
     }
     
@@ -2084,12 +2162,7 @@ function saveStore(store) {
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
   createOrGetSheet(`Отзывы (${store.name})`, CONFIG.HEADERS);
   
-  // Управляем триггерами для магазина
-  if (store.isActive) {
-    ensureStoreTrigger(store);
-  } else {
-    deleteStoreTrigger(store.id);
-  }
+  // Триггерами управляем централизованно через меню (без дублирования по магазинам)
   
   return getStores();
 }
@@ -2097,8 +2170,7 @@ function saveStore(store) {
 function deleteStore(storeId) {
   log(`Удаление магазина с ID: ${storeId}`);
   
-  // Удаляем триггер перед удалением магазина
-  deleteStoreTrigger(storeId);
+  // Индивидуальные триггеры не используем; единый триггер не трогаем здесь
   
   let stores = getStores();
   stores = stores.filter(s => s.id !== storeId);
@@ -2756,6 +2828,34 @@ function deleteAllTriggers() {
   }
 }
 
+// ============ UNIFIED TRIGGER MANAGEMENT ============
+/**
+ * Создает единый триггер на processAllStores с заданным интервалом в минутах.
+ * Удаляет дубликаты и старые триггеры на эту же функцию.
+ */
+function setupUnifiedProcessTrigger(intervalMinutes) {
+  try {
+    const valid = [5, 10, 15, 30, 60];
+    const minutes = valid.includes(intervalMinutes) ? intervalMinutes : 60;
+
+    // Удаляем все существующие триггеры processAllStores
+    const triggers = ScriptApp.getProjectTriggers();
+    let removed = 0;
+    triggers.forEach(t => {
+      if (t.getHandlerFunction() === 'processAllStores') {
+        ScriptApp.deleteTrigger(t);
+        removed++;
+      }
+    });
+
+    // Создаем один новый триггер
+    ScriptApp.newTrigger('processAllStores').timeBased().everyMinutes(minutes).create();
+    log(`[Trigger] ✅ Создан единый триггер processAllStores каждые ${minutes} мин (удалено старых: ${removed}).`);
+  } catch (e) {
+    log(`[Trigger] ❌ Ошибка настройки единого триггера: ${e.message}`, 'ERROR', 'TRIGGER');
+  }
+}
+
 // ============ INDIVIDUAL STORE TRIGGERS ============
 /**
  * Создаёт или обновляет индивидуальный триггер для магазина
@@ -2767,36 +2867,10 @@ function ensureStoreTrigger(store, intervalMinutes = 30) {
     log(`[Trigger] ❌ Нет данных магазина для создания триггера`);
     return false;
   }
-  
-  // Валидация интервала - Google Apps Script поддерживает только 1, 5, 10, 15, 30 минут
-  const validIntervals = [1, 5, 10, 15, 30];
-  if (!validIntervals.includes(intervalMinutes)) {
-    log(`[Trigger] ⚠️ Недопустимый интервал ${intervalMinutes} минут. Используем 30 минут по умолчанию.`);
-    intervalMinutes = 30;
-  }
-  
-  try {
-    // Удаляем старый триггер если есть
-    deleteStoreTrigger(store.id);
-    
-    // Создаем новый триггер, который будет вызывать processAllStores
-    // вместо несуществующей функции processStore_${store.id}
-    const trigger = ScriptApp.newTrigger('processAllStores')
-      .timeBased()
-      .everyMinutes(intervalMinutes)
-      .create();
-    
-    // Сохраняем ID триггера для магазина
-    const triggerId = trigger.getUniqueId();
-    store.triggerId = triggerId;
-    saveStore(store);
-    
-    log(`[Trigger] ✅ Триггер создан для "${store.name}" каждые ${intervalMinutes} минут (ID: ${triggerId})`);
-    return true;
-  } catch (e) {
-    log(`[Trigger] ❌ Ошибка создания триггера для "${store.name}": ${e.message}`);
-    return false;
-  }
+  // Вместо множества индивидуальных триггеров используем единый триггер
+  setupUnifiedProcessTrigger(intervalMinutes);
+  log(`[Trigger] ℹ️ Для магазина "${store.name}" используется единый триггер processAllStores (каждые ${intervalMinutes} мин).`);
+  return true;
 }
 /**
  * Удаляет индивидуальный триггер для магазина
@@ -2833,29 +2907,10 @@ function deleteStoreTrigger(storeId) {
  */
 function syncAllStoreTriggers() {
   try {
-    const stores = getStores();
-    const active = stores.filter(s => s && s.isActive);
-    
-    // Создаем триггеры для активных магазинов
-    let created = 0;
-    active.forEach(store => {
-      if (store && ensureStoreTrigger(store)) {
-        created++;
-      }
-    });
-    
-    // Удаляем триггеры для неактивных магазинов
-    let deleted = 0;
-    stores.forEach(store => {
-      if (store && !store.isActive && store.triggerId) {
-        if (deleteStoreTrigger(store.id)) {
-          deleted++;
-        }
-      }
-    });
-    
-    log(`[Trigger] 🔄 Синхронизация завершена: создано ${created}, удалено ${deleted}`);
-    return { created, deleted };
+    // Поддерживаем один общий триггер на процессинг
+    setupUnifiedProcessTrigger(60);
+    log(`[Trigger] 🔄 Синхронизация: подтвержден единый триггер processAllStores (60 мин).`);
+    return { created: 1, deleted: 0 };
   } catch (error) {
     log(`[Trigger] ❌ Ошибка синхронизации триггеров: ${error.message}`, 'ERROR', 'TRIGGER');
     return { created: 0, deleted: 0 };
@@ -2881,6 +2936,9 @@ function buildWbApiV2Url(includeAnswered, skip, take, store) {
         params.push(`dateFrom=${encodeURIComponent(store.settings.startDate)}`);
         log(`[WB] 📅 Фильтр по дате: ${store.settings.startDate}`);
     }
+    // Добавляем верхнюю границу по дате (сегодня), чтобы ограничить интервал
+    const today = new Date().toISOString().split('T')[0];
+    params.push(`dateTo=${encodeURIComponent(today)}`);
     
     // 🚀 НОВОЕ: Используем встроенную фильтрацию по рейтингу
     if (store?.settings?.minRating) {
@@ -2896,18 +2954,6 @@ function buildWbApiV2Url(includeAnswered, skip, take, store) {
     
     return `${baseUrl}?${params.join('&')}`;
 }
-
-// --- ВСТАВКА В ФУНКЦИЮ saveStore ---
-// Найдите конец функции saveStore (до return getStores();) и добавьте:
-if (store.isActive) {
-  ensureStoreTrigger(store);
-} else {
-  deleteStoreTrigger(store.id);
-}
-
-// --- ВСТАВКА В ФУНКЦИЮ deleteStore ---
-// Перед удалением из массива:
-deleteStoreTrigger(storeId);
 
 // ============ ДИНАМИЧЕСКИЕ ФУНКЦИИ ДЛЯ ТРИГГЕРОВ ============
 
