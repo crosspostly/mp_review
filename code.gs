@@ -1481,6 +1481,11 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
             if (responseCode !== 200) {
                 const responseBody = response.getContentText();
                 log(`[WB] ❌ ОШИБКА: Код ${responseCode}. Тело: ${responseBody.substring(0, 200)}`);
+                // Fallback на v1 при некорректности пути/версии
+                if (responseCode === 404 || responseCode === 405 || /path not found|openapi/i.test(responseBody)) {
+                    log(`[WB] 🔁 FALLBACK: Переключаюсь на v1 endpoint для совместимости`);
+                    return getWbFeedbacksV1(apiKey, includeAnswered, store);
+                }
                 break;
             }
             
@@ -1543,6 +1548,83 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
         log(`[WB] ⛔ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
         return allFeedbacks; // Возвращаем что успели получить
     }
+}
+
+/**
+ * Fallback: Получение отзывов WB API v1 (без dateFrom/dateTo)
+ */
+function getWbFeedbacksV1(apiKey, includeAnswered = false, store = null) {
+    log(`[WB V1] 🚀 Fallback WB API v1 (includeAnswered=${includeAnswered})`);
+    const MAX_TAKE = 1000; // Консервативный лимит для v1
+    const MAX_SKIP = 199000;
+    let allFeedbacks = [];
+    let skip = 0;
+    let page = 0;
+    try {
+        while (skip <= MAX_SKIP) {
+            page++;
+            const url = buildWbApiV1Url(includeAnswered, skip, MAX_TAKE);
+            log(`[WB V1] 📄 Страница ${page}: skip=${skip}, take=${MAX_TAKE}`);
+            const response = UrlFetchApp.fetch(url, {
+                method: 'GET',
+                headers: { 'Authorization': apiKey },
+                muteHttpExceptions: true
+            });
+            const code = response.getResponseCode();
+            const body = response.getContentText();
+            if (code !== 200) {
+                log(`[WB V1] ❌ ОШИБКА: Код ${code}. Тело: ${body.substring(0, 200)}`);
+                break;
+            }
+            const json = JSON.parse(body);
+            let feedbacks = [];
+            if (json?.data?.feedbacks && Array.isArray(json.data.feedbacks)) {
+                feedbacks = json.data.feedbacks;
+            } else if (Array.isArray(json?.feedbacks)) {
+                feedbacks = json.feedbacks;
+            } else if (Array.isArray(json?.data)) {
+                feedbacks = json.data;
+            }
+            log(`[WB V1] 📊 Получено ${feedbacks.length} отзывов`);
+            if (feedbacks.length === 0) break;
+            feedbacks.forEach(fb => {
+                const hasText = fb.text && fb.text.trim() && fb.text.trim() !== '(без текста)';
+                if (!hasText) return;
+                const pd = fb.productDetails || {};
+                allFeedbacks.push({
+                    id: fb.id,
+                    createdDate: fb.createdDate,
+                    rating: fb.rating || fb.productValuation || 0,
+                    text: fb.text,
+                    user: 'N/A',
+                    hasAnswer: !!(fb.answer && fb.answer.text),
+                    product: {
+                        id: pd.nmId || pd.nmid || pd.nmID,
+                        name: pd.productName || 'Не указано',
+                        url: pd.nmId ? `https://www.wildberries.ru/catalog/${pd.nmId}/detail.aspx` : ''
+                    }
+                });
+            });
+            skip += MAX_TAKE;
+            Utilities.sleep(200);
+        }
+        log(`[WB V1] ✅ ЗАВЕРШЕНО: ${allFeedbacks.length} отзывов`);
+        return allFeedbacks;
+    } catch (e) {
+        log(`[WB V1] ⛔ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
+        return allFeedbacks;
+    }
+}
+
+function buildWbApiV1Url(includeAnswered, skip, take) {
+    const baseUrl = 'https://feedbacks-api.wildberries.ru/api/v1/feedbacks';
+    const params = [
+        `isAnswered=${includeAnswered}`,
+        `take=${take}`,
+        `skip=${skip}`,
+        `order=dateDesc`
+    ];
+    return `${baseUrl}?${params.join('&')}`;
 }
 
 function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
