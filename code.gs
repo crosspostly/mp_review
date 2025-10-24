@@ -162,11 +162,9 @@ function onOpen(e) {
     menu.addItem('🐞 Показать/Скрыть лог отладки', 'toggleLogSheet');
     menu.addToUi();
     
-    // Обеспечиваем единый триггер processAllStores (по умолчанию раз в 60 минут)
-    setupUnifiedProcessTrigger(60);
+    // Обновляем индикатор режима разработчика; настройка триггеров выполняется вручную из меню
     updateDevModeStatus();
-    
-    log('[onOpen] ✅ Меню создано; единый триггер проверен/установлен');
+    log('[onOpen] ✅ Меню создано');
   } catch (error) {
     log(`[onOpen] ❌ Ошибка создания меню: ${error.message}`, 'ERROR', 'SYSTEM');
     // Показываем простое меню в случае ошибки
@@ -1689,10 +1687,10 @@ function sendWbApiRequest(url, payload, apiKey, methodName) {
  * @returns {Array} Array of normalized feedback objects
  */
 function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = null) {
-    log(`[Ozon] 🚀 ЗАПУСК получения отзывов через ОФИЦИАЛЬНЫЙ endpoint v1/review/list (includeAnswered=${includeAnswered})`);
+    log(`[Ozon] 🚀 ЗАПУСК получения отзывов через composer API (includeAnswered=${includeAnswered})`);
     try {
-        // Используем корректную cursor-based пагинацию через last_id на api-seller.ozon.ru
-        return getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered, store);
+        // Используем composer API с корректной структурой запроса и cursor-based пагинацией
+        return getOzonFeedbacksFixed(clientId, apiKey, includeAnswered, store);
     } catch (e) {
         log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.message}`);
         log(`[Ozon] Stack trace: ${e.stack}`);
