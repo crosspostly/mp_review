@@ -28,6 +28,8 @@ const CONFIG = {
     SKIPPED_EMPTY: 'Пропущено (пустой отзыв)',
     NO_TEMPLATE: 'Нет шаблона'
   },
+  // Управление обогащением названий товаров (Ozon)
+  ENRICH_PRODUCT_NAMES: false,
   // 🚀 NEW: Настройки для системы памяти прогресса
   PROGRESS: {
     MAX_EXECUTION_TIME: 5.5 * 60 * 1000, // 5.5 минут (с запасом до 6-минутного лимита)
@@ -40,10 +42,10 @@ const CONFIG = {
 const WB_CONFIG = {
   MARKETPLACE_NAME: 'Wildberries',
   MARKETPLACE_CODE: 'WB',
-  API_BASE_URL: 'https://feedbacks-api.wildberries.ru/api/v1',
+  API_BASE_URL: 'https://feedbacks-api.wildberries.ru/api',
   ENDPOINTS: {
-    GET_FEEDBACKS: '/feedbacks',
-    SEND_ANSWER: '/feedbacks'  // {id} будет добавлен динамически
+    GET_FEEDBACKS: '/v2/feedbacks',
+    SEND_ANSWER: '/v2/feedbacks'  // {id} будет добавлен динамически
   },
   API_LIMITS: {
     MAX_TAKE: 1000,          // Консервативный увеличенный лимит (протестирован)
@@ -1689,8 +1691,8 @@ function sendWbApiRequest(url, payload, apiKey, methodName) {
 function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = null) {
     log(`[Ozon] 🚀 ЗАПУСК получения отзывов через composer API (includeAnswered=${includeAnswered})`);
     try {
-        // Используем composer API с корректной структурой запроса и cursor-based пагинацией
-        return getOzonFeedbacksFixed(clientId, apiKey, includeAnswered, store);
+        const reviews = getOzonFeedbacksFixed(clientId, apiKey, includeAnswered, store);
+        return reviews;
     } catch (e) {
         log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.message}`);
         log(`[Ozon] Stack trace: ${e.stack}`);
@@ -1918,11 +1920,10 @@ function getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered,
     // ✅ ФИНАЛЬНАЯ СОРТИРОВКА (новые отзывы первыми)
     allReviews.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
     
-    // ✅ ОБОГАЩЕНИЕ НАЗВАНИЯМИ ТОВАРОВ
-    if (allReviews.length > 0 && store && store.credentials) {
+    // 🔕 Обогащение названиями товаров временно отключено
+    if (CONFIG.ENRICH_PRODUCT_NAMES && allReviews.length > 0 && store && store.credentials) {
         const offerIds = allReviews.map(review => review.product.id).filter(id => id);
         const productNames = getOzonProductNames(offerIds, store.credentials.clientId, store.credentials.apiKey);
-        
         if (Object.keys(productNames).length > 0) {
             allReviews.forEach(review => {
                 if (productNames[review.product.id]) {
@@ -2058,9 +2059,8 @@ function saveStore(store) {
       shouldResetProgress = true;
     }
     
-    if (oldSortOldestFirst !== newSortOldestFirst) {
+    if (typeof oldSortOldestFirst !== 'undefined' && oldSortOldestFirst !== newSortOldestFirst) {
       log(`[${store.name}] 📊 ИЗМЕНЕНА настройка сортировки: sortOldestFirst ${oldSortOldestFirst} → ${newSortOldestFirst}`);
-      // Сортировка не влияет на пагинацию, но обнуляем для чистоты
       shouldResetProgress = true;
     }
     
@@ -2080,12 +2080,7 @@ function saveStore(store) {
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
   createOrGetSheet(`Отзывы (${store.name})`, CONFIG.HEADERS);
   
-  // Управляем триггерами для магазина
-  if (store.isActive) {
-    ensureStoreTrigger(store);
-  } else {
-    deleteStoreTrigger(store.id);
-  }
+  // Триггерами управляем централизованно через меню (без дублирования по магазинам)
   
   return getStores();
 }
@@ -2093,8 +2088,7 @@ function saveStore(store) {
 function deleteStore(storeId) {
   log(`Удаление магазина с ID: ${storeId}`);
   
-  // Удаляем триггер перед удалением магазина
-  deleteStoreTrigger(storeId);
+  // Индивидуальные триггеры не используем; единый триггер не трогаем здесь
   
   let stores = getStores();
   stores = stores.filter(s => s.id !== storeId);
