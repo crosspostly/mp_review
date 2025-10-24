@@ -19,14 +19,10 @@ const CONFIG = {
   MIN_REVIEW_TEXT_LENGTH: 3, // Минимальная длина текста отзыва для обработки
   HEADERS: ['№', 'ID отзыва', 'Дата отзыва', 'Артикул', 'Название товара', 'Ссылка', 'Оценка', 'Текст отзыва', 'Статус', 'Детали ошибки', 'Время отправки'],
   STATUS: {
+    NEW: 'Новый',
     PENDING: 'Готово к отправке',
     SENT: 'Отправлено',
-    ERROR: 'Ошибка',
-    MANUAL: 'Ручной ответ',
-    SKIPPED_RATING: 'Пропущено (рейтинг)',
-    SKIPPED_PROCESSED: 'Пропущено (уже обработан)',
-    SKIPPED_EMPTY: 'Пропущено (пустой отзыв)',
-    NO_TEMPLATE: 'Нет шаблона'
+    ERROR: 'Ошибка'
   },
   // Управление обогащением названий товаров (Ozon)
   ENRICH_PRODUCT_NAMES: false,
@@ -1036,11 +1032,11 @@ function processFeedbackBatch(feedbacks, templates, store, devMode) {
     
     // Проверка рейтинга
     if (!CONFIG.RESPOND_TO_RATINGS.includes(feedback.rating)) {
-      rowData.push('', CONFIG.STATUS.SKIPPED_RATING, `Рейтинг ${feedback.rating} не входит в список для ответа.`, '');
+      rowData.push('', CONFIG.STATUS.ERROR, `Рейтинг ${feedback.rating} не входит в список для ответа.`, '');
       results.push({
         rowData: rowData,
         logMessage: `[${store.name}] Пропущен отзыв ID: ${feedback.id} (рейтинг ${feedback.rating}). Дата: ${new Date(feedback.createdDate).toLocaleDateString('ru-RU')}`,
-        status: CONFIG.STATUS.SKIPPED_RATING
+        status: CONFIG.STATUS.ERROR
       });
       skippedByRating++;
       return;
@@ -1049,11 +1045,11 @@ function processFeedbackBatch(feedbacks, templates, store, devMode) {
     // Подбор шаблона
     const template = selectRandomTemplate(templates, feedback.rating);
     if (!template) {
-      rowData.push('', CONFIG.STATUS.NO_TEMPLATE, `Не найден подходящий шаблон для рейтинга ${feedback.rating}.`, '');
+      rowData.push('', CONFIG.STATUS.ERROR, `Не найден подходящий шаблон для рейтинга ${feedback.rating}.`, '');
       results.push({
         rowData: rowData,
         logMessage: `[${store.name}] Нет шаблона для отзыва ID: ${feedback.id} (рейтинг ${feedback.rating}). Дата: ${new Date(feedback.createdDate).toLocaleDateString('ru-RU')}`,
-        status: CONFIG.STATUS.NO_TEMPLATE
+        status: CONFIG.STATUS.ERROR
       });
       noTemplateCount++;
       return;
@@ -1480,7 +1476,27 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
             
             if (responseCode !== 200) {
                 const responseBody = response.getContentText();
-                log(`[WB] ❌ ОШИБКА: Код ${responseCode}. Тело: ${responseBody.substring(0, 200)}`);
+                const fullUrl = buildWbApiV2Url(includeAnswered, skip, MAX_TAKE, store);
+                
+                // 🚀 ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ПРИ ОШИБКЕ
+                log(`[WB] ❌ ОШИБКА: Код ${responseCode}`);
+                log(`[WB] 📤 URL запроса: ${fullUrl}`);
+                log(`[WB] 📤 Параметры: skip=${skip}, take=${MAX_TAKE}, includeAnswered=${includeAnswered}`);
+                log(`[WB] 📥 Полное тело ответа: ${responseBody}`);
+                
+                // Дополнительная диагностика в зависимости от кода
+                if (responseCode === 404) {
+                    log(`[WB] 🔎 404 Not Found: Проверьте правильность endpoint URL. Возможно API изменился.`);
+                } else if (responseCode === 401) {
+                    log(`[WB] 🔎 401 Unauthorized: Проверьте API ключ и его права доступа.`);
+                } else if (responseCode === 403) {
+                    log(`[WB] 🔎 403 Forbidden: API ключ не имеет доступа к этому ресурсу.`);
+                } else if (responseCode === 429) {
+                    log(`[WB] 🔎 429 Too Many Requests: Превышен лимит запросов API.`);
+                } else if (responseCode >= 500) {
+                    log(`[WB] 🔎 ${responseCode} Server Error: Временные проблемы на стороне сервера WB.`);
+                }
+                
                 // Fallback на v1 при некорректности пути/версии
                 if (responseCode === 404 || responseCode === 405 || /path not found|openapi/i.test(responseBody)) {
                     log(`[WB] 🔁 FALLBACK: Переключаюсь на v1 endpoint для совместимости`);
