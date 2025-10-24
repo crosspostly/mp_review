@@ -2862,6 +2862,9 @@ function buildWbApiV2Url(includeAnswered, skip, take, store) {
         params.push(`dateFrom=${encodeURIComponent(store.settings.startDate)}`);
         log(`[WB] 📅 Фильтр по дате: ${store.settings.startDate}`);
     }
+    // Добавляем верхнюю границу по дате (сегодня), чтобы ограничить интервал
+    const today = new Date().toISOString().split('T')[0];
+    params.push(`dateTo=${encodeURIComponent(today)}`);
     
     // 🚀 НОВОЕ: Используем встроенную фильтрацию по рейтингу
     if (store?.settings?.minRating) {
