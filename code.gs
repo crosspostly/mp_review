@@ -162,11 +162,11 @@ function onOpen(e) {
     menu.addItem('🐞 Показать/Скрыть лог отладки', 'toggleLogSheet');
     menu.addToUi();
     
-    // Синхронизируем триггеры после создания меню
-    syncAllStoreTriggers();
+    // Обеспечиваем единый триггер processAllStores (по умолчанию раз в 60 минут)
+    setupUnifiedProcessTrigger(60);
     updateDevModeStatus();
     
-    log('[onOpen] ✅ Меню успешно создано и триггеры синхронизированы');
+    log('[onOpen] ✅ Меню создано; единый триггер проверен/установлен');
   } catch (error) {
     log(`[onOpen] ❌ Ошибка создания меню: ${error.message}`, 'ERROR', 'SYSTEM');
     // Показываем простое меню в случае ошибки
@@ -1689,12 +1689,10 @@ function sendWbApiRequest(url, payload, apiKey, methodName) {
  * @returns {Array} Array of normalized feedback objects
  */
 function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = null) {
-    log(`[Ozon] 🚀 ЗАПУСК ИСПРАВЛЕННОЙ пагинации для получения отзывов (includeAnswered=${includeAnswered})`);
-    
+    log(`[Ozon] 🚀 ЗАПУСК получения отзывов через ОФИЦИАЛЬНЫЙ endpoint v1/review/list (includeAnswered=${includeAnswered})`);
     try {
-        // 🚀 ИСПРАВЛЕНИЕ: Используем только стандартную пагинацию (адаптивная отключена)
-        log(`[Ozon] 📊 Используется СТАНДАРТНАЯ пагинация`);
-        return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
+        // Используем корректную cursor-based пагинацию через last_id на api-seller.ozon.ru
+        return getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered, store);
     } catch (e) {
         log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.message}`);
         log(`[Ozon] Stack trace: ${e.stack}`);
@@ -2756,6 +2754,34 @@ function deleteAllTriggers() {
   }
 }
 
+// ============ UNIFIED TRIGGER MANAGEMENT ============
+/**
+ * Создает единый триггер на processAllStores с заданным интервалом в минутах.
+ * Удаляет дубликаты и старые триггеры на эту же функцию.
+ */
+function setupUnifiedProcessTrigger(intervalMinutes) {
+  try {
+    const valid = [5, 10, 15, 30, 60];
+    const minutes = valid.includes(intervalMinutes) ? intervalMinutes : 60;
+
+    // Удаляем все существующие триггеры processAllStores
+    const triggers = ScriptApp.getProjectTriggers();
+    let removed = 0;
+    triggers.forEach(t => {
+      if (t.getHandlerFunction() === 'processAllStores') {
+        ScriptApp.deleteTrigger(t);
+        removed++;
+      }
+    });
+
+    // Создаем один новый триггер
+    ScriptApp.newTrigger('processAllStores').timeBased().everyMinutes(minutes).create();
+    log(`[Trigger] ✅ Создан единый триггер processAllStores каждые ${minutes} мин (удалено старых: ${removed}).`);
+  } catch (e) {
+    log(`[Trigger] ❌ Ошибка настройки единого триггера: ${e.message}`, 'ERROR', 'TRIGGER');
+  }
+}
+
 // ============ INDIVIDUAL STORE TRIGGERS ============
 /**
  * Создаёт или обновляет индивидуальный триггер для магазина
@@ -2767,36 +2793,10 @@ function ensureStoreTrigger(store, intervalMinutes = 30) {
     log(`[Trigger] ❌ Нет данных магазина для создания триггера`);
     return false;
   }
-  
-  // Валидация интервала - Google Apps Script поддерживает только 1, 5, 10, 15, 30 минут
-  const validIntervals = [1, 5, 10, 15, 30];
-  if (!validIntervals.includes(intervalMinutes)) {
-    log(`[Trigger] ⚠️ Недопустимый интервал ${intervalMinutes} минут. Используем 30 минут по умолчанию.`);
-    intervalMinutes = 30;
-  }
-  
-  try {
-    // Удаляем старый триггер если есть
-    deleteStoreTrigger(store.id);
-    
-    // Создаем новый триггер, который будет вызывать processAllStores
-    // вместо несуществующей функции processStore_${store.id}
-    const trigger = ScriptApp.newTrigger('processAllStores')
-      .timeBased()
-      .everyMinutes(intervalMinutes)
-      .create();
-    
-    // Сохраняем ID триггера для магазина
-    const triggerId = trigger.getUniqueId();
-    store.triggerId = triggerId;
-    saveStore(store);
-    
-    log(`[Trigger] ✅ Триггер создан для "${store.name}" каждые ${intervalMinutes} минут (ID: ${triggerId})`);
-    return true;
-  } catch (e) {
-    log(`[Trigger] ❌ Ошибка создания триггера для "${store.name}": ${e.message}`);
-    return false;
-  }
+  // Вместо множества индивидуальных триггеров используем единый триггер
+  setupUnifiedProcessTrigger(intervalMinutes);
+  log(`[Trigger] ℹ️ Для магазина "${store.name}" используется единый триггер processAllStores (каждые ${intervalMinutes} мин).`);
+  return true;
 }
 /**
  * Удаляет индивидуальный триггер для магазина
@@ -2833,29 +2833,10 @@ function deleteStoreTrigger(storeId) {
  */
 function syncAllStoreTriggers() {
   try {
-    const stores = getStores();
-    const active = stores.filter(s => s && s.isActive);
-    
-    // Создаем триггеры для активных магазинов
-    let created = 0;
-    active.forEach(store => {
-      if (store && ensureStoreTrigger(store)) {
-        created++;
-      }
-    });
-    
-    // Удаляем триггеры для неактивных магазинов
-    let deleted = 0;
-    stores.forEach(store => {
-      if (store && !store.isActive && store.triggerId) {
-        if (deleteStoreTrigger(store.id)) {
-          deleted++;
-        }
-      }
-    });
-    
-    log(`[Trigger] 🔄 Синхронизация завершена: создано ${created}, удалено ${deleted}`);
-    return { created, deleted };
+    // Поддерживаем один общий триггер на процессинг
+    setupUnifiedProcessTrigger(60);
+    log(`[Trigger] 🔄 Синхронизация: подтвержден единый триггер processAllStores (60 мин).`);
+    return { created: 1, deleted: 0 };
   } catch (error) {
     log(`[Trigger] ❌ Ошибка синхронизации триггеров: ${error.message}`, 'ERROR', 'TRIGGER');
     return { created: 0, deleted: 0 };
