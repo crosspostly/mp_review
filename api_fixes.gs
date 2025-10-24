@@ -5,6 +5,8 @@
  * WB API v2, Ozon API и Google Apps Script best practices.
  */
 
+// ============ ЛОГИРОВАНИЕ (локальные функции для api_fixes.gs) ============
+
 /**
  * Debug logging function
  * @param {string} message - Debug message
@@ -14,6 +16,33 @@ function logDebug(message, category = 'DEBUG') {
   if (isDevMode()) {
     log(`[${category}] ${message}`);
   }
+}
+
+/**
+ * Error logging function
+ * @param {string} message - Error message
+ * @param {string} category - Error category
+ */
+function logError(message, category = 'ERROR') {
+  log(`[${category}] ❌ ${message}`);
+}
+
+/**
+ * Success logging function
+ * @param {string} message - Success message
+ * @param {string} category - Success category
+ */
+function logSuccess(message, category = 'SUCCESS') {
+  log(`[${category}] ✅ ${message}`);
+}
+
+/**
+ * Warning logging function
+ * @param {string} message - Warning message
+ * @param {string} category - Warning category
+ */
+function logWarning(message, category = 'WARNING') {
+  log(`[${category}] ⚠️ ${message}`);
 }
 
 /**
@@ -63,6 +92,7 @@ function getWbFeedbacksV2(apiKey, includeAnswered = false, store = null) {
           'Authorization': apiKey,
           'Content-Type': 'application/json'
         },
+    followRedirects: true, // 🔧 FIX: Следовать редиректам (307)
         muteHttpExceptions: true
       });
       
@@ -338,6 +368,7 @@ function getOzonFeedbacksPageFixed(clientId, apiKey, includeAnswered, lastId, st
       'Content-Type': 'application/json'
     },
     payload: JSON.stringify(body),
+    followRedirects: true,         // 🔧 FIX: Автоматически следовать редиректам (307, 301, 302)
     muteHttpExceptions: true
   };
   
