@@ -1537,3 +1537,284 @@ function testSecurity() {
     return false;
   }
 }
+
+// ======================================================================
+// ============== НОВЫЕ ТЕСТЫ (Октябрь 2025) ==========================
+// ======================================================================
+
+/**
+ * 🧪 ТЕСТ: Функции логирования в api_fixes.gs
+ * Проверяет наличие и работу всех функций логирования
+ */
+function testLoggingFunctions() {
+  log('=== ТЕСТ: Функции логирования ===');
+  
+  try {
+    // Проверка существования функций
+    if (typeof logError !== 'function') {
+      throw new Error('logError функция не найдена');
+    }
+    if (typeof logSuccess !== 'function') {
+      throw new Error('logSuccess функция не найдена');
+    }
+    if (typeof logWarning !== 'function') {
+      throw new Error('logWarning функция не найдена');
+    }
+    if (typeof logDebug !== 'function') {
+      throw new Error('logDebug функция не найдена');
+    }
+    
+    log('✅ Все функции логирования существуют');
+    
+    // Проверка работы функций (не должны выбрасывать ошибки)
+    logError('Тестовое сообщение ошибки', 'TEST');
+    logSuccess('Тестовое сообщение успеха', 'TEST');
+    logWarning('Тестовое предупреждение', 'TEST');
+    logDebug('Тестовое отладочное сообщение', 'TEST');
+    
+    log('✅ Все функции логирования работают корректно');
+    return true;
+    
+  } catch (error) {
+    log(`❌ ОШИБКА теста логирования: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * 🧪 ТЕСТ: HTTP 307 редиректы в Ozon API
+ * Проверяет наличие параметра followRedirects в запросах
+ */
+function testOzonFollowRedirects() {
+  log('=== ТЕСТ: Ozon API followRedirects ===');
+  
+  try {
+    // Проверяем, что функция getOzonFeedbacksPageFixed существует
+    if (typeof getOzonFeedbacksPageFixed !== 'function') {
+      throw new Error('getOzonFeedbacksPageFixed функция не найдена');
+    }
+    
+    log('✅ Функция getOzonFeedbacksPageFixed найдена');
+    
+    // Проверяем исходный код функции на наличие followRedirects
+    const funcCode = getOzonFeedbacksPageFixed.toString();
+    if (!funcCode.includes('followRedirects')) {
+      throw new Error('Параметр followRedirects не найден в getOzonFeedbacksPageFixed');
+    }
+    
+    log('✅ Параметр followRedirects присутствует в Ozon API');
+    
+    // Проверяем, что значение true
+    if (!funcCode.includes('followRedirects: true') && !funcCode.includes('followRedirects:true')) {
+      throw new Error('followRedirects должен быть установлен в true');
+    }
+    
+    log('✅ followRedirects установлен в true');
+    log('✅ Ozon API готов к обработке 307 редиректов');
+    return true;
+    
+  } catch (error) {
+    log(`❌ ОШИБКА теста Ozon redirects: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * 🧪 ТЕСТ: Улучшенное логирование WB API
+ * Проверяет наличие детального логирования ошибок WB API
+ */
+function testWbApiLogging() {
+  log('=== ТЕСТ: WB API детальное логирование ===');
+  
+  try {
+    // Проверяем наличие функции getWbFeedbacks
+    if (typeof getWbFeedbacks !== 'function') {
+      throw new Error('getWbFeedbacks функция не найдена');
+    }
+    
+    log('✅ Функция getWbFeedbacks найдена');
+    
+    // Проверяем исходный код на наличие детального логирования
+    const funcCode = getWbFeedbacks.toString();
+    
+    const requiredLogs = [
+      'URL запроса',
+      'Параметры',
+      'Полное тело ответа',
+      '404 Not Found',
+      'FALLBACK'
+    ];
+    
+    let missingLogs = [];
+    for (const logText of requiredLogs) {
+      if (!funcCode.includes(logText)) {
+        missingLogs.push(logText);
+      }
+    }
+    
+    if (missingLogs.length > 0) {
+      throw new Error(`Отсутствуют логи: ${missingLogs.join(', ')}`);
+    }
+    
+    log('✅ Все необходимые логи присутствуют в WB API');
+    log('✅ WB API имеет детальное логирование ошибок');
+    return true;
+    
+  } catch (error) {
+    log(`❌ ОШИБКА теста WB logging: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * 🧪 ТЕСТ: Упрощённые статусы CONFIG.STATUS
+ * Проверяет, что статусы упрощены до 4 значений
+ */
+function testSimplifiedStatuses() {
+  log('=== ТЕСТ: Упрощённые статусы ===');
+  
+  try {
+    // Проверяем наличие CONFIG.STATUS
+    if (typeof CONFIG === 'undefined' || !CONFIG.STATUS) {
+      throw new Error('CONFIG.STATUS не найден');
+    }
+    
+    log('✅ CONFIG.STATUS найден');
+    
+    // Проверяем количество статусов
+    const statuses = Object.keys(CONFIG.STATUS);
+    const expectedCount = 4;
+    
+    if (statuses.length !== expectedCount) {
+      throw new Error(`Ожидалось ${expectedCount} статусов, найдено ${statuses.length}`);
+    }
+    
+    log(`✅ Количество статусов корректно: ${statuses.length}`);
+    
+    // Проверяем наличие обязательных статусов
+    const requiredStatuses = ['NEW', 'PENDING', 'SENT', 'ERROR'];
+    let missingStatuses = [];
+    
+    for (const status of requiredStatuses) {
+      if (!CONFIG.STATUS[status]) {
+        missingStatuses.push(status);
+      }
+    }
+    
+    if (missingStatuses.length > 0) {
+      throw new Error(`Отсутствуют статусы: ${missingStatuses.join(', ')}`);
+    }
+    
+    log('✅ Все обязательные статусы присутствуют: NEW, PENDING, SENT, ERROR');
+    
+    // Проверяем отсутствие старых статусов
+    const deprecatedStatuses = ['MANUAL', 'SKIPPED_RATING', 'SKIPPED_PROCESSED', 'SKIPPED_EMPTY', 'NO_TEMPLATE'];
+    let foundDeprecated = [];
+    
+    for (const status of deprecatedStatuses) {
+      if (CONFIG.STATUS[status]) {
+        foundDeprecated.push(status);
+      }
+    }
+    
+    if (foundDeprecated.length > 0) {
+      throw new Error(`Найдены устаревшие статусы: ${foundDeprecated.join(', ')}`);
+    }
+    
+    log('✅ Устаревшие статусы удалены');
+    log('✅ Статусы упрощены корректно');
+    return true;
+    
+  } catch (error) {
+    log(`❌ ОШИБКА теста статусов: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * 🧪 ГЛАВНАЯ ФУНКЦИЯ: Запуск всех новых тестов
+ * Запускает все тесты изменений от октября 2025
+ */
+function runNewTests() {
+  log('');
+  log('╔════════════════════════════════════════════════════════╗');
+  log('║  🧪 ЗАПУСК НОВЫХ ТЕСТОВ (Октябрь 2025)               ║');
+  log('╚════════════════════════════════════════════════════════╝');
+  log('');
+  
+  const results = {
+    loggingFunctions: false,
+    ozonRedirects: false,
+    wbLogging: false,
+    simplifiedStatuses: false
+  };
+  
+  try {
+    // Тест 1: Функции логирования
+    results.loggingFunctions = testLoggingFunctions();
+    log('');
+    
+    // Тест 2: Ozon 307 редиректы
+    results.ozonRedirects = testOzonFollowRedirects();
+    log('');
+    
+    // Тест 3: WB API логирование
+    results.wbLogging = testWbApiLogging();
+    log('');
+    
+    // Тест 4: Упрощённые статусы
+    results.simplifiedStatuses = testSimplifiedStatuses();
+    log('');
+    
+    // Итоговый отчёт
+    log('╔════════════════════════════════════════════════════════╗');
+    log('║  📊 ИТОГОВЫЙ ОТЧЁТ НОВЫХ ТЕСТОВ                       ║');
+    log('╚════════════════════════════════════════════════════════╝');
+    log('');
+    
+    const passed = Object.values(results).filter(r => r === true).length;
+    const total = Object.keys(results).length;
+    
+    log(`Пройдено: ${passed}/${total}`);
+    log('');
+    
+    Object.entries(results).forEach(([test, passed]) => {
+      log(`${passed ? '✅' : '❌'} ${test}`);
+    });
+    
+    log('');
+    
+    if (passed === total) {
+      log('🎉 ВСЕ НОВЫЕ ТЕСТЫ ПРОЙДЕНЫ УСПЕШНО!');
+      SpreadsheetApp.getUi().alert(
+        '✅ Тесты пройдены',
+        `Все ${total} новых теста пройдены успешно!\n\n` +
+        '✅ Функции логирования\n' +
+        '✅ Ozon 307 редиректы\n' +
+        '✅ WB API логирование\n' +
+        '✅ Упрощённые статусы',
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+      return true;
+    } else {
+      log(`⚠️ ${total - passed} тестов провалено`);
+      SpreadsheetApp.getUi().alert(
+        '⚠️ Тесты провалены',
+        `Пройдено: ${passed}/${total}\n\nПроверьте логи для деталей.`,
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+      return false;
+    }
+    
+  } catch (error) {
+    log(`❌ КРИТИЧЕСКАЯ ОШИБКА: ${error.message}`);
+    log(`Stack: ${error.stack}`);
+    SpreadsheetApp.getUi().alert(
+      '❌ Критическая ошибка',
+      `Ошибка при запуске тестов:\n${error.message}`,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+    return false;
+  }
+}
+}
