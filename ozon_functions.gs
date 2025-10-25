@@ -47,6 +47,11 @@ function getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswere
   let processedPages = 0;
   let skippedPages = 0;
   
+  // 🚀 ПРОМЕЖУТОЧНОЕ СОХРАНЕНИЕ: Инициализация буфера
+  let reviewsBuffer = [];
+  let pagesSinceLastSave = 0;
+  let totalSaved = 0;
+  
   // 🚀 Интеграция с системой памяти прогресса
   const startingPage = getStartingPageForStore(store, includeAnswered);
   if (startingPage > 0) {
@@ -94,8 +99,17 @@ function getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswere
       
       allMatchingFeedbacks = allMatchingFeedbacks.concat(matchingFeedbacks);
       processedPages++;
+      pagesSinceLastSave++;
       
-      log(`[Ozon Adaptive] 📊 Страница ${pageNumber + 1}: получено ${pageFeedbacks.length}, обработано ${processedFeedbacks.length}, подошло по дате ${matchingFeedbacks.length}`);
+      // 🚀 ПРОМЕЖУТОЧНОЕ СОХРАНЕНИЕ: Управление буфером
+      const bufferStats = manageReviewsBuffer(reviewsBuffer, matchingFeedbacks, store, pagesSinceLastSave);
+      if (bufferStats.saved > 0) {
+        totalSaved += bufferStats.saved;
+        pagesSinceLastSave = 0; // Сброс счетчика после сохранения
+        log(`[Ozon Adaptive] 💾 Промежуточное сохранение: ${bufferStats.saved} отзывов (всего сохранено: ${totalSaved})`);
+      }
+      
+      log(`[Ozon Adaptive] 📊 Страница ${pageNumber + 1}: получено ${pageFeedbacks.length}, обработано ${processedFeedbacks.length}, подошло по дате ${matchingFeedbacks.length}, в буфере ${bufferStats.bufferSize}`);
       
       // 📈 КРИТЕРИИ ЗАВЕРШЕНИЯ - ВРЕМЕННО ОТКЛЮЧЕНЫ ДЛЯ ОТЛАДКИ
       // ❌ УБРАЛ ЛОГИКУ ОСТАНОВКИ ПО ДАТЕ - она неверная!
@@ -104,6 +118,12 @@ function getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswere
       
       if (pageFeedbacks.length < adaptiveLimit) {
         log(`[Ozon Adaptive] ✅ Последняя страница (${pageFeedbacks.length} < ${adaptiveLimit})`);
+        // 🚀 ФИНАЛЬНОЕ СОХРАНЕНИЕ: Принудительно сохраняем остатки буфера
+        const finalSaved = saveReviewsBuffer(reviewsBuffer, store, true);
+        if (finalSaved > 0) {
+          totalSaved += finalSaved;
+          log(`[Ozon Adaptive] 💾 Финальное сохранение: ${finalSaved} отзывов (всего сохранено: ${totalSaved})`);
+        }
         updateStorePageProgress(store, includeAnswered, pageNumber, true);
         break;
       }
@@ -157,6 +177,11 @@ function getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswere
   let pageNumber = 0;
   const limit = OZON_CONFIG.API_LIMITS.MAX_LIMIT;
   
+  // 🚀 ПРОМЕЖУТОЧНОЕ СОХРАНЕНИЕ: Инициализация буфера
+  let reviewsBuffer = [];
+  let pagesSinceLastSave = 0;
+  let totalSaved = 0;
+  
   // 🚀 Интеграция с системой памяти прогресса
   const startingPage = getStartingPageForStore(store, includeAnswered);
   if (startingPage > 0) {
@@ -184,11 +209,26 @@ function getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswere
       // 📊 Обработка отзывов
       const processedFeedbacks = processFeedbacksPageForOzon(pageFeedbacks);
       allFeedbacks = allFeedbacks.concat(processedFeedbacks);
+      pagesSinceLastSave++;
       
-      log(`[Ozon Standard] 📊 Страница ${pageNumber + 1}: получено ${pageFeedbacks.length}, обработано ${processedFeedbacks.length}`);
+      // 🚀 ПРОМЕЖУТОЧНОЕ СОХРАНЕНИЕ: Управление буфером
+      const bufferStats = manageReviewsBuffer(reviewsBuffer, processedFeedbacks, store, pagesSinceLastSave);
+      if (bufferStats.saved > 0) {
+        totalSaved += bufferStats.saved;
+        pagesSinceLastSave = 0; // Сброс счетчика после сохранения
+        log(`[Ozon Standard] 💾 Промежуточное сохранение: ${bufferStats.saved} отзывов (всего сохранено: ${totalSaved})`);
+      }
+      
+      log(`[Ozon Standard] 📊 Страница ${pageNumber + 1}: получено ${pageFeedbacks.length}, обработано ${processedFeedbacks.length}, в буфере ${bufferStats.bufferSize}`);
       
       if (pageFeedbacks.length < limit) {
         log(`[Ozon Standard] ✅ Последняя страница (${pageFeedbacks.length} < ${limit})`);
+        // 🚀 ФИНАЛЬНОЕ СОХРАНЕНИЕ: Принудительно сохраняем остатки буфера
+        const finalSaved = saveReviewsBuffer(reviewsBuffer, store, true);
+        if (finalSaved > 0) {
+          totalSaved += finalSaved;
+          log(`[Ozon Standard] 💾 Финальное сохранение: ${finalSaved} отзывов (всего сохранено: ${totalSaved})`);
+        }
         updateStorePageProgress(store, includeAnswered, pageNumber, true);
         break;
       }
@@ -216,7 +256,11 @@ function getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswere
   }
   
   const duration = Math.round((Date.now() - startTime) / 1000);
-  log(`[Ozon Standard] 🏁 ЗАВЕРШЕНО: ${allFeedbacks.length} отзывов за ${duration}с (обработано ${pageNumber} страниц)`);
+  log(`[Ozon Standard] 🎯 ИТОГОВАЯ СТАТИСТИКА за ${duration}с:`);
+  log(`[Ozon Standard] 📊 Отзывов получено: ${allFeedbacks.length}`);
+  log(`[Ozon Standard] 📄 Страниц обработано: ${pageNumber}`);
+  log(`[Ozon Standard] 💾 Промежуточно сохранено: ${totalSaved} отзывов`);
+  log(`[Ozon Standard] 🏁 ЗАВЕРШЕНО успешно`);
   
   // Применяем сортировку из настроек магазина
   return applySortingPreferences(allFeedbacks, store);
