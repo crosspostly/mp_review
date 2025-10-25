@@ -383,9 +383,6 @@ function getDateRange(days = 30) {
     };
 }
 
-// ============ WB - ПРОСТАЯ ПАГИНАЦИЯ ============
-// 🚀 ВСЕ СЛОЖНЫЕ ФУНКЦИИ УДАЛЕНЫ! Остается только простая версия в getWbFeedbacks() ниже
-
 // ============ HELPER FUNCTIONS FOR API TESTING ============
 function testWbContentApiAccess(apiKey) {
   try {
@@ -1015,7 +1012,101 @@ function saveReviewsBuffer(reviewsBuffer, store, forceFlush = false) {
   }
   
   if (!forceFlush && reviewsBuffer.length < MIN_BUFFER_SIZE) {
-    log(`[${store.name}] 💾 Буфер содержит ${reviewsBuffer.length} отзывов (< ${MIN_BUFFER_SIZE}) - ждем накопления`);\n    return 0;\n  }\n  \n  try {\n    const sheet = createOrGetSheet(`Отзывы (${store.name})`, CONFIG.HEADERS);\n    const startRow = sheet.getLastRow() + 1;\n    \n    // Подготавливаем данные для сохранения\n    const rowsToSave = reviewsBuffer.map((review, index) => [\n      startRow + index - 1, // № строки\n      review.id,\n      new Date(review.createdDate),\n      review.product?.id || 'Не указано',\n      review.product?.name || 'Не указано',\n      review.product?.url || '',\n      review.rating,\n      review.text,\n      '', // Подобранный ответ (пока пустой)\n      CONFIG.STATUS.NEW, // Статус\n      '', // Детали ошибки\n      '' // Время отправки\n    ]);\n    \n    // Сохраняем в таблицу\n    sheet.getRange(startRow, 1, rowsToSave.length, CONFIG.HEADERS.length).setValues(rowsToSave);\n    \n    // Обновляем порядковые номера\n    updateRowNumbers(sheet);\n    \n    log(`[${store.name}] 💾 ПРОМЕЖУТОЧНОЕ СОХРАНЕНИЕ: ${reviewsBuffer.length} отзывов сохранено в строки ${startRow}-${startRow + rowsToSave.length - 1}`);\n    \n    // Очищаем буфер\n    reviewsBuffer.length = 0;\n    \n    return rowsToSave.length;\n  } catch (e) {\n    log(`[${store.name}] ❌ ОШИБКА промежуточного сохранения: ${e.message}`);\n    return 0;\n  }\n}\n\n/**\n * 🚀 НОВАЯ ФУНКЦИЯ: Интеллектуальное управление буфером отзывов\n * Автоматически сохраняет буфер при достижении лимитов\n * @param {Array} reviewsBuffer - Буфер накопленных отзывов\n * @param {Array} newReviews - Новые отзывы для добавления в буфер\n * @param {Object} store - Конфигурация магазина\n * @param {number} pagesSinceLastSave - Количество страниц с последнего сохранения\n * @returns {Object} Статистика: {saved: число_сохраненных, bufferSize: размер_буфера}\n */\nfunction manageReviewsBuffer(reviewsBuffer, newReviews, store, pagesSinceLastSave = 0) {\n  const MAX_BUFFER_SIZE = 100; // Максимальный размер буфера\n  const PAGES_SAVE_INTERVAL = 20; // Сохранять каждые 20 страниц\n  \n  // Добавляем новые отзывы в буфер\n  if (newReviews && newReviews.length > 0) {\n    reviewsBuffer.push(...newReviews);\n  }\n  \n  let savedCount = 0;\n  \n  // Условия для автоматического сохранения:\n  // 1. Буфер переполнен (≥100 отзывов)\n  // 2. Прошло много страниц (≥20) с последнего сохранения\n  const shouldSave = \n    reviewsBuffer.length >= MAX_BUFFER_SIZE || \n    pagesSinceLastSave >= PAGES_SAVE_INTERVAL;\n  \n  if (shouldSave) {\n    const reason = reviewsBuffer.length >= MAX_BUFFER_SIZE ? \n      `буфер переполнен (${reviewsBuffer.length} ≥ ${MAX_BUFFER_SIZE})` :\n      `прошло ${pagesSinceLastSave} страниц`;\n    \n    log(`[${store.name}] 🔄 АВТОСОХРАНЕНИЕ: ${reason}`);\n    savedCount = saveReviewsBuffer(reviewsBuffer, store, true);\n  }\n  \n  return {\n    saved: savedCount,\n    bufferSize: reviewsBuffer.length\n  };\n}\n\n// ============ BATCH PROCESSING FUNCTIONS ============\n\n/**\n * 🚀 НОВАЯ ФУНКЦИЯ: Пачкная обработка отзывов для повышения производительности\n * @param {Array} feedbacks - Массив отзывов для обработки\n * @param {Array} templates - Массив шаблонов ответов\n * @param {Object} store - Конфигурация магазина\n * @param {boolean} devMode - Режим разработчика\n * @returns {Array} Массив результатов обработки\n */\nfunction processFeedbackBatch(feedbacks, templates, store, devMode) {
+    log(`[${store.name}] 💾 Буфер содержит ${reviewsBuffer.length} отзывов (< ${MIN_BUFFER_SIZE}) - ждем накопления`);
+    return 0;
+  }
+  
+  try {
+    const sheet = createOrGetSheet(`Отзывы (${store.name})`, CONFIG.HEADERS);
+    const startRow = sheet.getLastRow() + 1;
+    
+    // Подготавливаем данные для сохранения
+    const rowsToSave = reviewsBuffer.map((review, index) => [
+      startRow + index - 1, // № строки
+      review.id,
+      new Date(review.createdDate),
+      review.product?.id || 'Не указано',
+      review.product?.name || 'Не указано',
+      review.product?.url || '',
+      review.rating,
+      review.text,
+      '', // Подобранный ответ (пока пустой)
+      CONFIG.STATUS.NEW, // Статус
+      '', // Детали ошибки
+      '' // Время отправки
+    ]);
+    
+    // Сохраняем в таблицу
+    sheet.getRange(startRow, 1, rowsToSave.length, CONFIG.HEADERS.length).setValues(rowsToSave);
+    
+    // Обновляем порядковые номера
+    updateRowNumbers(sheet);
+    
+    log(`[${store.name}] 💾 ПРОМЕЖУТОЧНОЕ СОХРАНЕНИЕ: ${reviewsBuffer.length} отзывов сохранено в строки ${startRow}-${startRow + rowsToSave.length - 1}`);
+    
+    // Очищаем буфер
+    reviewsBuffer.length = 0;
+    
+    return rowsToSave.length;
+  } catch (e) {
+    log(`[${store.name}] ❌ ОШИБКА промежуточного сохранения: ${e.message}`);
+    return 0;
+  }
+}
+
+/**
+ * 🚀 НОВАЯ ФУНКЦИЯ: Интеллектуальное управление буфером отзывов
+ * Автоматически сохраняет буфер при достижении лимитов
+ * @param {Array} reviewsBuffer - Буфер накопленных отзывов
+ * @param {Array} newReviews - Новые отзывы для добавления в буфер
+ * @param {Object} store - Конфигурация магазина
+ * @param {number} pagesSinceLastSave - Количество страниц с последнего сохранения
+ * @returns {Object} Статистика: {saved: число_сохраненных, bufferSize: размер_буфера}
+ */
+function manageReviewsBuffer(reviewsBuffer, newReviews, store, pagesSinceLastSave = 0) {
+  const MAX_BUFFER_SIZE = 100; // Максимальный размер буфера
+  const PAGES_SAVE_INTERVAL = 20; // Сохранять каждые 20 страниц
+  
+  // Добавляем новые отзывы в буфер
+  if (newReviews && newReviews.length > 0) {
+    reviewsBuffer.push(...newReviews);
+  }
+  
+  let savedCount = 0;
+  
+  // Условия для автоматического сохранения:
+  // 1. Буфер переполнен (≥100 отзывов)
+  // 2. Прошло много страниц (≥20) с последнего сохранения
+  const shouldSave = 
+    reviewsBuffer.length >= MAX_BUFFER_SIZE || 
+    pagesSinceLastSave >= PAGES_SAVE_INTERVAL;
+  
+  if (shouldSave) {
+    const reason = reviewsBuffer.length >= MAX_BUFFER_SIZE ? 
+      `буфер переполнен (${reviewsBuffer.length} ≥ ${MAX_BUFFER_SIZE})` :
+      `прошло ${pagesSinceLastSave} страниц`;
+    
+    log(`[${store.name}] 🔄 АВТОСОХРАНЕНИЕ: ${reason}`);
+    savedCount = saveReviewsBuffer(reviewsBuffer, store, true);
+  }
+  
+  return {
+    saved: savedCount,
+    bufferSize: reviewsBuffer.length
+  };
+}
+
+// ============ BATCH PROCESSING FUNCTIONS ============
+
+/**
+ * 🚀 НОВАЯ ФУНКЦИЯ: Пачкная обработка отзывов для повышения производительности
+ * @param {Array} feedbacks - Массив отзывов для обработки
+ * @param {Array} templates - Массив шаблонов ответов
+ * @param {Object} store - Конфигурация магазина
+ * @param {boolean} devMode - Режим разработчика
+ * @returns {Array} Массив результатов обработки
+ */
+function processFeedbackBatch(feedbacks, templates, store, devMode) {
   log(`[${store.name}] 🚀 ПАЧКНАЯ ОБРАБОТКА: начинаю обработку ${feedbacks.length} отзывов...`);
   
   const results = [];
@@ -2362,443 +2453,6 @@ function manuallyDeleteReviewById() {
   } else {
     ui.alert('Не найдено', `Отзыв с ID "${feedbackId}" не найден.`);
   }
-}
-
-// ============ WB TESTING FUNCTIONS ============
-/**
- * Функция для тестирования отправки ответа на конкретный отзыв WB
- * Позволяет протестировать оба endpoint'а без влияния на производственные данные
- */
-function testWbFeedbackAnswerById() {
-  const ui = SpreadsheetApp.getUi();
-  
-  // Получаем список активных WB магазинов
-  const stores = getStores().filter(s => s.isActive && s.marketplace === 'Wildberries');
-  if (stores.length === 0) {
-    ui.alert('❌ Ошибка', 'Не найдено активных магазинов Wildberries для тестирования.', ui.ButtonSet.OK);
-    return;
-  }
-  
-  // Выбираем магазин (пока берем первый)
-  const store = stores[0];
-  log(`[WB TEST] 🧪 Начало тестирования для магазина: ${store.name}`);
-  
-  // Запрашиваем ID отзыва
-  const feedbackIdResponse = ui.prompt('🧪 Тест WB API', 
-    'Введите ID отзыва Wildberries для тестирования:', ui.ButtonSet.OK_CANCEL);
-  
-  if (feedbackIdResponse.getSelectedButton() !== ui.Button.OK || !feedbackIdResponse.getResponseText().trim()) {
-    log('[WB TEST] ❌ Тестирование отменено пользователем.');
-    return;
-  }
-  
-  const feedbackId = feedbackIdResponse.getResponseText().trim();
-  log(`[WB TEST] 🎯 ID отзыва для тестирования: ${feedbackId}`);
-  
-  // Запрашиваем текст ответа
-  const answerTextResponse = ui.prompt('🧪 Тест WB API', 
-    'Введите текст ответа для тестирования (2-5000 символов):', ui.ButtonSet.OK_CANCEL);
-    
-  if (answerTextResponse.getSelectedButton() !== ui.Button.OK || !answerTextResponse.getResponseText().trim()) {
-    log('[WB TEST] ❌ Тестирование отменено пользователем.');
-    return;
-  }
-  
-  const answerText = answerTextResponse.getResponseText().trim();
-  
-  // Валидация текста ответа
-  if (answerText.length < 2) {
-    ui.alert('❌ Ошибка валидации', 'Текст ответа слишком короткий (минимум 2 символа).', ui.ButtonSet.OK);
-    return;
-  }
-  if (answerText.length > 5000) {
-    ui.alert('❌ Ошибка валидации', 'Текст ответа слишком длинный (максимум 5000 символов).', ui.ButtonSet.OK);
-    return;
-  }
-  
-  log(`[WB TEST] 📝 Текст ответа: "${answerText}" (${answerText.length} символов)`);
-  
-  // Предупреждение пользователя
-  const confirmResponse = ui.alert('⚠️ ВНИМАНИЕ', 
-    `Вы собираетесь отправить РЕАЛЬНЫЙ ответ на отзыв ${feedbackId} в магазине "${store.name}"!\n\nТекст: "${answerText}"\n\nЭто действие нельзя отменить. Продолжить?`, 
-    ui.ButtonSet.YES_NO);
-    
-  if (confirmResponse !== ui.Button.YES) {
-    log('[WB TEST] ❌ Тестирование отменено пользователем на этапе подтверждения.');
-    return;
-  }
-  
-  // Включаем режим разработчика на время теста для более подробных логов
-  const wasDevMode = isDevMode();
-  if (!wasDevMode) {
-    log('[WB TEST] 🛠️ Временно включаем Dev Mode для детального логирования...');
-    setDevMode('true');
-  }
-  
-  try {
-    log('[WB TEST] 🚀 ЗАПУСК ТЕСТИРОВАНИЯ отправки ответа...');
-    
-    // Используем обновленную функцию с двумя вариантами endpoint'ов
-    const result = sendWbFeedbackAnswer(feedbackId, answerText, store.credentials.apiKey);
-    const [success, errorMessage, responseBody] = result;
-    
-    log(`[WB TEST] 📊 РЕЗУЛЬТАТ ТЕСТА:`);
-    log(`[WB TEST] ✅ Успех: ${success ? 'ДА' : 'НЕТ'}`);
-    log(`[WB TEST] 📝 Сообщение об ошибке: ${errorMessage || 'отсутствует'}`);
-    log(`[WB TEST] 📋 Ответ сервера: ${responseBody || 'пустой'}`);
-    
-    // Показываем результат пользователю
-    if (success) {
-      ui.alert('✅ УСПЕХ', 
-        `Ответ успешно отправлен!\n\nОтзыв ID: ${feedbackId}\nОтвет сервера: ${responseBody}`, 
-        ui.ButtonSet.OK);
-    } else {
-      ui.alert('❌ ОШИБКА', 
-        `Не удалось отправить ответ.\n\nОшибка: ${errorMessage}\nОтвет сервера: ${responseBody}\n\nПодробности в логе отладки.`, 
-        ui.ButtonSet.OK);
-    }
-    
-  } catch (e) {
-    log(`[WB TEST] ⛔ КРИТИЧЕСКАЯ ОШИБКА в тесте: ${e.message}`);
-    log(`[WB TEST] 🔍 Stack trace: ${e.stack}`);
-    ui.alert('⛔ КРИТИЧЕСКАЯ ОШИБКА', 
-      `Произошла критическая ошибка:\n\n${e.message}\n\nПодробности в логе отладки.`, 
-      ui.ButtonSet.OK);
-  } finally {
-    // Восстанавливаем предыдущий режим разработчика
-    if (!wasDevMode) {
-      log('[WB TEST] 🛠️ Восстанавливаем предыдущий режим разработчика...');
-      setDevMode('false');
-    }
-    
-    log('[WB TEST] 🏁 Тестирование завершено. Подробные логи в листе "🐞 Лог отладки".');
-  }
-}
-
-/**
- * Функция для проверки статуса конкретного отзыва WB
- * Помогает диагностировать, почему отзыв не может получить ответ
- */
-function checkWbFeedbackStatus(feedbackId, apiKey) {
-  try {
-    log(`[WB Check] 🔍 Проверка статуса отзыва ${feedbackId}...`);
-    
-    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedback?id=${feedbackId}`;
-    
-    const response = UrlFetchApp.fetch(url, {
-      method: 'GET',
-      headers: { 'Authorization': apiKey },
-      muteHttpExceptions: true
-    });
-    
-    const code = response.getResponseCode();
-    const responseBody = response.getContentText();
-    
-    log(`[WB Check] 📥 Код ответа: ${code}`);
-    log(`[WB Check] 📋 Тело ответа: ${responseBody}`);
-    
-    if (code === 200) {
-      try {
-        const feedback = JSON.parse(responseBody);
-        const hasAnswer = feedback.answer && feedback.answer.text;
-        const createdDate = feedback.createdDate;
-        const rating = feedback.rating;
-        
-        log(`[WB Check] ✅ Отзыв найден:`);
-        log(`[WB Check] 📅 Дата: ${createdDate}`);
-        log(`[WB Check] ⭐ Рейтинг: ${rating}`);
-        log(`[WB Check] 💬 Имеет ответ: ${hasAnswer ? 'ДА' : 'НЕТ'}`);
-        if (hasAnswer) {
-          log(`[WB Check] 📝 Текст ответа: "${feedback.answer.text}"`);
-        }
-        
-        return { exists: true, hasAnswer, feedback };
-      } catch (e) {
-        log(`[WB Check] ❌ Ошибка парсинга JSON: ${e.message}`);
-        return { exists: false, error: 'JSON parse error' };
-      }
-    } else {
-      log(`[WB Check] ❌ Отзыв не найден или ошибка API: ${code}`);
-      return { exists: false, error: `HTTP ${code}: ${responseBody}` };
-    }
-  } catch (e) {
-    log(`[WB Check] ⛔ Критическая ошибка: ${e.message}`);
-    return { exists: false, error: e.message };
-  }
-}
-
-// ============ OZON TESTING FUNCTIONS ============
-/**
- * Функция для тестирования новой пагинации Ozon API
- * Показывает, как работает правильный last_id пагинация и сколько отзывов можно получить
- */
-function testOzonFeedbackPagination() {
-  const ui = SpreadsheetApp.getUi();
-  
-  // Получаем список активных Ozon магазинов
-  const stores = getStores().filter(s => s.isActive && s.marketplace === 'Ozon');
-  if (stores.length === 0) {
-    ui.alert('❌ Ошибка', 'Не найдено активных магазинов Ozon для тестирования.', ui.ButtonSet.OK);
-    return;
-  }
-  
-  // Выбираем магазин (пока берем первый)
-  const store = stores[0];
-  log(`[Ozon TEST] 🧪 Начало тестирования пагинации для магазина: ${store.name}`);
-  
-  // Выбираем режим тестирования
-  const testModeResponse = ui.alert('🧪 Тест Ozon API', 
-    'Выберите режим тестирования:\n\n' +
-    'ДА = Получить ВСЕ отзывы (отвеченные + неотвеченные)\n' +
-    'НЕТ = Получить только неотвеченные отзывы\n' +
-    'ОТМЕНА = Выход', 
-    ui.ButtonSet.YES_NO_CANCEL);
-  
-  if (testModeResponse === ui.Button.CANCEL) {
-    log('[Ozon TEST] ❌ Тестирование отменено пользователем.');
-    return;
-  }
-  
-  const includeAnswered = (testModeResponse === ui.Button.YES);
-  log(`[Ozon TEST] 🎯 Режим тестирования: ${includeAnswered ? 'ВСЕ отзывы' : 'только неотвеченные'}`);
-  
-  // Выбираем лимит страниц для тестирования
-  const pageLimitResponse = ui.prompt('🧪 Тест Ozon API', 
-    'Сколько страниц максимум запросить?\n(1 страница = до 100 отзывов)\n\nРекомендуется:\n• Для быстрого теста: 1-3\n• Для полноценной проверки: 5-10\n• Для получения ВСЕХ данных: 100', 
-    ui.ButtonSet.OK_CANCEL);
-    
-  if (pageLimitResponse.getSelectedButton() !== ui.Button.OK) {
-    log('[Ozon TEST] ❌ Тестирование отменено пользователем.');
-    return;
-  }
-  
-  let maxPages;
-  try {
-    maxPages = parseInt(pageLimitResponse.getResponseText().trim()) || 3;
-    if (maxPages < 1) maxPages = 1;
-    if (maxPages > 100) maxPages = 100;
-  } catch (e) {
-    maxPages = 3;
-  }
-  
-  log(`[Ozon TEST] 📊 Лимит страниц для тестирования: ${maxPages}`);
-  
-  // Включаем режим разработчика на время теста для более подробных логов
-  const wasDevMode = isDevMode();
-  if (!wasDevMode) {
-    log('[Ozon TEST] 🛠️ Временно включаем Dev Mode для детального логирования...');
-    setDevMode('true');
-  }
-  
-  try {
-    log('[Ozon TEST] 🚀 ЗАПУСК ТЕСТИРОВАНИЯ пагинации Ozon...');
-    const startTime = new Date();
-    
-    // Используем улучшенную функцию с правильной пагинацией
-    // Временно ограничиваем количество страниц для теста
-    const originalMaxPages = 100;
-    // Создаем тестовую версию функции с ограниченным числом страниц
-    const testResult = testOzonFeedbacksWithLimitedPages(
-      store.credentials.clientId, 
-      store.credentials.apiKey, 
-      includeAnswered, 
-      store, 
-      maxPages
-    );
-    
-    const endTime = new Date();
-    const duration = Math.round((endTime - startTime) / 1000);
-    
-    log(`[Ozon TEST] 📊 РЕЗУЛЬТАТ ТЕСТА:`);
-    log(`[Ozon TEST] ✅ Получено отзывов: ${testResult.length}`);
-    log(`[Ozon TEST] ⏱️ Время выполнения: ${duration} секунд`);
-    log(`[Ozon TEST] 📄 Страниц обработано: ${testResult.pagesProcessed || 'неизвестно'}`);
-    log(`[Ozon TEST] 🔄 Использована пагинация: ${testResult.usedPagination ? 'ДА (last_id)' : 'НЕТ'}`);
-    
-    // Показываем детали первых нескольких отзывов
-    if (testResult.length > 0) {
-      log(`[Ozon TEST] 📝 Примеры отзывов (первые 3):`);
-      testResult.slice(0, 3).forEach((review, index) => {
-        log(`[Ozon TEST] ${index + 1}. ID: ${review.id}, Дата: ${review.createdDate}, Рейтинг: ${review.rating}, Текст: "${review.text.substring(0, 50)}..."`);
-      });
-    }
-    
-    // Показываем результат пользователю
-    const resultMessage = 
-      `✅ УСПЕШНО ПРОТЕСТИРОВАНО!\n\n` +
-      `📊 Получено отзывов: ${testResult.length}\n` +
-      `⏱️ Время: ${duration} сек\n` +
-      `📄 Страниц: ${testResult.pagesProcessed || 'N/A'}\n` +
-      `🔄 Пагинация: ${testResult.usedPagination ? 'last_id (ПРАВИЛЬНО!)' : 'НЕ ИСПОЛЬЗОВАНА'}\n\n` +
-      `${testResult.length > 0 ? 'Первый отзыв:\n' + testResult[0].text.substring(0, 100) + '...' : 'Отзывы не найдены'}\n\n` +
-      `Подробные логи в "🐞 Лог отладки"`;
-      
-    ui.alert('🎉 ТЕСТ OZON ПАГИНАЦИИ ЗАВЕРШЕН', resultMessage, ui.ButtonSet.OK);
-    
-  } catch (e) {
-    log(`[Ozon TEST] ⛔ КРИТИЧЕСКАЯ ОШИБКА в тесте: ${e.message}`);
-    log(`[Ozon TEST] 🔍 Stack trace: ${e.stack}`);
-    ui.alert('⛔ КРИТИЧЕСКАЯ ОШИБКА', 
-      `Произошла критическая ошибка:\n\n${e.message}\n\nПодробности в логе отладки.`, 
-      ui.ButtonSet.OK);
-  } finally {
-    // Восстанавливаем предыдущий режим разработчика
-    if (!wasDevMode) {
-      log('[Ozon TEST] 🛠️ Восстанавливаем предыдущий режим разработчика...');
-      setDevMode('false');
-    }
-    
-    log('[Ozon TEST] 🏁 Тестирование завершено. Подробные логи в листе "🐞 Лог отладки".');
-  }
-}
-
-/**
- * Тестовая версия функции получения отзывов с ограниченным числом страниц
- * Используется только для тестирования, чтобы не нагружать API
- */
-function testOzonFeedbacksWithLimitedPages(clientId, apiKey, includeAnswered, store, maxPages) {
-  log(`[Ozon TEST] 🎯 Тест пагинации с лимитом ${maxPages} страниц...`);
-  
-  const url = 'https://api-seller.ozon.ru/v1/review/list';
-  
-  let allReviews = [];
-  let lastId = "";
-  let hasNext = true;
-  let pageNumber = 1;
-  const limit = OZON_CONFIG.API_LIMITS.MAX_LIMIT; // 100
-  
-  // Базовая структура запроса (копируем из основной функции)
-  let basePayload = {
-    filter: {
-      has_text: true,
-    },
-    sort: {
-      type: 'CREATED_AT',
-      order: 'DESC'
-    },
-    limit: limit
-  };
-  
-  // Настройка фильтра по статусу ответов
-  if (includeAnswered) {
-    basePayload.filter.status = ['PENDING', 'PROCESSED', 'MODERATED', 'NEW'];
-  } else {
-    basePayload.filter.has_answer = false;
-    basePayload.filter.status = ['PENDING', 'MODERATED', 'NEW'];
-  }
-
-  // Фильтр по дате из настроек магазина
-  if (store && store.settings && store.settings.startDate) {
-    const startDate = store.settings.startDate;
-    const today = new Date().toISOString().split('T')[0];
-    
-    basePayload.filter.date_from = formatDateForOzon(startDate);
-    basePayload.filter.date_to = formatDateForOzon(today);
-    
-    log(`[Ozon TEST] 🗓️ Применен фильтр дат: ${startDate} - ${today}`);
-  }
-  
-  // Главный цикл пагинации (ограниченный)
-  while (hasNext && pageNumber <= maxPages) {
-    log(`[Ozon TEST] 📄 Тест страницы ${pageNumber}/${maxPages} (last_id: "${lastId}")...`);
-    
-    const payload = {
-      ...basePayload,
-      last_id: lastId
-    };
-    
-    try {
-      const response = UrlFetchApp.fetch(url, {
-        method: 'POST',
-        headers: { 
-          'Client-Id': clientId, 
-          'Api-Key': apiKey,
-          'Content-Type': 'application/json'
-        },
-        payload: JSON.stringify(payload),
-        muteHttpExceptions: true
-      });
-      
-      const responseCode = response.getResponseCode();
-      const responseBody = response.getContentText();
-      
-      log(`[Ozon TEST] 🌐 Страница ${pageNumber}: код ${responseCode}, размер ${responseBody.length} символов`);
-      
-      if (responseCode !== 200) {
-        log(`[Ozon TEST] ❌ ОШИБКА на странице ${pageNumber}: Код ${responseCode}`);
-        break;
-      }
-      
-      const json = JSON.parse(responseBody);
-      
-      // Обработка структуры ответа
-      let reviews = [];
-      let resultData = null;
-      
-      if (json.result) {
-        resultData = json.result;
-        reviews = json.result.reviews || [];
-      } else if (json.reviews) {
-        reviews = json.reviews;
-      } else if (json.data && json.data.reviews) {
-        resultData = json.data;
-        reviews = json.data.reviews;
-      }
-      
-      log(`[Ozon TEST] 📄 Страница ${pageNumber}: получено ${reviews.length} отзывов`);
-      
-      // Обрабатываем отзывы
-      const processedReviews = reviews.map(fb => ({
-        id: fb.id, 
-        createdDate: fb.published_at || fb.created_at, 
-        rating: fb.rating,
-        text: fb.text || '(без текста)', 
-        user: 'Аноним',
-        product: { 
-          id: fb.sku || fb.offer_id,
-          name: 'Не указано',
-          url: `https://www.ozon.ru/product/${fb.sku || fb.offer_id}`
-        }
-      }));
-      
-      allReviews = allReviews.concat(processedReviews);
-      
-      // Проверяем пагинацию
-      if (resultData) {
-        hasNext = resultData.has_next || false;
-        lastId = resultData.last_id || "";
-        log(`[Ozon TEST] 📋 has_next: ${hasNext}, last_id: "${lastId}"`);
-      } else {
-        hasNext = (reviews.length === limit);
-        log(`[Ozon TEST] ⚠️ Нет информации о пагинации. Предполагаем has_next = ${hasNext}`);
-      }
-      
-      // Если получили меньше записей чем лимит - последняя страница
-      if (reviews.length < limit) {
-        log(`[Ozon TEST] ✅ Последняя страница ${pageNumber}: ${reviews.length} < ${limit}`);
-        hasNext = false;
-      }
-      
-      pageNumber++;
-      
-      // Rate limiting для теста (быстрее чем в продакшне)
-      Utilities.sleep(50);
-      
-    } catch (e) {
-      log(`[Ozon TEST] ❌ ОШИБКА на странице ${pageNumber}: ${e.message}`);
-      break;
-    }
-  }
-  
-  // Сортируем результаты
-  allReviews.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
-  
-  // Добавляем метаинформацию о тестировании
-  allReviews.pagesProcessed = pageNumber - 1;
-  allReviews.usedPagination = (pageNumber > 1);
-  
-  log(`[Ozon TEST] 🎯 Тест завершен: ${allReviews.length} отзывов за ${allReviews.pagesProcessed} страниц`);
-  return allReviews;
 }
 
 // ============ ADVANCED PROCESSING FUNCTIONS ============
