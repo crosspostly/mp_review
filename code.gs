@@ -17,7 +17,7 @@ const CONFIG = {
   DELAY_BETWEEN_REQUESTS: 1100,
   MAX_FEEDBACKS_PER_RUN: 50,
   MIN_REVIEW_TEXT_LENGTH: 3, // Минимальная длина текста отзыва для обработки
-  HEADERS: ['№', 'ID отзыва', 'Дата отзыва', 'Артикул', 'Название товара', 'Ссылка', 'Оценка', 'Текст отзыва', 'Статус', 'Детали ошибки', 'Время отправки'],
+  HEADERS: ['№', 'ID отзыва', 'Дата отзыва', 'Артикул', 'Название товара', 'Ссылка', 'Оценка', 'Текст отзыва', 'Подобранный ответ', 'Статус', 'Детали ошибки', 'Время отправки'],
   STATUS: {
     NEW: 'Новый',
     PENDING: 'Готово к отправке',
@@ -40,8 +40,8 @@ const WB_CONFIG = {
   MARKETPLACE_CODE: 'WB',
   API_BASE_URL: 'https://feedbacks-api.wildberries.ru/api',
   ENDPOINTS: {
-    GET_FEEDBACKS: '/v2/feedbacks',
-    SEND_ANSWER: '/v2/feedbacks'  // {id} будет добавлен динамически
+    GET_FEEDBACKS: '/v1/feedbacks',
+    SEND_ANSWER: '/v1/feedbacks'  // {id} будет добавлен динамически
   },
   API_LIMITS: {
     MAX_TAKE: 1000,          // Консервативный увеличенный лимит (протестирован)
@@ -139,9 +139,6 @@ function onOpen(e) {
     menu.addSeparator();
     menu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
     menu.addItem('▶️ Отправить подготовленные ответы', 'sendPendingAnswers');
-    menu.addItem('🧪 Тест WB: ответ на отзыв', 'testWbFeedbackAnswerById');
-    menu.addItem('🧪 Тест Ozon: получение отзывов', 'testOzonFeedbackPagination');
-    menu.addItem('🗑️ Удалить отзыв по ID', 'manuallyDeleteReviewById');
     menu.addSeparator();
     const devMenu = ui.createMenu('🛠️ Режим разработчика');
     devMenu.addItem('Включить', 'enableDevMode');
@@ -149,6 +146,8 @@ function onOpen(e) {
     menu.addSubMenu(devMenu);
     
     const triggerSubMenu = ui.createMenu('🔄 Управление автозапуском');
+    triggerSubMenu.addItem('🚀 Установить финальную схему', 'setupFinalSchemaTriggers');
+    triggerSubMenu.addSeparator();
     triggerSubMenu.addItem('Установить автозапуск (5 мин)', 'createTrigger5Min');
     triggerSubMenu.addItem('Установить автозапуск (30 мин)', 'createTrigger30Min');
     triggerSubMenu.addItem('Установить автозапуск (1 час)', 'createTrigger1Hour');
@@ -1450,7 +1449,7 @@ function sendAnswer(store, feedbackId, text) {
  * @returns {Array} Массив всех подходящих отзывов
  */
 function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
-    log(`[WB] 🚀 WB API v2 (includeAnswered=${includeAnswered})`);
+    log(`[WB] 🚀 WB API v1 (includeAnswered=${includeAnswered})`);
     log(`[WB] Store: ${store?.name || 'null'}`);
     
     const MAX_TAKE = 5000; // Максимум по документации WB API
@@ -1461,8 +1460,8 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
     
     try {
         while (hasMoreData && skip <= MAX_SKIP) {
-            // 🚀 ИСПРАВЛЕНИЕ: Используем v2 endpoint с встроенной фильтрацией
-            const url = buildWbApiV2Url(includeAnswered, skip, MAX_TAKE, store);
+            // 🚀 ИСПРАВЛЕНИЕ: Используем v1 endpoint с встроенной фильтрацией
+            const url = buildWbApiV1Url(includeAnswered, skip, MAX_TAKE, store);
             
             log(`[WB] 📄 Страница: skip=${skip}, take=${MAX_TAKE}`);
             
@@ -1476,7 +1475,7 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
             
             if (responseCode !== 200) {
                 const responseBody = response.getContentText();
-                const fullUrl = buildWbApiV2Url(includeAnswered, skip, MAX_TAKE, store);
+                const fullUrl = buildWbApiV1Url(includeAnswered, skip, MAX_TAKE, store);
                 
                 // 🚀 ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ПРИ ОШИБКЕ
                 log(`[WB] ❌ ОШИБКА: Код ${responseCode}`);
@@ -1734,7 +1733,7 @@ function attemptWbFeedbackAnswerMethod1(feedbackId, text, apiKey) {
     
     log(`[WB API Method 1] 🚀 URL: ${url}`);
     log(`[WB API Method 1] 📝 Payload: ${JSON.stringify(payload)}`);
-    log(`[WB API Method 1] ℹ️ Метод: PATCH (исправлено с POST)`);\n    
+    log(`[WB API Method 1] ℹ️ Метод: PATCH (исправлено с POST)`);    
     return sendWbApiRequest(url, payload, apiKey, "Method 1 (PATCH)", 'PATCH');
 }
 
@@ -2990,11 +2989,11 @@ function syncAllStoreTriggers() {
 }
 
 /**
- * 🚀 НОВАЯ ФУНКЦИЯ: Построение URL для WB API v2
+ * 🚀 НОВАЯ ФУНКЦИЯ: Построение URL для WB API v1
  * Использует встроенную фильтрацию по дате и рейтингу
  */
-function buildWbApiV2Url(includeAnswered, skip, take, store) {
-    const baseUrl = 'https://feedbacks-api.wildberries.ru/api/v2/feedbacks';
+function buildWbApiV1Url(includeAnswered, skip, take, store) {
+    const baseUrl = 'https://feedbacks-api.wildberries.ru/api/v1/feedbacks';
     const params = [];
     
     // Обязательные параметры
@@ -3003,14 +3002,15 @@ function buildWbApiV2Url(includeAnswered, skip, take, store) {
     params.push(`skip=${skip}`);
     params.push(`order=dateDesc`);
     
-    // 🚀 НОВОЕ: Используем встроенную фильтрацию по дате
+    // 🚀 ИСПРАВЛЕНО: WB API требует Unix timestamp, не ISO строки
     if (store?.settings?.startDate) {
-        params.push(`dateFrom=${encodeURIComponent(store.settings.startDate)}`);
-        log(`[WB] 📅 Фильтр по дате: ${store.settings.startDate}`);
+        const startTimestamp = Math.floor(new Date(store.settings.startDate).getTime() / 1000);
+        params.push(`dateFrom=${startTimestamp}`);
+        log(`[WB] 📅 Фильтр по дате: ${store.settings.startDate} (${startTimestamp})`);
     }
     // Добавляем верхнюю границу по дате (сегодня), чтобы ограничить интервал
-    const today = new Date().toISOString().split('T')[0];
-    params.push(`dateTo=${encodeURIComponent(today)}`);
+    const todayTimestamp = Math.floor(Date.now() / 1000);
+    params.push(`dateTo=${todayTimestamp}`);
     
     // 🚀 НОВОЕ: Используем встроенную фильтрацию по рейтингу
     if (store?.settings?.minRating) {
