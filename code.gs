@@ -997,18 +997,25 @@ function filterFeedbacksByAnswer(feedbacks, store) {
   
   return filteredFeedbacks;
 }
-
-// ============ BATCH PROCESSING FUNCTIONS ============
+// ============ INTERMEDIATE SAVING FUNCTIONS ============
 
 /**
- * 🚀 НОВАЯ ФУНКЦИЯ: Пачкная обработка отзывов для повышения производительности
- * @param {Array} feedbacks - Массив отзывов для обработки
- * @param {Array} templates - Массив шаблонов ответов
+ * 🚀 НОВАЯ ФУНКЦИЯ: Промежуточное сохранение отзывов в таблицу
+ * Предотвращает потерю данных при длительной обработке
+ * @param {Array} reviewsBuffer - Буфер накопленных отзывов для сохранения
  * @param {Object} store - Конфигурация магазина
- * @param {boolean} devMode - Режим разработчика
- * @returns {Array} Массив результатов обработки
+ * @param {boolean} forceFlush - Принудительное сохранение даже небольшого буфера
+ * @returns {number} Количество сохраненных отзывов
  */
-function processFeedbackBatch(feedbacks, templates, store, devMode) {
+function saveReviewsBuffer(reviewsBuffer, store, forceFlush = false) {
+  const MIN_BUFFER_SIZE = 20; // Минимальный размер буфера для сохранения
+  
+  if (reviewsBuffer.length === 0) {
+    return 0;
+  }
+  
+  if (!forceFlush && reviewsBuffer.length < MIN_BUFFER_SIZE) {
+    log(`[${store.name}] 💾 Буфер содержит ${reviewsBuffer.length} отзывов (< ${MIN_BUFFER_SIZE}) - ждем накопления`);\n    return 0;\n  }\n  \n  try {\n    const sheet = createOrGetSheet(`Отзывы (${store.name})`, CONFIG.HEADERS);\n    const startRow = sheet.getLastRow() + 1;\n    \n    // Подготавливаем данные для сохранения\n    const rowsToSave = reviewsBuffer.map((review, index) => [\n      startRow + index - 1, // № строки\n      review.id,\n      new Date(review.createdDate),\n      review.product?.id || 'Не указано',\n      review.product?.name || 'Не указано',\n      review.product?.url || '',\n      review.rating,\n      review.text,\n      '', // Подобранный ответ (пока пустой)\n      CONFIG.STATUS.NEW, // Статус\n      '', // Детали ошибки\n      '' // Время отправки\n    ]);\n    \n    // Сохраняем в таблицу\n    sheet.getRange(startRow, 1, rowsToSave.length, CONFIG.HEADERS.length).setValues(rowsToSave);\n    \n    // Обновляем порядковые номера\n    updateRowNumbers(sheet);\n    \n    log(`[${store.name}] 💾 ПРОМЕЖУТОЧНОЕ СОХРАНЕНИЕ: ${reviewsBuffer.length} отзывов сохранено в строки ${startRow}-${startRow + rowsToSave.length - 1}`);\n    \n    // Очищаем буфер\n    reviewsBuffer.length = 0;\n    \n    return rowsToSave.length;\n  } catch (e) {\n    log(`[${store.name}] ❌ ОШИБКА промежуточного сохранения: ${e.message}`);\n    return 0;\n  }\n}\n\n/**\n * 🚀 НОВАЯ ФУНКЦИЯ: Интеллектуальное управление буфером отзывов\n * Автоматически сохраняет буфер при достижении лимитов\n * @param {Array} reviewsBuffer - Буфер накопленных отзывов\n * @param {Array} newReviews - Новые отзывы для добавления в буфер\n * @param {Object} store - Конфигурация магазина\n * @param {number} pagesSinceLastSave - Количество страниц с последнего сохранения\n * @returns {Object} Статистика: {saved: число_сохраненных, bufferSize: размер_буфера}\n */\nfunction manageReviewsBuffer(reviewsBuffer, newReviews, store, pagesSinceLastSave = 0) {\n  const MAX_BUFFER_SIZE = 100; // Максимальный размер буфера\n  const PAGES_SAVE_INTERVAL = 20; // Сохранять каждые 20 страниц\n  \n  // Добавляем новые отзывы в буфер\n  if (newReviews && newReviews.length > 0) {\n    reviewsBuffer.push(...newReviews);\n  }\n  \n  let savedCount = 0;\n  \n  // Условия для автоматического сохранения:\n  // 1. Буфер переполнен (≥100 отзывов)\n  // 2. Прошло много страниц (≥20) с последнего сохранения\n  const shouldSave = \n    reviewsBuffer.length >= MAX_BUFFER_SIZE || \n    pagesSinceLastSave >= PAGES_SAVE_INTERVAL;\n  \n  if (shouldSave) {\n    const reason = reviewsBuffer.length >= MAX_BUFFER_SIZE ? \n      `буфер переполнен (${reviewsBuffer.length} ≥ ${MAX_BUFFER_SIZE})` :\n      `прошло ${pagesSinceLastSave} страниц`;\n    \n    log(`[${store.name}] 🔄 АВТОСОХРАНЕНИЕ: ${reason}`);\n    savedCount = saveReviewsBuffer(reviewsBuffer, store, true);\n  }\n  \n  return {\n    saved: savedCount,\n    bufferSize: reviewsBuffer.length\n  };\n}\n\n// ============ BATCH PROCESSING FUNCTIONS ============\n\n/**\n * 🚀 НОВАЯ ФУНКЦИЯ: Пачкная обработка отзывов для повышения производительности\n * @param {Array} feedbacks - Массив отзывов для обработки\n * @param {Array} templates - Массив шаблонов ответов\n * @param {Object} store - Конфигурация магазина\n * @param {boolean} devMode - Режим разработчика\n * @returns {Array} Массив результатов обработки\n */\nfunction processFeedbackBatch(feedbacks, templates, store, devMode) {
   log(`[${store.name}] 🚀 ПАЧКНАЯ ОБРАБОТКА: начинаю обработку ${feedbacks.length} отзывов...`);
   
   const results = [];
