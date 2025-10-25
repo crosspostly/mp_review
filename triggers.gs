@@ -409,10 +409,8 @@ function fetchReviewsForStore(store) {
         return [];
       }
       
-      // Используем исправленную функцию из api_fixes.gs или стандартную
-      if (typeof getWbFeedbacksV2 === 'function') {
-        return getWbFeedbacksV2(apiKey, false, store);
-      } else if (typeof getWbFeedbacks === 'function') {
+      // Используем стандартную функцию WB API v1
+      if (typeof getWbFeedbacks === 'function') {
         return getWbFeedbacks(apiKey, false, store);
       }
     } else if (store.marketplace === 'Ozon') {
