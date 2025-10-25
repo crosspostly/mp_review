@@ -1568,30 +1568,55 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
 
 /**
  * Fallback: Получение отзывов WB API v1 (без dateFrom/dateTo)
+ * С ДЕТАЛЬНЫМ ЛОГИРОВАНИЕМ для диагностики
  */
 function getWbFeedbacksV1(apiKey, includeAnswered = false, store = null) {
     log(`[WB V1] 🚀 Fallback WB API v1 (includeAnswered=${includeAnswered})`);
+    log(`[WB V1] Store: ${store?.name || 'null'}`);
+    
     const MAX_TAKE = 1000; // Консервативный лимит для v1
     const MAX_SKIP = 199000;
     let allFeedbacks = [];
     let skip = 0;
     let page = 0;
+    
     try {
         while (skip <= MAX_SKIP) {
             page++;
             const url = buildWbApiV1Url(includeAnswered, skip, MAX_TAKE);
+            
+            // 📤 ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ЗАПРОСА
             log(`[WB V1] 📄 Страница ${page}: skip=${skip}, take=${MAX_TAKE}`);
+            log(`[WB V1] 📤 URL запроса: ${url}`);
+            log(`[WB V1] 📤 Параметры: skip=${skip}, take=${MAX_TAKE}, isAnswered=${includeAnswered}`);
+            
             const response = UrlFetchApp.fetch(url, {
                 method: 'GET',
                 headers: { 'Authorization': apiKey },
                 muteHttpExceptions: true
             });
+            
             const code = response.getResponseCode();
             const body = response.getContentText();
+            
+            // 📥 ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ОТВЕТА
+            log(`[WB V1] 📥 HTTP ${code}`);
+            
             if (code !== 200) {
-                log(`[WB V1] ❌ ОШИБКА: Код ${code}. Тело: ${body.substring(0, 200)}`);
+                log(`[WB V1] ❌ ОШИБКА: Код ${code}`);
+                log(`[WB V1] 📥 Полное тело ответа: ${body.substring(0, 500)}`);
+                
+                // 🔍 Специальная диагностика для каждого кода ошибки
+                if (code === 404) log(`[WB V1] 🔎 404 Not Found: Проверьте правильность endpoint URL. Возможно API изменился.`);
+                if (code === 401) log(`[WB V1] 🔎 401 Unauthorized: Проверьте API ключ`);
+                if (code === 403) log(`[WB V1] 🔎 403 Forbidden: API ключ не имеет прав доступа`);
+                if (code === 429) log(`[WB V1] 🔎 429 Too Many Requests: Превышен лимит запросов (макс 3 запроса/сек)`);
+                if (code >= 500) log(`[WB V1] 🔎 ${code} Server Error: Временные проблемы на стороне WB`);
+                
                 break;
             }
+            
+            log(`[WB V1] 📥 Размер ответа: ${body.length} байт`);
             const json = JSON.parse(body);
             let feedbacks = [];
             if (json?.data?.feedbacks && Array.isArray(json.data.feedbacks)) {
@@ -1632,15 +1657,42 @@ function getWbFeedbacksV1(apiKey, includeAnswered = false, store = null) {
     }
 }
 
-function buildWbApiV1Url(includeAnswered, skip, take) {
-    const baseUrl = 'https://feedbacks-api.wildberries.ru/api/v1/feedbacks';
-    const params = [
-        `isAnswered=${includeAnswered}`,
-        `take=${take}`,
-        `skip=${skip}`,
-        `order=dateDesc`
-    ];
-    return `${baseUrl}?${params.join('&')}`;
+/**
+ * 🚀 УЛУЧШЕННАЯ ФУНКЦИЯ: Построение URL для WB API v1
+ * Использует Unix timestamps и улучшенную обработку дат
+ * @param {string} baseUrl - Базовый URL API
+ * @param {string} dateFromStr - Дата начала в формате YYYY-MM-DD
+ * @param {Array} params - Массив параметров запроса
+ * @returns {string} Полный URL с параметрами
+ */
+function buildWbApiV1Url(baseUrl, dateFromStr, params = []) {
+  // Улучшенная обработка даты с дополнительными проверками
+  if (dateFromStr) {
+    try {
+      let dateObj = new Date(dateFromStr);
+      
+      // УЛУЧШЕНИЕ: если дата не парсится, пробуем вручную
+      if (isNaN(dateObj.getTime())) {
+        const parts = dateFromStr.split('-');
+        if (parts.length === 3) {
+          dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        }
+      }
+      
+      // УЛУЧШЕНИЕ: проверка что дата валидна перед добавлением
+      if (!isNaN(dateObj.getTime())) {
+        const unixTimestamp = Math.floor(dateObj.getTime() / 1000);
+        params.push(`dateFrom=${unixTimestamp}`);
+        logDebug(`📅 Дата преобразована: ${dateFromStr} → Unix ${unixTimestamp}`, 'WB-API-V1');
+      } else {
+        logWarning(`⚠️ Некорректная дата: ${dateFromStr}`, 'WB-API-V1');
+      }
+    } catch (e) {
+      logWarning(`⚠️ Ошибка парсинга даты: ${dateFromStr} (${e.message})`, 'WB-API-V1');
+    }
+  }
+  
+  return `${baseUrl}?${params.join('&')}`;
 }
 
 function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
@@ -1670,24 +1722,26 @@ function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
 }
 
 /**
- * Method 1: ID в URL - текущий подход из документации
- * Endpoint: POST /api/v1/feedbacks/{feedbackId}/answer
+ * Method 1: ID в URL - ПРАВИЛЬНЫЙ подход из документации августа 2025
+ * Endpoint: PATCH /api/v1/feedbacks/{feedbackId} (НЕ POST!)
+ * Документация: https://openapi.wildberries.ru/#tag/Otzyvy/paths/~1api~1v1~1feedbacks~1%7Bid%7D/patch
  */
 function attemptWbFeedbackAnswerMethod1(feedbackId, text, apiKey) {
-    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/${feedbackId}/answer`;
+    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/${feedbackId}`;
     const payload = { 
         text: text  // Только текст в payload, ID в URL
     };
     
     log(`[WB API Method 1] 🚀 URL: ${url}`);
     log(`[WB API Method 1] 📝 Payload: ${JSON.stringify(payload)}`);
-    
-    return sendWbApiRequest(url, payload, apiKey, "Method 1 (ID в URL)");
+    log(`[WB API Method 1] ℹ️ Метод: PATCH (исправлено с POST)`);\n    
+    return sendWbApiRequest(url, payload, apiKey, "Method 1 (PATCH)", 'PATCH');
 }
 
 /**
- * Method 2: ID в теле запроса - альтернативный подход
+ * Method 2: ID в теле запроса - запасной вариант (deprecated)
  * Endpoint: POST /api/v1/feedbacks/answer
+ * ⚠️ DEPRECATED: Используется только как fallback если PATCH не работает
  */
 function attemptWbFeedbackAnswerMethod2(feedbackId, text, apiKey) {
     const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/answer`;
@@ -1698,8 +1752,9 @@ function attemptWbFeedbackAnswerMethod2(feedbackId, text, apiKey) {
     
     log(`[WB API Method 2] 🚀 URL: ${url}`);
     log(`[WB API Method 2] 📝 Payload: ${JSON.stringify(payload)}`);
+    log(`[WB API Method 2] ⚠️ Метод: POST (deprecated, используется как fallback)`);
     
-    return sendWbApiRequest(url, payload, apiKey, "Method 2 (ID в теле)");
+    return sendWbApiRequest(url, payload, apiKey, "Method 2 (POST fallback)", 'POST');
 }
 
 /**
@@ -1708,14 +1763,15 @@ function attemptWbFeedbackAnswerMethod2(feedbackId, text, apiKey) {
  * @param {Object} payload - Тело запроса
  * @param {string} apiKey - API ключ
  * @param {string} methodName - Название метода для логирования
+ * @param {string} httpMethod - HTTP метод (PATCH или POST)
  * @returns {Array} [success, errorMessage, responseBody]
  */
-function sendWbApiRequest(url, payload, apiKey, methodName) {
+function sendWbApiRequest(url, payload, apiKey, methodName, httpMethod = 'PATCH') {
     try {
-        log(`[WB ${methodName}] 📤 Отправка запроса...`);
+        log(`[WB ${methodName}] 📤 Отправка ${httpMethod} запроса...`);
         
         const response = UrlFetchApp.fetch(url, {
-            method: 'POST',
+            method: httpMethod,  // ✅ ИСПРАВЛЕНО: теперь используется правильный HTTP метод
             headers: { 
                 'Authorization': apiKey,
                 'Content-Type': 'application/json'
