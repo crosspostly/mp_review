@@ -180,6 +180,44 @@ function buildWbApiV2Url(includeAnswered, skip, take, store) {
 }
 
 /**
+ * 🚀 УЛУЧШЕННАЯ ФУНКЦИЯ: Построение URL для WB API v1
+ * Использует Unix timestamps и улучшенную обработку дат
+ * @param {string} baseUrl - Базовый URL API
+ * @param {string} dateFromStr - Дата начала в формате YYYY-MM-DD
+ * @param {Object} params - Дополнительные параметры
+ * @returns {string} Полный URL с параметрами
+ */
+function buildWbApiV1Url(baseUrl, dateFromStr, params = []) {
+  // Улучшенная обработка даты с дополнительными проверками
+  if (dateFromStr) {
+    try {
+      let dateObj = new Date(dateFromStr);
+      
+      // УЛУЧШЕНИЕ: если дата не парсится, пробуем вручную
+      if (isNaN(dateObj.getTime())) {
+        const parts = dateFromStr.split('-');
+        if (parts.length === 3) {
+          dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        }
+      }
+      
+      // УЛУЧШЕНИЕ: проверка что дата валидна перед добавлением
+      if (!isNaN(dateObj.getTime())) {
+        const unixTimestamp = Math.floor(dateObj.getTime() / 1000);
+        params.push(`dateFrom=${unixTimestamp}`);
+        logDebug(`📅 Дата преобразована: ${dateFromStr} → Unix ${unixTimestamp}`, 'WB-API-V1');
+      } else {
+        logWarning(`⚠️ Некорректная дата: ${dateFromStr}`, 'WB-API-V1');
+      }
+    } catch (e) {
+      logWarning(`⚠️ Ошибка парсинга даты: ${dateFromStr} (${e.message})`, 'WB-API-V1');
+    }
+  }
+  
+  return `${baseUrl}?${params.join('&')}`;
+}
+
+/**
  * 🚀 ИСПРАВЛЕННАЯ ФУНКЦИЯ: Отправка ответа на отзыв WB
  * Использует правильный endpoint v2 и retry логику
  */
@@ -334,31 +372,41 @@ function getOzonFeedbacksFixed(clientId, apiKey, includeAnswered = false, store 
 }
 
 /**
- * 🚀 НОВАЯ ФУНКЦИЯ: Получение одной страницы отзывов Ozon
- * Использует правильную структуру POST запроса
+ * 🚀 РАБОЧАЯ ФУНКЦИЯ: Получение одной страницы отзывов Ozon
+ * Использует ПРАВИЛЬНЫЙ endpoint: https://api-seller.ozon.ru/v1/review/list
  */
 function getOzonFeedbacksPageFixed(clientId, apiKey, includeAnswered, lastId, store) {
-  const url = 'https://api.ozon.ru/composer-api.bx/page/json/v1';
+  const url = 'https://api-seller.ozon.ru/v1/review/list';
   
-  // 🚀 ИСПРАВЛЕНИЕ: Правильная структура запроса Ozon API
-  const body = {
-    url: '/seller-reviews',
-    postData: {
-      filter: {
-        product_id: [],
-        status: 'ALL',
-        visibility: 'ALL'
-      },
-      sort: {
-        field: 'created_at',
-        direction: 'DESC'
-      },
-      pagination: {
-        limit: 100,
-        last_id: lastId || ''
-      }
-    }
+  // ✅ ПРАВИЛЬНАЯ структура запроса для /v1/review/list
+  const payload = {
+    filter: {
+      has_text: true  // Только отзывы с текстом
+    },
+    sort: {
+      type: 'CREATED_AT',
+      order: 'DESC'
+    },
+    limit: 100,
+    last_id: lastId || ''
   };
+  
+  // Добавляем фильтр по статусу ответов
+  if (includeAnswered) {
+    payload.filter.status = ['PENDING', 'PROCESSED', 'MODERATED', 'NEW'];
+  } else {
+    payload.filter.has_answer = false;
+    payload.filter.status = ['PENDING', 'MODERATED', 'NEW'];
+  }
+  
+  // Добавляем фильтр по дате из настроек магазина
+  if (store && store.settings && store.settings.startDate) {
+    const startDate = store.settings.startDate;
+    const today = new Date().toISOString().split('T')[0];
+    payload.filter.date_from = startDate + 'T00:00:00.000Z';
+    payload.filter.date_to = today + 'T23:59:59.999Z';
+    logDebug(`🗓️ Фильтр дат: ${startDate} - ${today}`, 'OZON-API-FIXED');
+  }
   
   const options = {
     method: 'POST',
@@ -367,35 +415,49 @@ function getOzonFeedbacksPageFixed(clientId, apiKey, includeAnswered, lastId, st
       'Api-Key': apiKey,
       'Content-Type': 'application/json'
     },
-    payload: JSON.stringify(body),
-    followRedirects: true,         // 🔧 FIX: Автоматически следовать редиректам (307, 301, 302)
+    payload: JSON.stringify(payload),
+    followRedirects: true,
     muteHttpExceptions: true
   };
   
   try {
-    logDebug(`📤 POST запрос: ${JSON.stringify(body)}`, 'OZON-API-FIXED');
+    logDebug(`📤 POST ${url} | last_id: ${lastId || 'пустой'}`, 'OZON-API-FIXED');
     
     const response = UrlFetchApp.fetch(url, options);
     const responseCode = response.getResponseCode();
     const responseBody = response.getContentText();
     
-    logDebug(`HTTP ${responseCode}`, 'OZON-API-FIXED');
+    logDebug(`📥 HTTP ${responseCode} | размер: ${responseBody.length} байт`, 'OZON-API-FIXED');
     
     if (responseCode !== 200) {
-      logError(`HTTP ${responseCode}: ${responseBody}`, 'OZON-API-FIXED');
+      logError(`❌ HTTP ${responseCode}: ${responseBody.substring(0, 500)}`, 'OZON-API-FIXED');
+      
+      // Специальная диагностика ошибок
+      if (responseCode === 401) logError('🔎 401 Unauthorized - проверьте Client-Id и Api-Key', 'OZON-API-FIXED');
+      if (responseCode === 403) logError('🔎 403 Forbidden - API ключ не имеет прав', 'OZON-API-FIXED');
+      if (responseCode === 429) logError('🔎 429 Too Many Requests - превышен лимит 50 RPS', 'OZON-API-FIXED');
+      if (responseCode >= 500) logError(`🔎 ${responseCode} Server Error - проблемы на стороне Ozon`, 'OZON-API-FIXED');
+      
       return null;
     }
     
     const json = JSON.parse(responseBody);
     
-    // 🚀 ИСПРАВЛЕНИЕ: Проверяем правильную структуру ответа
-    if (json.error) {
-      logError(`API Error: ${json.error}`, 'OZON-API-FIXED');
+    // ✅ ИСПРАВЛЕНО: Данные в КОРНЕ JSON, не в result!
+    // Структура: { "reviews": [...], "has_next": true, "last_id": "..." }
+    if (!json.reviews || !Array.isArray(json.reviews)) {
+      logError(`❌ Неожиданная структура ответа: ${JSON.stringify(json).substring(0, 200)}`, 'OZON-API-FIXED');
+      logError(`❌ Ожидалась структура с "reviews" массивом в корне JSON`, 'OZON-API-FIXED');
       return null;
     }
     
-    const reviews = json.result?.reviews || [];
+    const reviews = json.reviews || [];
     logDebug(`📊 Получено ${reviews.length} отзывов`, 'OZON-API-FIXED');
+    
+    // Обновляем lastId для следующей страницы из КОРНЯ JSON
+    if (json.last_id) {
+      // last_id будет обновлён в главной функции
+    }
     
     return reviews;
     
