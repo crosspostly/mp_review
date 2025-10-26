@@ -77,22 +77,46 @@ function trigger1_collectReviews() {
       log(`[ТРИГГЕР 1] 📦 Обработка: ${store.name} [${store.marketplace}]`);
       
       try {
-        // Получаем отзывы с маркетплейса
-        const reviews = fetchReviewsForStore(store);
-        log(`[ТРИГГЕР 1] 📥 Получено ${reviews.length} отзывов от ${store.marketplace}`);
-        
-        // Фильтруем новые (не в кеше)
-        const newReviews = reviews.filter(r => !cachedSet.has(r.id));
-        log(`[ТРИГГЕР 1] 🆕 Новых отзывов: ${newReviews.length}`);
-        
-        if (newReviews.length > 0) {
-          // Сохраняем в Sheets
+        // Контекст для промежуточного сохранения (используется в Ozon)
+        const fetchContext = { cachedSet };
+        fetchContext.persist = function(newReviews, meta) {
+          if (!newReviews || newReviews.length === 0) {
+            return;
+          }
           saveReviewsToSheet(store, newReviews);
+          fetchContext.persistedCount = (fetchContext.persistedCount || 0) + newReviews.length;
+          if (meta && meta.page !== undefined) {
+            log(`[ТРИГГЕР 1] 💾 Промежуточно сохранено ${newReviews.length} отзывов (страница ${meta.page})`);
+          } else {
+            log(`[ТРИГГЕР 1] 💾 Промежуточно сохранено ${newReviews.length} отзывов`);
+          }
+        };
+
+        // Получаем отзывы с маркетплейса
+        const fetchResult = fetchReviewsForStore(store, fetchContext) || {};
+        const reviews = Array.isArray(fetchResult.reviews) ? fetchResult.reviews : [];
+        const fetchedCount = fetchResult.persisted
+          ? (fetchResult.persistedCount || fetchContext.persistedCount || 0)
+          : reviews.length;
+        log(`[ТРИГГЕР 1] 📥 Получено ${fetchedCount} отзывов от ${store.marketplace}`);
+        
+        let newReviewsCount = 0;
+        
+        if (fetchResult.persisted) {
+          newReviewsCount = fetchResult.persistedCount || fetchContext.persistedCount || 0;
+        } else {
+          // Фильтруем новые (не в кеше)
+          const newReviews = reviews.filter(r => !cachedSet.has(r.id));
+          newReviewsCount = newReviews.length;
           
-          // Добавляем в кеш
-          newReviews.forEach(r => cachedSet.add(r.id));
-          totalNew += newReviews.length;
+          if (newReviewsCount > 0) {
+            saveReviewsToSheet(store, newReviews);
+            newReviews.forEach(r => cachedSet.add(r.id));
+          }
         }
+        
+        log(`[ТРИГГЕР 1] 🆕 Новых отзывов: ${newReviewsCount}`);
+        totalNew += newReviewsCount;
         
         totalProcessed++;
         
@@ -397,8 +421,8 @@ function saveCachedReviewIds(ids) {
  * @param {Object} store - Объект магазина
  * @returns {Array} Массив отзывов
  */
-function fetchReviewsForStore(store) {
-  const reviews = [];
+function fetchReviewsForStore(store, fetchContext) {
+  const defaultResult = { reviews: [] };
   
   try {
     if (store.marketplace === 'Wildberries') {
@@ -406,12 +430,12 @@ function fetchReviewsForStore(store) {
       const apiKey = store.credentials?.apiKey;
       if (!apiKey) {
         log(`[FETCH] ❌ Нет API ключа для ${store.name}`);
-        return [];
+        return defaultResult;
       }
       
       // Используем стандартную функцию WB API v1
       if (typeof getWbFeedbacks === 'function') {
-        return getWbFeedbacks(apiKey, false, store);
+        return normalizeFetchResult(getWbFeedbacks(apiKey, false, store));
       }
     } else if (store.marketplace === 'Ozon') {
       // Ozon API - получаем до 20 страниц
@@ -419,21 +443,43 @@ function fetchReviewsForStore(store) {
       const apiKey = store.credentials?.apiKey;
       if (!clientId || !apiKey) {
         log(`[FETCH] ❌ Нет credentials для ${store.name}`);
-        return [];
+        return defaultResult;
       }
       
       // Используем адаптивную пагинацию с промежуточным сохранением
       if (typeof getOzonFeedbacksWithAdaptivePagination === 'function') {
-        return getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, false, store);
+        return normalizeFetchResult(
+          getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, false, store, fetchContext)
+        );
       } else if (typeof getOzonFeedbacks === 'function') {
-        return getOzonFeedbacks(clientId, apiKey, false, store);
+        return normalizeFetchResult(getOzonFeedbacks(clientId, apiKey, false, store));
       }
     }
   } catch (e) {
     log(`[FETCH] ❌ Ошибка получения отзывов для ${store.name}: ${e.message}`);
   }
-  
-  return reviews;
+
+  return defaultResult;
+}
+
+function normalizeFetchResult(rawResult) {
+  if (!rawResult) {
+    return { reviews: [] };
+  }
+
+  if (Array.isArray(rawResult)) {
+    return { reviews: rawResult };
+  }
+
+  if (typeof rawResult === 'object' && rawResult !== null) {
+    const result = { ...rawResult };
+    if (!Array.isArray(result.reviews)) {
+      result.reviews = [];
+    }
+    return result;
+  }
+
+  return { reviews: [] };
 }
 
 /**
