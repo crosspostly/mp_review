@@ -114,6 +114,101 @@ function showDashboard() {
 // ============ ФУНКЦИИ УПРАВЛЕНИЯ МАГАЗИНАМИ ============
 
 /**
+ * Показывает боковую панель управления магазинами (совместимость со старым кодом)
+ */
+function showStoreManagerSidebar() {
+  try {
+    logInfo('Открытие панели управления магазинами', LOG_CONFIG.CATEGORIES.UI);
+    
+    const html = HtmlService.createTemplateFromFile('refactor/StoreManagerSidebar');
+    const htmlOutput = html.evaluate()
+      .setTitle('🏪 Управление магазинами')
+      .setWidth(400);
+    
+    SpreadsheetApp.getUi().showSidebar(htmlOutput);
+    
+    logSuccess('Панель управления магазинами открыта', LOG_CONFIG.CATEGORIES.UI);
+    
+  } catch (error) {
+    logError(`Ошибка открытия панели управления: ${error.message}`, LOG_CONFIG.CATEGORIES.UI);
+    
+    // Fallback - показываем простое диалоговое окно
+    const ui = SpreadsheetApp.getUi();
+    ui.alert('Ошибка', 
+      `Не удалось открыть панель управления магазинами: ${error.message}`, 
+      ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Алиас для совместимости со старым кодом
+ */
+function showStoreManagerDialog() {
+  showStoreManagerSidebar();
+}
+
+/**
+ * Тестирует подключение к API магазина (для UI)
+ */
+function testStoreConnection(credentials, marketplace) {
+  try {
+    logInfo(`Тестирование подключения к ${marketplace}`, LOG_CONFIG.CATEGORIES.UI);
+    
+    if (marketplace === 'Wildberries') {
+      if (!credentials.apiKey) {
+        return { success: false, message: 'API ключ не указан' };
+      }
+      
+      // Простой тест WB API
+      const url = `${WB_CONFIG.API_BASE_URL}${WB_CONFIG.ENDPOINTS.GET_FEEDBACKS}?take=1&skip=0`;
+      
+      const response = UrlFetchApp.fetch(url, {
+        method: 'GET',
+        headers: { 'Authorization': credentials.apiKey },
+        muteHttpExceptions: true
+      });
+      
+      if (response.getResponseCode() === 200) {
+        return { success: true, message: '✅ Подключение к WB API успешно!' };
+      } else {
+        return { success: false, message: `❌ Ошибка WB API: ${response.getResponseCode()}` };
+      }
+      
+    } else if (marketplace === 'Ozon') {
+      if (!credentials.clientId || !credentials.apiKey) {
+        return { success: false, message: 'Client ID или API ключ не указаны' };
+      }
+      
+      // Простой тест Ozon API
+      const url = `${OZON_CONFIG.API_BASE_URL}${OZON_CONFIG.ENDPOINTS.GET_FEEDBACKS}`;
+      
+      const response = UrlFetchApp.fetch(url, {
+        method: 'POST',
+        headers: {
+          'Client-Id': credentials.clientId,
+          'Api-Key': credentials.apiKey,
+          'Content-Type': 'application/json'
+        },
+        payload: JSON.stringify({ limit: 1 }),
+        muteHttpExceptions: true
+      });
+      
+      if (response.getResponseCode() === 200) {
+        return { success: true, message: '✅ Подключение к Ozon API успешно!' };
+      } else {
+        return { success: false, message: `❌ Ошибка Ozon API: ${response.getResponseCode()}` };
+      }
+    }
+    
+    return { success: false, message: 'Неподдерживаемый маркетплейс' };
+    
+  } catch (error) {
+    logError(`Ошибка тестирования подключения: ${error.message}`, LOG_CONFIG.CATEGORIES.UI);
+    return { success: false, message: `❌ Ошибка: ${error.message}` };
+  }
+}
+
+/**
  * Показывает диалог добавления нового магазина
  */
 function showAddStoreDialog() {
