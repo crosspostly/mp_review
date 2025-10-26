@@ -18,143 +18,124 @@
  * @param {Object} store - Конфигурация магазина с настройками
  * @returns {Array} Все подходящие отзывы
  */
-function getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswered, store) {
+function getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswered, store, fetchContext) {
   log(`[Ozon Adaptive] 🚀 ЗАПУСК адаптивной пагинации...`);
-  
+
   if (!store || !store.settings || !store.settings.startDate) {
-    log(`[Ozon Adaptive] ❌ ОШИБКА: Не задана дата начала поиска для адаптивной пагинации`);
-    return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
+    log(`[Ozon Adaptive] ❌ Нет даты начала — переключаюсь на стандартную пагинацию`);
+    return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store, fetchContext);
   }
-  
+
+  fetchContext = fetchContext || {};
+  const directPersist = typeof fetchContext.persist === 'function';
+
   const startDate = new Date(store.settings.startDate);
   const today = new Date();
   const daysDiff = Math.ceil((today - startDate) / (1000 * 60 * 60 * 24));
-  
-  log(`[Ozon Adaptive] 📅 Диапазон дат: ${store.settings.startDate} - ${today.toISOString().split('T')[0]} (${daysDiff} дней)`);
-  
-  // 📈 ВРЕМЕННО ОТКЛЮЧАЕМ ПРОПУСК СТРАНИЦ ДЛЯ ОТЛАДКИ
-  let skipMultiplier = 1; // НЕ пропускаем страницы
-  let adaptiveLimit = OZON_CONFIG.API_LIMITS.MAX_LIMIT;
-  
-  log(`[Ozon Adaptive] 🐞 DEBUG РЕЖИМ: пропуск страниц ОТКЛЮЧЕН для диагностики сортировки (диапазон ${daysDiff} дней)`);
-  
-  const MAX_EXECUTION_TIME = 5 * 60 * 1000; // 5 минут
+
+  log(`[Ozon Adaptive] 📅 Диапазон дат: ${store.settings.startDate} – ${today.toISOString().split('T')[0]} (${daysDiff} дней)`);
+
+  const adaptiveLimit = OZON_CONFIG.API_LIMITS.MAX_LIMIT;
+  const MAX_EXECUTION_TIME = 5 * 60 * 1000;
   const startTime = Date.now();
-  let allMatchingFeedbacks = [];
+
   let hasNext = true;
   let lastId = "";
-  let pageNumber = 0;
   let processedPages = 0;
   let skippedPages = 0;
-  
-  // 🚀 ПРОМЕЖУТОЧНОЕ СОХРАНЕНИЕ: Инициализация буфера
-  let reviewsBuffer = [];
-  let pagesSinceLastSave = 0;
-  let totalSaved = 0;
-  
-  // 🚀 Интеграция с системой памяти прогресса
+  let pageNumber = 0;
+
+  const collectedReviews = [];
+
+  const persistBatch = (reviews, meta) => {
+    if (!reviews || reviews.length === 0) return;
+
+    if (directPersist) {
+      try {
+        fetchContext.persist(reviews, { ...meta, mode: 'adaptive', marketplace: 'Ozon' });
+        fetchContext.persistedCount = (fetchContext.persistedCount || 0) + reviews.length;
+      } catch (error) {
+        log(`[Ozon Adaptive] ❌ Ошибка persist(): ${error.message}`);
+        collectedReviews.push(...reviews);
+      }
+    } else {
+      collectedReviews.push(...reviews);
+    }
+  };
+
   const startingPage = getStartingPageForStore(store, includeAnswered);
   if (startingPage > 0) {
     pageNumber = startingPage;
-    log(`[Ozon Adaptive] 📖 Продолжение с страницы ${startingPage}`);
+    log(`[Ozon Adaptive] 📖 Продолжаем с сохранённой страницы ${startingPage}`);
   }
-  
+
   while (hasNext && (Date.now() - startTime) < MAX_EXECUTION_TIME) {
     try {
-      // 🚀 АДАПТИВНЫЙ ПРОПУСК СТРАНИЦ
-      if (pageNumber % skipMultiplier !== 0 && pageNumber > 0) {
-        skippedPages++;
-        pageNumber++;
-        continue; // Пропускаем страницу
-      }
-      
       log(`[Ozon Adaptive] 📄 Обработка страницы ${pageNumber + 1}...`);
-      
+
       const pageFeedbacks = getOzonFeedbacksPage(clientId, apiKey, includeAnswered, lastId, adaptiveLimit, store);
-      
+
       if (pageFeedbacks === null) {
-        log(`[Ozon Adaptive] ❌ Ошибка получения страницы ${pageNumber + 1}, завершаем`);
+        log(`[Ozon Adaptive] ❌ Ошибка получения страницы ${pageNumber + 1}, завершаю`);
         break;
       }
-      
+
       if (pageFeedbacks.length === 0) {
-        log(`[Ozon Adaptive] ✅ Пустая страница ${pageNumber + 1}, завершаем пагинацию`);
+        log(`[Ozon Adaptive] ✅ Пустая страница ${pageNumber + 1}, пагинация завершена`);
         updateStorePageProgress(store, includeAnswered, pageNumber, true);
         break;
       }
-      
-      // 📊 Обработка и фильтрация отзывов
+
       const processedFeedbacks = processFeedbacksPageForOzon(pageFeedbacks);
-      const matchingFeedbacks = processedFeedbacks.filter(fb => {
+      const matchingFeedbacks = processedFeedbacks.filter((fb, index) => {
         const reviewDate = new Date(fb.createdDate);
         const isMatch = reviewDate >= startDate;
-        
-        // 🐞 ОТЛАДКА: Показываем первые 3 отзыва для диагностики дат
-        if (processedFeedbacks.indexOf(fb) < 3) {
-          log(`[Ozon Adaptive DEBUG] Отзыв ${fb.id}: дата="${fb.createdDate}", parsed="${reviewDate.toISOString()}", startDate="${startDate.toISOString()}", match=${isMatch}`);
+
+        if (index < 3) {
+          log(`[Ozon Adaptive DEBUG] ID ${fb.id}: created=${fb.createdDate}, >= start=${isMatch}`);
         }
-        
+
         return isMatch;
       });
-      
-      allMatchingFeedbacks = allMatchingFeedbacks.concat(matchingFeedbacks);
+
+      persistBatch(matchingFeedbacks, { page: pageNumber + 1 });
+
       processedPages++;
-      pagesSinceLastSave++;
-      
-      // 🚀 ПРОМЕЖУТОЧНОЕ СОХРАНЕНИЕ: Управление буфером
-      const bufferStats = manageReviewsBuffer(reviewsBuffer, matchingFeedbacks, store, pagesSinceLastSave);
-      if (bufferStats.saved > 0) {
-        totalSaved += bufferStats.saved;
-        pagesSinceLastSave = 0; // Сброс счетчика после сохранения
-        log(`[Ozon Adaptive] 💾 Промежуточное сохранение: ${bufferStats.saved} отзывов (всего сохранено: ${totalSaved})`);
-      }
-      
-      log(`[Ozon Adaptive] 📊 Страница ${pageNumber + 1}: получено ${pageFeedbacks.length}, обработано ${processedFeedbacks.length}, подошло по дате ${matchingFeedbacks.length}, в буфере ${bufferStats.bufferSize}`);
-      
-      // 📈 КРИТЕРИИ ЗАВЕРШЕНИЯ - ВРЕМЕННО ОТКЛЮЧЕНЫ ДЛЯ ОТЛАДКИ
-      // ❌ УБРАЛ ЛОГИКУ ОСТАНОВКИ ПО ДАТЕ - она неверная!
-      // Пусть обрабатывает больше страниц, чтобы найти новые отзывы
-      log(`[Ozon Adaptive] 🐞 DEBUG: НЕ останавливаемся по дате, ищем дальше (найдено ${matchingFeedbacks.length} подходящих)`);
-      
+
+      log(`[Ozon Adaptive] 📊 Страница ${pageNumber + 1}: всего=${pageFeedbacks.length}, подходящих=${matchingFeedbacks.length}`);
+
       if (pageFeedbacks.length < adaptiveLimit) {
         log(`[Ozon Adaptive] ✅ Последняя страница (${pageFeedbacks.length} < ${adaptiveLimit})`);
-        // 🚀 ФИНАЛЬНОЕ СОХРАНЕНИЕ: Принудительно сохраняем остатки буфера
-        const finalSaved = saveReviewsBuffer(reviewsBuffer, store, true);
-        if (finalSaved > 0) {
-          totalSaved += finalSaved;
-          log(`[Ozon Adaptive] 💾 Финальное сохранение: ${finalSaved} отзывов (всего сохранено: ${totalSaved})`);
-        }
         updateStorePageProgress(store, includeAnswered, pageNumber, true);
         break;
       }
-      
-      // Обновляем lastId для следующей страницы
-      if (pageFeedbacks.length > 0) {
-        lastId = pageFeedbacks[pageFeedbacks.length - 1].id;
+
+      lastId = pageFeedbacks[pageFeedbacks.length - 1].id || lastId;
+
+      if ((pageNumber + 1) % 5 === 0) {
+        updateStorePageProgress(store, includeAnswered, pageNumber, false);
       }
-      
+
       pageNumber++;
-      
-      // 📝 Сохранение прогресса каждые 5 страниц
-      if (processedPages % 5 === 0) {
-        updateStorePageProgress(store, includeAnswered, pageNumber - 1, false);
-      }
-      
-      hasNext = (pageFeedbacks.length === adaptiveLimit);
-      
+      hasNext = pageFeedbacks.length === adaptiveLimit;
       Utilities.sleep(OZON_CONFIG.RATE_LIMITS.DELAY_BETWEEN_REQUESTS || 500);
-      
-    } catch (e) {
-      log(`[Ozon Adaptive] ❌ Ошибка на странице ${pageNumber + 1}: ${e.message}`);
+
+    } catch (error) {
+      log(`[Ozon Adaptive] ❌ Ошибка на странице ${pageNumber + 1}: ${error.message}`);
       break;
     }
   }
-  
+
   const duration = Math.round((Date.now() - startTime) / 1000);
-  log(`[Ozon Adaptive] 🏁 ЗАВЕРШЕНО: ${allMatchingFeedbacks.length} отзывов за ${duration}с (обработано ${processedPages} страниц, пропущено ${skippedPages})`);
-  
-  // Применяем сортировку из настроек магазина
-  return applySortingPreferences(allMatchingFeedbacks, store);
+  log(`[Ozon Adaptive] 🏁 Завершено: страниц=${processedPages}, пропущено=${skippedPages}, время=${duration}с`);
+
+  fetchContext.persisted = directPersist;
+
+  const sorted = applySortingPreferences(collectedReviews, store);
+  if (directPersist) {
+    fetchContext.persistedCount = fetchContext.persistedCount || sorted.length;
+  }
+  return sorted;
 }
 
 /**
@@ -166,104 +147,101 @@ function getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswere
  * @param {Object} store - Конфигурация магазина
  * @returns {Array} Все подходящие отзывы
  */
-function getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store) {
+function getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store, fetchContext) {
   log(`[Ozon Standard] 🚀 ЗАПУСК стандартной пагинации...`);
-  
-  const MAX_EXECUTION_TIME = 5 * 60 * 1000; // 5 минут
+
+  fetchContext = fetchContext || {};
+  const directPersist = typeof fetchContext.persist === 'function';
+
+  const MAX_EXECUTION_TIME = 5 * 60 * 1000;
   const startTime = Date.now();
-  let allFeedbacks = [];
+  const limit = OZON_CONFIG.API_LIMITS.MAX_LIMIT;
+
   let hasNext = true;
   let lastId = "";
   let pageNumber = 0;
-  const limit = OZON_CONFIG.API_LIMITS.MAX_LIMIT;
-  
-  // 🚀 ПРОМЕЖУТОЧНОЕ СОХРАНЕНИЕ: Инициализация буфера
-  let reviewsBuffer = [];
-  let pagesSinceLastSave = 0;
-  let totalSaved = 0;
-  
-  // 🚀 Интеграция с системой памяти прогресса
+  let processedPages = 0;
+
+  const collectedReviews = [];
+
+  const persistBatch = (reviews, meta) => {
+    if (!reviews || reviews.length === 0) return;
+
+    if (directPersist) {
+      try {
+        fetchContext.persist(reviews, { ...meta, mode: 'standard', marketplace: 'Ozon' });
+        fetchContext.persistedCount = (fetchContext.persistedCount || 0) + reviews.length;
+      } catch (error) {
+        log(`[Ozon Standard] ❌ Ошибка persist(): ${error.message}`);
+        collectedReviews.push(...reviews);
+      }
+    } else {
+      collectedReviews.push(...reviews);
+    }
+  };
+
   const startingPage = getStartingPageForStore(store, includeAnswered);
   if (startingPage > 0) {
     pageNumber = startingPage;
-    log(`[Ozon Standard] 📖 Продолжение с страницы ${startingPage}`);
+    log(`[Ozon Standard] 📖 Продолжаем с сохранённой страницы ${startingPage}`);
   }
-  
+
   while (hasNext && (Date.now() - startTime) < MAX_EXECUTION_TIME) {
     try {
       log(`[Ozon Standard] 📄 Обработка страницы ${pageNumber + 1}...`);
-      
+
       const pageFeedbacks = getOzonFeedbacksPage(clientId, apiKey, includeAnswered, lastId, limit, store);
-      
+
       if (pageFeedbacks === null) {
-        log(`[Ozon Standard] ❌ Ошибка получения страницы ${pageNumber + 1}, завершаем`);
+        log(`[Ozon Standard] ❌ Ошибка получения страницы ${pageNumber + 1}, завершаю`);
         break;
       }
-      
+
       if (pageFeedbacks.length === 0) {
-        log(`[Ozon Standard] ✅ Пустая страница ${pageNumber + 1}, завершаем пагинацию`);
+        log(`[Ozon Standard] ✅ Пустая страница ${pageNumber + 1}, пагинация завершена`);
         updateStorePageProgress(store, includeAnswered, pageNumber, true);
         break;
       }
-      
-      // 📊 Обработка отзывов
+
       const processedFeedbacks = processFeedbacksPageForOzon(pageFeedbacks);
-      allFeedbacks = allFeedbacks.concat(processedFeedbacks);
-      pagesSinceLastSave++;
-      
-      // 🚀 ПРОМЕЖУТОЧНОЕ СОХРАНЕНИЕ: Управление буфером
-      const bufferStats = manageReviewsBuffer(reviewsBuffer, processedFeedbacks, store, pagesSinceLastSave);
-      if (bufferStats.saved > 0) {
-        totalSaved += bufferStats.saved;
-        pagesSinceLastSave = 0; // Сброс счетчика после сохранения
-        log(`[Ozon Standard] 💾 Промежуточное сохранение: ${bufferStats.saved} отзывов (всего сохранено: ${totalSaved})`);
-      }
-      
-      log(`[Ozon Standard] 📊 Страница ${pageNumber + 1}: получено ${pageFeedbacks.length}, обработано ${processedFeedbacks.length}, в буфере ${bufferStats.bufferSize}`);
-      
+      persistBatch(processedFeedbacks, { page: pageNumber + 1 });
+
+      processedPages++;
+
+      log(`[Ozon Standard] 📊 Страница ${pageNumber + 1}: получено ${pageFeedbacks.length}`);
+
       if (pageFeedbacks.length < limit) {
         log(`[Ozon Standard] ✅ Последняя страница (${pageFeedbacks.length} < ${limit})`);
-        // 🚀 ФИНАЛЬНОЕ СОХРАНЕНИЕ: Принудительно сохраняем остатки буфера
-        const finalSaved = saveReviewsBuffer(reviewsBuffer, store, true);
-        if (finalSaved > 0) {
-          totalSaved += finalSaved;
-          log(`[Ozon Standard] 💾 Финальное сохранение: ${finalSaved} отзывов (всего сохранено: ${totalSaved})`);
-        }
         updateStorePageProgress(store, includeAnswered, pageNumber, true);
         break;
       }
-      
-      // Обновляем lastId для следующей страницы
-      if (pageFeedbacks.length > 0) {
-        lastId = pageFeedbacks[pageFeedbacks.length - 1].id;
+
+      lastId = pageFeedbacks[pageFeedbacks.length - 1].id || lastId;
+
+      if ((pageNumber + 1) % 5 === 0) {
+        updateStorePageProgress(store, includeAnswered, pageNumber, false);
       }
-      
+
       pageNumber++;
-      
-      // 📝 Сохранение прогресса каждые 5 страниц
-      if (pageNumber % 5 === 0) {
-        updateStorePageProgress(store, includeAnswered, pageNumber - 1, false);
-      }
-      
-      hasNext = (pageFeedbacks.length === limit);
-      
+      hasNext = pageFeedbacks.length === limit;
       Utilities.sleep(OZON_CONFIG.RATE_LIMITS.DELAY_BETWEEN_REQUESTS || 500);
-      
-    } catch (e) {
-      log(`[Ozon Standard] ❌ Ошибка на странице ${pageNumber + 1}: ${e.message}`);
+
+    } catch (error) {
+      log(`[Ozon Standard] ❌ Ошибка на странице ${pageNumber + 1}: ${error.message}`);
       break;
     }
   }
-  
+
   const duration = Math.round((Date.now() - startTime) / 1000);
-  log(`[Ozon Standard] 🎯 ИТОГОВАЯ СТАТИСТИКА за ${duration}с:`);
-  log(`[Ozon Standard] 📊 Отзывов получено: ${allFeedbacks.length}`);
-  log(`[Ozon Standard] 📄 Страниц обработано: ${pageNumber}`);
-  log(`[Ozon Standard] 💾 Промежуточно сохранено: ${totalSaved} отзывов`);
-  log(`[Ozon Standard] 🏁 ЗАВЕРШЕНО успешно`);
-  
-  // Применяем сортировку из настроек магазина
-  return applySortingPreferences(allFeedbacks, store);
+  log(`[Ozon Standard] 🏁 Завершено: страниц=${processedPages}, время=${duration}с`);
+
+  fetchContext.persisted = directPersist;
+
+  const sorted = applySortingPreferences(collectedReviews, store);
+  if (directPersist) {
+    fetchContext.persistedCount = fetchContext.persistedCount || sorted.length;
+  }
+  return sorted;
 }
 
 /**
