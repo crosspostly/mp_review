@@ -222,6 +222,57 @@ function cleanupOldLogs(sheet) {
   }
 }
 
+// ============ PERFORMANCE TIMER КЛАСС ============
+
+/**
+ * Класс для измерения времени выполнения операций
+ */
+class PerformanceTimer {
+  constructor(operationName = 'operation') {
+    this.operationName = operationName;
+    this.startTime = Date.now();
+    this.endTime = null;
+    
+    logDebug(`Timer started: ${operationName}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+  }
+  
+  /**
+   * Завершает измерение времени
+   */
+  finish(logLevel = LOG_CONFIG.LEVELS.DEBUG) {
+    this.endTime = Date.now();
+    const duration = this.getTotalTime();
+    
+    const message = `Timer finished: ${this.operationName} (${duration}ms)`;
+    log(message, logLevel, LOG_CONFIG.CATEGORIES.SYSTEM, { 
+      operation: this.operationName, 
+      duration: duration 
+    });
+  }
+  
+  /**
+   * Получает общее время выполнения
+   */
+  getTotalTime() {
+    const end = this.endTime || Date.now();
+    return end - this.startTime;
+  }
+  
+  /**
+   * Получает промежуточное время
+   */
+  getElapsedTime() {
+    return Date.now() - this.startTime;
+  }
+  
+  /**
+   * Проверяет не превышен ли таймаут
+   */
+  isTimeout(timeoutMs) {
+    return this.getElapsedTime() > timeoutMs;
+  }
+}
+
 /**
  * Получает последние записи логов
  * @param {number} count - Количество записей
