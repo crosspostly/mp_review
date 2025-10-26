@@ -103,8 +103,8 @@ const OZON_CONFIG = {
   API_BASE_URL: 'https://api-seller.ozon.ru',
   
   ENDPOINTS: {
-    GET_FEEDBACKS: '/v1/product/reviews/by-category',
-    SEND_ANSWER: '/v1/product/reviews/reply',
+    GET_FEEDBACKS: '/v1/review/list',
+    SEND_ANSWER: '/v1/review/create-answer',
     PRODUCTS_INFO: '/v2/product/list',
     PRODUCT_INFO: '/v2/product/info'
   },
