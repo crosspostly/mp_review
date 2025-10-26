@@ -384,20 +384,3 @@ function exportLogsAsText(count = 1000) {
     return `Ошибка экспорта логов: ${error.message}`;
   }
 }
-
-/**
- * Утилитарная функция для измерения времени выполнения
- */
-class PerformanceTimer {
-  constructor(operationName) {
-    this.operationName = operationName;
-    this.startTime = Date.now();
-  }
-  
-  finish(logLevel = LOG_CONFIG.LEVELS.INFO, category = LOG_CONFIG.CATEGORIES.SYSTEM) {
-    const duration = Date.now() - this.startTime;
-    const message = `${this.operationName} выполнено за ${duration}мс`;
-    log(message, logLevel, category, { duration, operation: this.operationName });
-    return duration;
-  }
-}
