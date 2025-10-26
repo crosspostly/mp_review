@@ -30,8 +30,8 @@ const MOCK_STORE_V2 = {
   name: 'Тестовый магазин v2.0',
   marketplace: 'Wildberries',
   isActive: true,
-  apiKey: 'MOCK_WB_API_KEY_FOR_TESTING_ONLY',
-  supplierId: 'MOCK_SUPPLIER_ID_123',
+  apiKey: 'test-wb-api-key-v2',
+  supplierId: 'test-supplier-123',
   createdDate: new Date('2025-01-01'),
   settings: {
     startDate: '2025-01-01',
@@ -46,8 +46,8 @@ const MOCK_OZON_STORE_V2 = {
   name: 'Тестовый Ozon магазин v2.0',
   marketplace: 'Ozon',
   isActive: true,
-  apiKey: 'MOCK_OZON_API_KEY_FOR_TESTING_ONLY',
-  clientId: 'MOCK_CLIENT_ID_123',
+  apiKey: 'test-ozon-api-key-v2',
+  clientId: 'test-client-123',
   createdDate: new Date('2025-01-01'),
   settings: {
     startDate: '2025-01-01',
