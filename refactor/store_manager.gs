@@ -503,6 +503,14 @@ function testOzonConnection(store) {
 }
 
 /**
+ * Алиас для getStores() - для совместимости с UI
+ * @returns {Array} Все магазины
+ */
+function getAllStores() {
+  return getStores();
+}
+
+/**
  * Экспортирует конфигурации всех магазинов (без API ключей)
  * @returns {string} JSON конфигурация магазинов
  */
