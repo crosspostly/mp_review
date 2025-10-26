@@ -291,12 +291,12 @@ function makeWbApiRequest(url, apiKey, method = 'GET', payload = null, maxRetrie
  */
 function processWbApiResponse(apiResponse, store) {
   try {
-    if (!apiResponse || !apiResponse.result || !apiResponse.result.feedbacks) {
+    if (!apiResponse || !apiResponse.data || !apiResponse.data.feedbacks) {
       logWarning('WB API: Пустой или некорректный ответ', LOG_CONFIG.CATEGORIES.WB_API);
       return [];
     }
     
-    const rawFeedbacks = apiResponse.result.feedbacks;
+    const rawFeedbacks = apiResponse.data.feedbacks;
     const normalizedFeedbacks = [];
     
     rawFeedbacks.forEach(feedback => {
@@ -458,5 +458,70 @@ function getWbApiStatistics(storeId) {
   } catch (error) {
     logError(`Ошибка получения статистики WB API: ${error.message}`, LOG_CONFIG.CATEGORIES.WB_API);
     return null;
+  }
+}
+
+// ============ РАСШИРЕННЫЕ ФУНКЦИИ ТЕСТИРОВАНИЯ ============
+
+/**
+ * Тестирует соединение с Wildberries API (улучшенная версия)
+ */
+function testWbConnection(store) {
+  const timer = new PerformanceTimer('testWbConnection');
+  
+  try {
+    logInfo(`Тестирование WB API соединения для магазина: ${store.name}`, LOG_CONFIG.CATEGORIES.API);
+    
+    if (!store.credentials?.apiKey) {
+      return {
+        success: false,
+        message: 'API ключ не найден в настройках магазина'
+      };
+    }
+    
+    // Используем существующую функцию testWbApiConnection
+    const testResult = testWbApiConnection(store);
+    
+    if (testResult.success) {
+      // Дополнительно пытаемся получить небольшое количество отзывов
+      try {
+        const feedbacks = getWbFeedbacks(store, false, { take: 1 });
+        
+        logSuccess(`WB API тест успешен: получено ${feedbacks.length} отзывов`, LOG_CONFIG.CATEGORIES.API);
+        timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
+        
+        return {
+          success: true,
+          message: `Соединение работает. Доступно отзывов для обработки: ${feedbacks.length}`,
+          data: {
+            feedbacksCount: feedbacks.length,
+            responseTime: timer.getTotalTime()
+          }
+        };
+      } catch (error) {
+        return {
+          success: true, // API работает, но возможны проблемы с данными
+          message: `API доступен, но есть проблемы с получением данных: ${error.message}`,
+          warning: true
+        };
+      }
+    } else {
+      timer.finish(LOG_CONFIG.LEVELS.ERROR);
+      return {
+        success: false,
+        message: `Ошибка API: ${testResult.error}`,
+        error: testResult.error
+      };
+    }
+    
+  } catch (error) {
+    logError(`Критическая ошибка WB API теста: ${error.message}`, LOG_CONFIG.CATEGORIES.API);
+    timer.finish(LOG_CONFIG.LEVELS.ERROR);
+    
+    return {
+      success: false,
+      message: `Критическая ошибка: ${error.message}`,
+      error: error.message
+    };
   }
 }
