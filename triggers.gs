@@ -422,9 +422,9 @@ function fetchReviewsForStore(store) {
         return [];
       }
       
-      // Используем исправленную функцию из api_fixes.gs или стандартную
-      if (typeof getOzonFeedbacksFixed === 'function') {
-        return getOzonFeedbacksFixed(clientId, apiKey, false, store);
+      // Используем адаптивную пагинацию с промежуточным сохранением
+      if (typeof getOzonFeedbacksWithAdaptivePagination === 'function') {
+        return getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, false, store);
       } else if (typeof getOzonFeedbacks === 'function') {
         return getOzonFeedbacks(clientId, apiKey, false, store);
       }
