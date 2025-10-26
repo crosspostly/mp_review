@@ -601,6 +601,158 @@ function extractOzonLastId(apiResponse) {
 }
 
 /**
+ * Адаптивная пагинация для поиска отзывов по дате
+ */
+function getOzonFeedbacksWithAdaptivePagination(store, includeAnswered, options = {}) {
+  const timer = new PerformanceTimer(`getOzonFeedbacksAdaptive-${store.id}`);
+  
+  try {
+    if (!store.settings?.startDate) {
+      logWarning('Ozon: Нет даты для адаптивной пагинации, переключаемся на стандартную', LOG_CONFIG.CATEGORIES.OZON_API);
+      return getOzonFeedbacksWithStandardPagination(store, includeAnswered, options);
+    }
+    
+    const targetDate = new Date(store.settings.startDate);
+    const maxPages = options.maxPages || OZON_CONFIG.API_LIMITS.MAX_PAGES_ADAPTIVE;
+    const limit = options.limit || OZON_CONFIG.API_LIMITS.DEFAULT_LIMIT;
+    
+    logInfo(`Ozon Adaptive: Ищем отзывы от ${targetDate.toISOString()} для ${store.name}`, LOG_CONFIG.CATEGORIES.OZON_API);
+    
+    const allFeedbacks = [];
+    let lastId = '';
+    let hasNext = true;
+    let pageNumber = 0;
+    let skipMultiplier = 1; // Коэффициент пропуска страниц
+    let foundTargetPeriod = false;
+    
+    // Получаем прогресс из системы памяти
+    const progress = getStoreProgress(store.id, 'collect_adaptive');
+    if (progress) {
+      lastId = progress.lastId || '';
+      pageNumber = progress.pageNumber || 0;
+      skipMultiplier = progress.skipMultiplier || 1;
+      foundTargetPeriod = progress.foundTargetPeriod || false;
+      
+      logInfo(`Ozon Adaptive: Продолжаем с страницы ${pageNumber}, skip=${skipMultiplier}`, LOG_CONFIG.CATEGORIES.OZON_API);
+    }
+    
+    while (hasNext && pageNumber < maxPages) {
+      const startTime = Date.now();
+      
+      logDebug(`Ozon Adaptive: Страница ${pageNumber + 1}, skip=${skipMultiplier}, lastId=${lastId}`, LOG_CONFIG.CATEGORIES.OZON_API);
+      
+      const pageResponse = getOzonFeedbacksPage(store, includeAnswered, lastId, limit);
+      
+      if (!pageResponse.success) {
+        logError(`Ozon Adaptive: Ошибка страницы ${pageNumber + 1}: ${pageResponse.error}`, LOG_CONFIG.CATEGORIES.OZON_API);
+        break;
+      }
+      
+      const pageFeedbacks = pageResponse.feedbacks;
+      if (!pageFeedbacks || pageFeedbacks.length === 0) {
+        logInfo(`Ozon Adaptive: Страница ${pageNumber + 1} пуста, завершаем`, LOG_CONFIG.CATEGORIES.OZON_API);
+        break;
+      }
+      
+      // Анализируем даты на странице
+      const pageReviewsInRange = pageFeedbacks.filter(review => {
+        const reviewDate = new Date(review.createdDate);
+        return reviewDate >= targetDate;
+      });
+      
+      const newestOnPage = pageFeedbacks.reduce((newest, review) => {
+        const reviewDate = new Date(review.createdDate);
+        return reviewDate > newest ? reviewDate : newest;
+      }, new Date(0));
+      
+      logDebug(`Ozon Adaptive: Страница ${pageNumber + 1}, новейший отзыв: ${newestOnPage.toISOString()}`, LOG_CONFIG.CATEGORIES.OZON_API);
+      
+      if (!foundTargetPeriod && newestOnPage > targetDate) {
+        // Еще не дошли до целевого периода - ускоряемся
+        skipMultiplier = Math.min(skipMultiplier * 2, 10); // Максимум x10
+        
+        // Пропускаем страницы
+        for (let skip = 0; skip < skipMultiplier - 1; skip++) {
+          if (!pageResponse.lastId) break;
+          
+          const skipResponse = getOzonFeedbacksPage(store, includeAnswered, pageResponse.lastId, limit);
+          if (!skipResponse.success || !skipResponse.feedbacks || skipResponse.feedbacks.length === 0) {
+            break;
+          }
+          
+          lastId = skipResponse.lastId;
+          pageNumber++;
+          
+          // Небольшая задержка при пропуске
+          Utilities.sleep(100);
+        }
+        
+        logInfo(`Ozon Adaptive: Пропущено ${skipMultiplier - 1} страниц, новая позиция: ${pageNumber}`, LOG_CONFIG.CATEGORIES.OZON_API);
+      } else {
+        // Дошли до целевого периода или уже в нем
+        if (!foundTargetPeriod) {
+          foundTargetPeriod = true;
+          skipMultiplier = 1;
+          logInfo(`Ozon Adaptive: Достигли целевого периода на странице ${pageNumber + 1}`, LOG_CONFIG.CATEGORIES.OZON_API);
+        }
+        
+        // Фильтруем отзывы по дате и кешу
+        const newReviewsInRange = filterNewReviewsForStore(store.id, pageReviewsInRange);
+        allFeedbacks.push(...newReviewsInRange);
+        
+        // Добавляем все ID в кеш
+        const allPageIds = pageFeedbacks.map(f => f.id);
+        addToReviewIdsCacheForStore(store.id, allPageIds);
+        
+        logInfo(`Ozon Adaptive: Найдено ${pageReviewsInRange.length} отзывов в диапазоне, ${newReviewsInRange.length} новых`, LOG_CONFIG.CATEGORIES.OZON_API);
+      }
+      
+      // Сохраняем прогресс
+      saveStoreProgress(store.id, 'collect_adaptive', {
+        lastId: pageResponse.lastId,
+        pageNumber: pageNumber + 1,
+        skipMultiplier: skipMultiplier,
+        foundTargetPeriod: foundTargetPeriod,
+        totalProcessed: allFeedbacks.length
+      });
+      
+      // Подготавливаем к следующей итерации
+      lastId = pageResponse.lastId;
+      pageNumber++;
+      hasNext = pageFeedbacks.length >= limit && !!pageResponse.lastId;
+      
+      // Rate limiting
+      const responseTime = Date.now() - startTime;
+      const delay = getApiDelay('ozon');
+      if (responseTime < delay) {
+        Utilities.sleep(delay - responseTime);
+      }
+      
+      // Дополнительная пауза каждые 10 страниц
+      if (pageNumber % 10 === 0) {
+        logDebug('Ozon Adaptive: Пауза каждые 10 страниц', LOG_CONFIG.CATEGORIES.OZON_API);
+        Utilities.sleep(OZON_CONFIG.RATE_LIMITS.PAUSE_DURATION);
+      }
+    }
+    
+    // Очищаем прогресс при завершении
+    if (!hasNext) {
+      clearStoreProgress(store.id, 'collect_adaptive');
+    }
+    
+    logSuccess(`Ozon Adaptive: Найдено ${allFeedbacks.length} отзывов в целевом периоде`, LOG_CONFIG.CATEGORIES.OZON_API);
+    timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
+    
+    return allFeedbacks;
+    
+  } catch (error) {
+    logError(`Ozon Adaptive: Ошибка для ${store.id}: ${error.message}`, LOG_CONFIG.CATEGORIES.OZON_API);
+    timer.finish(LOG_CONFIG.LEVELS.ERROR);
+    throw error;
+  }
+}
+
+/**
  * Получает информацию о товарах через Ozon Product API
  */
 function getOzonProductsInfo(productIds, store) {
