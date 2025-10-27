@@ -2,16 +2,20 @@
  * @file config.gs
  * @description Централизованная конфигурация для MP Review Manager
  * @version 2.0
- * @date 2025-10-26
+ * @date 2025-10-27
  * 
  * АРХИТЕКТУРА:
  * - Все константы и настройки в одном месте
  * - Четкое разделение по функциональности
  * - Легкая конфигурация для разных окружений
+ * 
+ * ✅ СОВМЕСТИМОСТЬ: Google Apps Script
+ * - Все const/let заменены на var (40 замен)
+ * - Template literals преобразованы в конкатенацию (30 замен)
  */
 
 // ============ ОСНОВНАЯ КОНФИГУРАЦИЯ СИСТЕМЫ ============
-const CONFIG = {
+var CONFIG = {
   // Ключи для PropertiesService
   PROPERTIES_KEY: 'REGISTERED_STORES',
   DEV_MODE_KEY: 'DEV_MODE_ENABLED',
@@ -64,7 +68,7 @@ const CONFIG = {
 };
 
 // ============ WILDBERRIES API КОНФИГУРАЦИЯ ============
-const WB_CONFIG = {
+var WB_CONFIG = {
   MARKETPLACE_NAME: 'Wildberries',
   MARKETPLACE_CODE: 'WB',
   API_BASE_URL: 'https://feedbacks-api.wildberries.ru/api',
@@ -97,7 +101,7 @@ const WB_CONFIG = {
 };
 
 // ============ OZON API КОНФИГУРАЦИЯ ============
-const OZON_CONFIG = {
+var OZON_CONFIG = {
   MARKETPLACE_NAME: 'Ozon',
   MARKETPLACE_CODE: 'OZON',
   API_BASE_URL: 'https://api-seller.ozon.ru',
@@ -132,7 +136,7 @@ const OZON_CONFIG = {
 };
 
 // ============ СИСТЕМА ТРИГГЕРОВ ============
-const TRIGGER_CONFIG = {
+var TRIGGER_CONFIG = {
   INTERVAL_MINUTES: 60,           // Интервал запуска триггеров (1 час)
   CACHE_SIZE: 10000,              // Максимальное количество ID в кеше
   
@@ -146,7 +150,7 @@ const TRIGGER_CONFIG = {
 };
 
 // ============ CACHE SYSTEM КОНФИГУРАЦИЯ ============
-const CACHE_CONFIG = {
+var CACHE_CONFIG = {
   // Префиксы для ключей в PropertiesService
   PREFIX_REVIEW_IDS: 'reviewIds_',         // reviewIds_ozon_001
   PREFIX_STRIPE_POSITION: 'stripe_position_',  // stripe_position_ozon_001
@@ -164,7 +168,7 @@ const CACHE_CONFIG = {
 };
 
 // ============ СИСТЕМА ЛОГИРОВАНИЯ ============
-const LOG_CONFIG = {
+var LOG_CONFIG = {
   LEVELS: {
     DEBUG: 'DEBUG',
     INFO: 'INFO', 
@@ -192,7 +196,7 @@ const LOG_CONFIG = {
 };
 
 // ============ НАСТРОЙКИ ШАБЛОНОВ ОТВЕТОВ ============
-const TEMPLATE_CONFIG = {
+var TEMPLATE_CONFIG = {
   DEFAULT_TEMPLATES: {
     RATING_5: 'Спасибо за отличную оценку! Рады, что товар вам понравился! 🌟',
     RATING_4: 'Благодарим за покупку и хорошую оценку! Будем рады видеть вас снова! 👍',
@@ -210,7 +214,7 @@ const TEMPLATE_CONFIG = {
 };
 
 // ============ DEVELOPMENT/PRODUCTION НАСТРОЙКИ ============
-const ENV_CONFIG = {
+var ENV_CONFIG = {
   DEVELOPMENT: {
     API_DELAYS: {
       WB: 1000,   // 1 секунда между запросами
@@ -245,7 +249,7 @@ const ENV_CONFIG = {
  * @returns {Object} Конфигурация для текущего окружения
  */
 function getEnvironmentConfig() {
-  const isDev = isDevMode();
+  var isDev = isDevMode();
   return isDev ? ENV_CONFIG.DEVELOPMENT : ENV_CONFIG.PRODUCTION;
 }
 
@@ -255,8 +259,8 @@ function getEnvironmentConfig() {
  */
 function isDevMode() {
   try {
-    const props = PropertiesService.getScriptProperties();
-    const devMode = props.getProperty(CONFIG.DEV_MODE_KEY);
+    var props = PropertiesService.getScriptProperties();
+    var devMode = props.getProperty(CONFIG.DEV_MODE_KEY);
     return devMode === 'true';
   } catch (error) {
     return false;
@@ -276,7 +280,7 @@ function getMarketplaceConfig(marketplace) {
     case 'ozon':
       return OZON_CONFIG;
     default:
-      throw new Error(`Неизвестный маркетплейс: ${marketplace}`);
+      throw new Error('Неизвестный маркетплейс: ' + marketplace);
   }
 }
 
@@ -286,7 +290,7 @@ function getMarketplaceConfig(marketplace) {
  * @returns {number} Задержка в миллисекундах
  */
 function getApiDelay(marketplace) {
-  const envConfig = getEnvironmentConfig();
+  var envConfig = getEnvironmentConfig();
   switch (marketplace?.toLowerCase()) {
     case 'wildberries':
     case 'wb':
@@ -304,7 +308,7 @@ function getApiDelay(marketplace) {
  * @returns {number} Размер батча
  */
 function getBatchSize(operation) {
-  const envConfig = getEnvironmentConfig();
+  var envConfig = getEnvironmentConfig();
   switch (operation?.toLowerCase()) {
     case 'collect':
       return envConfig.BATCH_SIZES.COLLECT;
@@ -331,14 +335,14 @@ function getApiStatsTracker() {
      */
     incrementRequests: function(marketplace) {
       try {
-        const props = PropertiesService.getScriptProperties();
-        const key = `API_REQUESTS_${marketplace.toUpperCase()}`;
-        const current = parseInt(props.getProperty(key) || '0');
+        var props = PropertiesService.getScriptProperties();
+        var key = 'API_REQUESTS_' + marketplace.toUpperCase();
+        var current = parseInt(props.getProperty(key) || '0');
         props.setProperty(key, (current + 1).toString());
         
-        logDebug(`API Stats: Запросов ${marketplace}: ${current + 1}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+        logDebug('API Stats: Запросов ' + marketplace + ': ' + current + 1, LOG_CONFIG.CATEGORIES.SYSTEM);
       } catch (error) {
-        logWarning(`Ошибка записи статистики запросов: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+        logWarning('Ошибка записи статистики запросов: ' + error.message, LOG_CONFIG.CATEGORIES.SYSTEM);
       }
     },
     
@@ -348,14 +352,14 @@ function getApiStatsTracker() {
      */
     incrementErrors: function(marketplace) {
       try {
-        const props = PropertiesService.getScriptProperties();
-        const key = `API_ERRORS_${marketplace.toUpperCase()}`;
-        const current = parseInt(props.getProperty(key) || '0');
+        var props = PropertiesService.getScriptProperties();
+        var key = 'API_ERRORS_' + marketplace.toUpperCase();
+        var current = parseInt(props.getProperty(key) || '0');
         props.setProperty(key, (current + 1).toString());
         
-        logWarning(`API Stats: Ошибок ${marketplace}: ${current + 1}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+        logWarning('API Stats: Ошибок ' + marketplace + ': ' + current + 1, LOG_CONFIG.CATEGORIES.SYSTEM);
       } catch (error) {
-        logWarning(`Ошибка записи статистики ошибок: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+        logWarning('Ошибка записи статистики ошибок: ' + error.message, LOG_CONFIG.CATEGORIES.SYSTEM);
       }
     },
     
@@ -366,27 +370,27 @@ function getApiStatsTracker() {
      */
     recordResponseTime: function(marketplace, responseTime) {
       try {
-        const props = PropertiesService.getScriptProperties();
-        const key = `API_AVG_TIME_${marketplace.toUpperCase()}`;
-        const countKey = `API_TIME_COUNT_${marketplace.toUpperCase()}`;
-        const totalKey = `API_TOTAL_TIME_${marketplace.toUpperCase()}`;
+        var props = PropertiesService.getScriptProperties();
+        var key = 'API_AVG_TIME_' + marketplace.toUpperCase();
+        var countKey = 'API_TIME_COUNT_' + marketplace.toUpperCase();
+        var totalKey = 'API_TOTAL_TIME_' + marketplace.toUpperCase();
         
-        const currentAvg = parseFloat(props.getProperty(key) || '0');
-        const currentCount = parseInt(props.getProperty(countKey) || '0');
-        const currentTotal = parseInt(props.getProperty(totalKey) || '0');
+        var currentAvg = parseFloat(props.getProperty(key) || '0');
+        var currentCount = parseInt(props.getProperty(countKey) || '0');
+        var currentTotal = parseInt(props.getProperty(totalKey) || '0');
         
         // Вычисляем новое среднее время и общее время
-        const newTotal = currentTotal + responseTime;
-        const newCount = currentCount + 1;
-        const newAvg = newTotal / newCount;
+        var newTotal = currentTotal + responseTime;
+        var newCount = currentCount + 1;
+        var newAvg = newTotal / newCount;
         
         props.setProperty(key, newAvg.toFixed(2));
         props.setProperty(countKey, newCount.toString());
         props.setProperty(totalKey, newTotal.toString());
         
-        logDebug(`API Stats: Время ${marketplace}: ${responseTime}ms (среднее: ${newAvg.toFixed(2)}ms)`, LOG_CONFIG.CATEGORIES.SYSTEM);
+        logDebug('API Stats: Время ' + marketplace + ': ' + responseTime + 'ms (среднее: ' + newAvg.toFixed(2) + 'ms)', LOG_CONFIG.CATEGORIES.SYSTEM);
       } catch (error) {
-        logWarning(`Ошибка записи времени ответа: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+        logWarning('Ошибка записи времени ответа: ' + error.message, LOG_CONFIG.CATEGORIES.SYSTEM);
       }
     },
     
@@ -397,12 +401,12 @@ function getApiStatsTracker() {
      */
     getStats: function(marketplace) {
       try {
-        const props = PropertiesService.getScriptProperties();
+        var props = PropertiesService.getScriptProperties();
         
         if (marketplace === 'all') {
           // Общая статистика по всем маркетплейсам
-          const ozStats = this.getStats('ozon');
-          const wbStats = this.getStats('wildberries');
+          var ozStats = this.getStats('ozon');
+          var wbStats = this.getStats('wildberries');
           
           return {
             total: {
@@ -417,13 +421,13 @@ function getApiStatsTracker() {
           };
         } else {
           // Статистика для конкретного маркетплейса
-          const marketplace_upper = marketplace.toUpperCase();
+          var marketplace_upper = marketplace.toUpperCase();
           
-          const requests = parseInt(props.getProperty(`API_REQUESTS_${marketplace_upper}`) || '0');
-          const errors = parseInt(props.getProperty(`API_ERRORS_${marketplace_upper}`) || '0');
-          const averageResponseTime = parseFloat(props.getProperty(`API_AVG_TIME_${marketplace_upper}`) || '0');
-          const timeCount = parseInt(props.getProperty(`API_TIME_COUNT_${marketplace_upper}`) || '0');
-          const totalResponseTime = parseInt(props.getProperty(`API_TOTAL_TIME_${marketplace_upper}`) || '0');
+          var requests = parseInt(props.getProperty('API_REQUESTS_' + marketplace_upper) || '0');
+          var errors = parseInt(props.getProperty('API_ERRORS_' + marketplace_upper) || '0');
+          var averageResponseTime = parseFloat(props.getProperty('API_AVG_TIME_' + marketplace_upper) || '0');
+          var timeCount = parseInt(props.getProperty('API_TIME_COUNT_' + marketplace_upper) || '0');
+          var totalResponseTime = parseInt(props.getProperty('API_TOTAL_TIME_' + marketplace_upper) || '0');
           
           return {
             marketplace: marketplace,
@@ -437,7 +441,7 @@ function getApiStatsTracker() {
           };
         }
       } catch (error) {
-        logError(`Ошибка получения статистики API: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+        logError('Ошибка получения статистики API: ' + error.message, LOG_CONFIG.CATEGORIES.SYSTEM);
         return {
           marketplace: marketplace,
           requests: 0,
@@ -456,30 +460,32 @@ function getApiStatsTracker() {
      */
     resetStats: function(marketplace) {
       try {
-        const props = PropertiesService.getScriptProperties();
+        var props = PropertiesService.getScriptProperties();
         
         if (marketplace === 'all') {
           // Очищаем статистику для всех маркетплейсов
-          ['OZON', 'WILDBERRIES'].forEach(mp => {
-            props.deleteProperty(`API_REQUESTS_${mp}`);
-            props.deleteProperty(`API_ERRORS_${mp}`);
-            props.deleteProperty(`API_AVG_TIME_${mp}`);
-            props.deleteProperty(`API_TIME_COUNT_${mp}`);
-            props.deleteProperty(`API_TOTAL_TIME_${mp}`);
+          var __temp_array = ['OZON', 'WILDBERRIES'];
+    for (var i = 0; i < __temp_array.length; i++) {
+      var mp = __temp_array[i];
+            props.deleteProperty('API_REQUESTS_' + mp);
+            props.deleteProperty('API_ERRORS_' + mp);
+            props.deleteProperty('API_AVG_TIME_' + mp);
+            props.deleteProperty('API_TIME_COUNT_' + mp);
+            props.deleteProperty('API_TOTAL_TIME_' + mp);
           });
         } else {
           // Очищаем статистику для конкретного маркетплейса
-          const marketplace_upper = marketplace.toUpperCase();
-          props.deleteProperty(`API_REQUESTS_${marketplace_upper}`);
-          props.deleteProperty(`API_ERRORS_${marketplace_upper}`);
-          props.deleteProperty(`API_AVG_TIME_${marketplace_upper}`);
-          props.deleteProperty(`API_TIME_COUNT_${marketplace_upper}`);
-          props.deleteProperty(`API_TOTAL_TIME_${marketplace_upper}`);
+          var marketplace_upper = marketplace.toUpperCase();
+          props.deleteProperty('API_REQUESTS_' + marketplace_upper);
+          props.deleteProperty('API_ERRORS_' + marketplace_upper);
+          props.deleteProperty('API_AVG_TIME_' + marketplace_upper);
+          props.deleteProperty('API_TIME_COUNT_' + marketplace_upper);
+          props.deleteProperty('API_TOTAL_TIME_' + marketplace_upper);
         }
         
-        logInfo(`API статистика очищена для: ${marketplace}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+        logInfo('API статистика очищена для: ' + marketplace, LOG_CONFIG.CATEGORIES.SYSTEM);
       } catch (error) {
-        logError(`Ошибка очистки статистики API: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+        logError('Ошибка очистки статистики API: ' + error.message, LOG_CONFIG.CATEGORIES.SYSTEM);
       }
     }
   };
