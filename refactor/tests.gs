@@ -15,7 +15,7 @@
 
 // ============ КОНФИГУРАЦИЯ ТЕСТОВ ============
 
-const TEST_CONFIG_V2 = {
+var TEST_CONFIG_V2 = {
   ENABLE_LOGGING: true,
   MOCK_API_RESPONSES: true,
   TEST_TIMEOUT: 30000,
@@ -25,7 +25,7 @@ const TEST_CONFIG_V2 = {
 
 // ============ МОК-ДАННЫЕ ДЛЯ НОВОЙ АРХИТЕКТУРЫ ============
 
-const MOCK_STORE_V2 = {
+var MOCK_STORE_V2 = {
   id: 'test-store-v2',
   name: 'Тестовый магазин v2.0',
   marketplace: 'Wildberries',
@@ -41,7 +41,7 @@ const MOCK_STORE_V2 = {
   }
 };
 
-const MOCK_OZON_STORE_V2 = {
+var MOCK_OZON_STORE_V2 = {
   id: 'test-ozon-store-v2',
   name: 'Тестовый Ozon магазин v2.0',
   marketplace: 'Ozon',
@@ -57,7 +57,7 @@ const MOCK_OZON_STORE_V2 = {
   }
 };
 
-const MOCK_REVIEWS_V2 = [
+var MOCK_REVIEWS_V2 = [
   {
     id: 'review-1',
     createdDate: new Date('2025-01-15'),
@@ -90,7 +90,7 @@ const MOCK_REVIEWS_V2 = [
  * 🧪 Тесты модуля конфигурации (config.gs)
  */
 function testConfigModule() {
-  const timer = new PerformanceTimer('testConfigModule');
+  var timer = new PerformanceTimer('testConfigModule');
   
   try {
     logInfo('🧪 Тестирование модуля конфигурации', LOG_CONFIG.CATEGORIES.TEST);
@@ -101,18 +101,20 @@ function testConfigModule() {
     }
     
     // Тест 2: Проверка основных секций конфигурации
-    const requiredSections = ['STATUS', 'LIMITS', 'TIMEOUTS'];
-    for (const section of requiredSections) {
+    var requiredSections = ['STATUS', 'LIMITS', 'TIMEOUTS'];
+    for (var __i = 0; __i < requiredSections.length; __i++) {
+      var section = requiredSections[__i];
       if (!CONFIG[section]) {
-        throw new Error(`Секция CONFIG.${section} не найдена`);
+        throw new Error('Секция CONFIG.' + section + ' не найдена');
       }
     }
     
     // Тест 3: Проверка статусов отзывов
-    const requiredStatuses = ['NEW', 'PENDING', 'SENT', 'ERROR'];
-    for (const status of requiredStatuses) {
+    var requiredStatuses = ['NEW', 'PENDING', 'SENT', 'ERROR'];
+    for (var __i = 0; __i < requiredStatuses.length; __i++) {
+      var status = requiredStatuses[__i];
       if (!CONFIG.STATUS[status]) {
-        throw new Error(`Статус CONFIG.STATUS.${status} не найден`);
+        throw new Error('Статус CONFIG.STATUS.' + status + ' не найден');
       }
     }
     
@@ -131,7 +133,7 @@ function testConfigModule() {
     return true;
     
   } catch (error) {
-    logError(`❌ Ошибка тестирования модуля конфигурации: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Ошибка тестирования модуля конфигурации: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     return false;
   }
@@ -141,16 +143,17 @@ function testConfigModule() {
  * 🧪 Тесты модуля логирования (logger.gs)
  */
 function testLoggerModule() {
-  const timer = new PerformanceTimer('testLoggerModule');
+  var timer = new PerformanceTimer('testLoggerModule');
   
   try {
     logInfo('🧪 Тестирование модуля логирования', LOG_CONFIG.CATEGORIES.TEST);
     
     // Тест 1: Проверка функций логирования
-    const logFunctions = ['logInfo', 'logError', 'logWarning', 'logSuccess', 'logDebug'];
-    for (const func of logFunctions) {
+    var logFunctions = ['logInfo', 'logError', 'logWarning', 'logSuccess', 'logDebug'];
+    for (var __i = 0; __i < logFunctions.length; __i++) {
+      var func = logFunctions[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`Функция ${func} не найдена`);
+        throw new Error('Функция ' + func + ' не найдена');
       }
     }
     
@@ -159,14 +162,15 @@ function testLoggerModule() {
       throw new Error('Класс PerformanceTimer не найден');
     }
     
-    const testTimer = new PerformanceTimer('test');
+    var testTimer = new PerformanceTimer('test');
     testTimer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     
     // Тест 3: Проверка специализированных логгеров
-    const specialLoggers = ['logTrigger', 'logStore', 'logApi'];
-    for (const func of specialLoggers) {
+    var specialLoggers = ['logTrigger', 'logStore', 'logApi'];
+    for (var __i = 0; __i < specialLoggers.length; __i++) {
+      var func = specialLoggers[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`Специализированная функция логирования ${func} не найдена`);
+        throw new Error('Специализированная функция логирования ' + func + ' не найдена');
       }
     }
     
@@ -181,7 +185,7 @@ function testLoggerModule() {
     return true;
     
   } catch (error) {
-    console.error(`❌ Ошибка тестирования модуля логирования: ${error.message}`);
+    console.error('❌ Ошибка тестирования модуля логирования: ' + error.message);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     return false;
   }
@@ -191,37 +195,38 @@ function testLoggerModule() {
  * 🧪 Тесты модуля управления магазинами (store_manager.gs)
  */
 function testStoreManagerModule() {
-  const timer = new PerformanceTimer('testStoreManagerModule');
+  var timer = new PerformanceTimer('testStoreManagerModule');
   
   try {
     logInfo('🧪 Тестирование модуля управления магазинами', LOG_CONFIG.CATEGORIES.TEST);
     
     // Тест 1: Проверка основных функций
-    const requiredFunctions = [
+    var requiredFunctions = [
       'addStore', 'getStoreById', 'getAllStores', 'getActiveStores',
       'updateStore', 'deleteStore', 'createStoreSheetIfNotExists'
     ];
     
-    for (const func of requiredFunctions) {
+    for (var __i = 0; __i < requiredFunctions.length; __i++) {
+      var func = requiredFunctions[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`Функция ${func} не найдена в store_manager`);
+        throw new Error('Функция ' + func + ' не найдена в store_manager');
       }
     }
     
     // Тест 2: Получение всех магазинов
-    const allStores = getAllStores();
+    var allStores = getAllStores();
     if (!Array.isArray(allStores)) {
       throw new Error('getAllStores должен возвращать массив');
     }
     
     // Тест 3: Получение активных магазинов
-    const activeStores = getActiveStores();
+    var activeStores = getActiveStores();
     if (!Array.isArray(activeStores)) {
       throw new Error('getActiveStores должен возвращать массив');
     }
     
     // Тест 4: Создание тестового магазина (без сохранения)
-    const testStoreData = {
+    var testStoreData = {
       name: 'Test Store',
       marketplace: 'Wildberries',
       apiKey: 'test-key',
@@ -229,7 +234,7 @@ function testStoreManagerModule() {
     };
     
     // Проверяем валидацию данных магазина
-    const validationResult = validateStoreData(testStoreData);
+    var validationResult = validateStoreData(testStoreData);
     if (!validationResult || typeof validationResult.valid === 'undefined') {
       throw new Error('validateStoreData должен возвращать объект с полем valid');
     }
@@ -239,7 +244,7 @@ function testStoreManagerModule() {
     return true;
     
   } catch (error) {
-    logError(`❌ Ошибка тестирования модуля управления магазинами: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Ошибка тестирования модуля управления магазинами: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     return false;
   }
@@ -249,52 +254,53 @@ function testStoreManagerModule() {
  * 🧪 Тесты модуля кеширования (cache_manager.gs)
  */
 function testCacheManagerModule() {
-  const timer = new PerformanceTimer('testCacheManagerModule');
+  var timer = new PerformanceTimer('testCacheManagerModule');
   
   try {
     logInfo('🧪 Тестирование модуля кеширования', LOG_CONFIG.CATEGORIES.TEST);
     
     // Тест 1: Проверка основных функций кеша
-    const requiredFunctions = [
+    var requiredFunctions = [
       'initializeCacheForStore', 'filterNewReviewsForStore',
       'addToReviewIdsCacheForStore', 'clearCacheForStore', 'clearAllStoreCaches'
     ];
     
-    for (const func of requiredFunctions) {
+    for (var __i = 0; __i < requiredFunctions.length; __i++) {
+      var func = requiredFunctions[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`Функция кеширования ${func} не найдена`);
+        throw new Error('Функция кеширования ' + func + ' не найдена');
       }
     }
     
     // Тест 2: Инициализация кеша для тестового магазина
-    const testStoreId = 'test-cache-store';
-    const initResult = initializeCacheForStore(testStoreId);
+    var testStoreId = 'test-cache-store';
+    var initResult = initializeCacheForStore(testStoreId);
     
     // Тест 3: Добавление ID в кеш
-    const testIds = ['review-1', 'review-2', 'review-3'];
-    const addResult = addToReviewIdsCacheForStore(testStoreId, testIds);
+    var testIds = ['review-1', 'review-2', 'review-3'];
+    var addResult = addToReviewIdsCacheForStore(testStoreId, testIds);
     
     // Тест 4: Фильтрация новых отзывов
-    const testReviews = [
+    var testReviews = [
       { id: 'review-1', text: 'Old review' },
       { id: 'review-4', text: 'New review' }
     ];
     
-    const filteredReviews = filterNewReviewsForStore(testStoreId, testReviews);
+    var filteredReviews = filterNewReviewsForStore(testStoreId, testReviews);
     
     if (!Array.isArray(filteredReviews)) {
       throw new Error('filterNewReviewsForStore должен возвращать массив');
     }
     
     // Тест 5: Очистка кеша
-    const clearResult = clearCacheForStore(testStoreId);
+    var clearResult = clearCacheForStore(testStoreId);
     
     logSuccess('✅ Модуль кеширования работает корректно', LOG_CONFIG.CATEGORIES.TEST);
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     return true;
     
   } catch (error) {
-    logError(`❌ Ошибка тестирования модуля кеширования: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Ошибка тестирования модуля кеширования: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     return false;
   }
@@ -304,29 +310,30 @@ function testCacheManagerModule() {
  * 🧪 Тесты модуля WB API (wb_api.gs)
  */
 function testWbApiModule() {
-  const timer = new PerformanceTimer('testWbApiModule');
+  var timer = new PerformanceTimer('testWbApiModule');
   
   try {
     logInfo('🧪 Тестирование модуля WB API', LOG_CONFIG.CATEGORIES.TEST);
     
     // Тест 1: Проверка основных функций WB API
-    const requiredFunctions = [
+    var requiredFunctions = [
       'getWbFeedbacks', 'sendWbFeedbackAnswer', 'getWbProductsInfo', 'testWbConnection'
     ];
     
-    for (const func of requiredFunctions) {
+    for (var __i = 0; __i < requiredFunctions.length; __i++) {
+      var func = requiredFunctions[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`Функция WB API ${func} не найдена`);
+        throw new Error('Функция WB API ' + func + ' не найдена');
       }
     }
     
     // Тест 2: Создание мок UrlFetchApp для тестирования
-    const originalUrlFetchApp = UrlFetchApp;
+    var originalUrlFetchApp = UrlFetchApp;
     global.UrlFetchApp = createMockWbApi();
     
     try {
       // Тест 3: Получение отзывов с мок данными
-      const feedbacks = getWbFeedbacks(MOCK_STORE_V2, false);
+      var feedbacks = getWbFeedbacks(MOCK_STORE_V2, false);
       
       if (!Array.isArray(feedbacks)) {
         throw new Error('getWbFeedbacks должен возвращать массив');
@@ -334,7 +341,7 @@ function testWbApiModule() {
       
       // Тест 4: Отправка ответа на отзыв
       if (feedbacks.length > 0) {
-        const sendResult = sendWbFeedbackAnswer(feedbacks[0].id, 'Спасибо за отзыв!', MOCK_STORE_V2);
+        var sendResult = sendWbFeedbackAnswer(feedbacks[0].id, 'Спасибо за отзыв!', MOCK_STORE_V2);
         
         if (!sendResult || typeof sendResult.success === 'undefined') {
           throw new Error('sendWbFeedbackAnswer должен возвращать объект с полем success');
@@ -342,7 +349,7 @@ function testWbApiModule() {
       }
       
       // Тест 5: Тест соединения
-      const connectionTest = testWbConnection(MOCK_STORE_V2);
+      var connectionTest = testWbConnection(MOCK_STORE_V2);
       if (!connectionTest || typeof connectionTest.success === 'undefined') {
         throw new Error('testWbConnection должен возвращать объект с полем success');
       }
@@ -356,7 +363,7 @@ function testWbApiModule() {
     return true;
     
   } catch (error) {
-    logError(`❌ Ошибка тестирования модуля WB API: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Ошибка тестирования модуля WB API: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     return false;
   }
@@ -366,29 +373,30 @@ function testWbApiModule() {
  * 🧪 Тесты модуля Ozon API (ozon_api.gs)
  */
 function testOzonApiModule() {
-  const timer = new PerformanceTimer('testOzonApiModule');
+  var timer = new PerformanceTimer('testOzonApiModule');
   
   try {
     logInfo('🧪 Тестирование модуля Ozon API', LOG_CONFIG.CATEGORIES.TEST);
     
     // Тест 1: Проверка основных функций Ozon API
-    const requiredFunctions = [
+    var requiredFunctions = [
       'getOzonFeedbacks', 'sendOzonFeedbackAnswer', 'testOzonConnection'
     ];
     
-    for (const func of requiredFunctions) {
+    for (var __i = 0; __i < requiredFunctions.length; __i++) {
+      var func = requiredFunctions[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`Функция Ozon API ${func} не найдена`);
+        throw new Error('Функция Ozon API ' + func + ' не найдена');
       }
     }
     
     // Тест 2: Создание мок UrlFetchApp для тестирования
-    const originalUrlFetchApp = UrlFetchApp;
+    var originalUrlFetchApp = UrlFetchApp;
     global.UrlFetchApp = createMockOzonApi();
     
     try {
       // Тест 3: Получение отзывов с мок данными
-      const feedbacks = getOzonFeedbacks(MOCK_OZON_STORE_V2, false);
+      var feedbacks = getOzonFeedbacks(MOCK_OZON_STORE_V2, false);
       
       if (!Array.isArray(feedbacks)) {
         throw new Error('getOzonFeedbacks должен возвращать массив');
@@ -396,7 +404,7 @@ function testOzonApiModule() {
       
       // Тест 4: Отправка ответа на отзыв
       if (feedbacks.length > 0) {
-        const sendResult = sendOzonFeedbackAnswer(feedbacks[0].id, 'Спасибо за отзыв!', MOCK_OZON_STORE_V2);
+        var sendResult = sendOzonFeedbackAnswer(feedbacks[0].id, 'Спасибо за отзыв!', MOCK_OZON_STORE_V2);
         
         if (!sendResult || typeof sendResult.success === 'undefined') {
           throw new Error('sendOzonFeedbackAnswer должен возвращать объект с полем success');
@@ -404,7 +412,7 @@ function testOzonApiModule() {
       }
       
       // Тест 5: Тест соединения
-      const connectionTest = testOzonConnection(MOCK_OZON_STORE_V2);
+      var connectionTest = testOzonConnection(MOCK_OZON_STORE_V2);
       if (!connectionTest || typeof connectionTest.success === 'undefined') {
         throw new Error('testOzonConnection должен возвращать объект с полем success');
       }
@@ -418,7 +426,7 @@ function testOzonApiModule() {
     return true;
     
   } catch (error) {
-    logError(`❌ Ошибка тестирования модуля Ozon API: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Ошибка тестирования модуля Ozon API: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     return false;
   }
@@ -428,45 +436,48 @@ function testOzonApiModule() {
  * 🧪 Тесты системы триггеров (trigger_system.gs)
  */
 function testTriggerSystemModule() {
-  const timer = new PerformanceTimer('testTriggerSystemModule');
+  var timer = new PerformanceTimer('testTriggerSystemModule');
   
   try {
     logInfo('🧪 Тестирование системы триггеров', LOG_CONFIG.CATEGORIES.TEST);
     
     // Тест 1: Проверка основных функций системы триггеров
-    const requiredFunctions = [
+    var requiredFunctions = [
       'setupCompleteTriggersSystem', 'hourlyReviewCollector', 'selectReviewAnswers',
       'sendReviewAnswers', 'getSystemTriggersInfo', 'deleteAllSystemTriggers'
     ];
     
-    for (const func of requiredFunctions) {
+    for (var __i = 0; __i < requiredFunctions.length; __i++) {
+      var func = requiredFunctions[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`Функция системы триггеров ${func} не найдена`);
+        throw new Error('Функция системы триггеров ' + func + ' не найдена');
       }
     }
     
     // Тест 2: Получение информации о триггерах
-    const triggersInfo = getSystemTriggersInfo();
+    var triggersInfo = getSystemTriggersInfo();
     
     if (!triggersInfo || typeof triggersInfo.total === 'undefined') {
       throw new Error('getSystemTriggersInfo должен возвращать объект с полем total');
     }
     
     // Тест 3: Проверка быстрых функций настройки
-    const quickSetupFunctions = ['setupTriggers30Min', 'setupTriggers60Min', 'setupTriggers5Min'];
+    var quickSetupFunctions = ['setupTriggers30Min', 'setupTriggers60Min', 'setupTriggers5Min'];
     
-    for (const func of quickSetupFunctions) {
+    for (var __i = 0; __i < quickSetupFunctions.length; __i++) {
+      var func = quickSetupFunctions[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`Быстрая функция настройки ${func} не найдена`);
+        throw new Error('Быстрая функция настройки ' + func + ' не найдена');
       }
     }
     
     // Тест 4: Проверка функций управления триггерами
-    const managementFunctions = ['createTrigger', 'saveTriggerSystemInfo', 'getTriggerSystemInfo'];
+    var managementFunctions = ['createTrigger', 'saveTriggerSystemInfo', 'getTriggerSystemInfo'];
     
-    for (const func of managementFunctions) {
+    for (var __i = 0; __i < managementFunctions.length; __i++) {
+      var func = managementFunctions[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`Функция управления триггерами ${func} не найдена`);
+        throw new Error('Функция управления триггерами ' + func + ' не найдена');
       }
     }
     
@@ -475,7 +486,7 @@ function testTriggerSystemModule() {
     return true;
     
   } catch (error) {
-    logError(`❌ Ошибка тестирования системы триггеров: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Ошибка тестирования системы триггеров: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     return false;
   }
@@ -485,64 +496,69 @@ function testTriggerSystemModule() {
  * 🧪 Тесты главного модуля (main.gs)
  */
 function testMainModule() {
-  const timer = new PerformanceTimer('testMainModule');
+  var timer = new PerformanceTimer('testMainModule');
   
   try {
     logInfo('🧪 Тестирование главного модуля', LOG_CONFIG.CATEGORIES.TEST);
     
     // Тест 1: Проверка UI функций
-    const uiFunctions = [
+    var uiFunctions = [
       'onOpen', 'showDashboard', 'showAddStoreDialog', 'addNewStore',
       'showActiveStores', 'syncAllStores'
     ];
     
-    for (const func of uiFunctions) {
+    for (var __i = 0; __i < uiFunctions.length; __i++) {
+      var func = uiFunctions[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`UI функция ${func} не найдена`);
+        throw new Error('UI функция ' + func + ' не найдена');
       }
     }
     
     // Тест 2: Проверка функций управления отзывами
-    const reviewFunctions = [
+    var reviewFunctions = [
       'collectAllReviews', 'prepareAllAnswers', 'sendAllAnswers', 'showReviewsStats'
     ];
     
-    for (const func of reviewFunctions) {
+    for (var __i = 0; __i < reviewFunctions.length; __i++) {
+      var func = reviewFunctions[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`Функция управления отзывами ${func} не найдена`);
+        throw new Error('Функция управления отзывами ' + func + ' не найдена');
       }
     }
     
     // Тест 3: Проверка диагностических функций
-    const diagnosticFunctions = [
+    var diagnosticFunctions = [
       'runSystemDiagnostics', 'runQuickHealthCheck', 'runApiTests'
     ];
     
-    for (const func of diagnosticFunctions) {
+    for (var __i = 0; __i < diagnosticFunctions.length; __i++) {
+      var func = diagnosticFunctions[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`Диагностическая функция ${func} не найдена`);
+        throw new Error('Диагностическая функция ' + func + ' не найдена');
       }
     }
     
     // Тест 4: Проверка служебных функций
-    const utilityFunctions = [
+    var utilityFunctions = [
       'validateStoreData', 'getStoreReviewsStats', 'generateDashboardHTML'
     ];
     
-    for (const func of utilityFunctions) {
+    for (var __i = 0; __i < utilityFunctions.length; __i++) {
+      var func = utilityFunctions[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`Служебная функция ${func} не найдена`);
+        throw new Error('Служебная функция ' + func + ' не найдена');
       }
     }
     
     // Тест 5: Проверка функций инициализации
-    const initFunctions = [
+    var initFunctions = [
       'initializeSystem', 'ensureSystemSheetsExist', 'setupInitialStructure'
     ];
     
-    for (const func of initFunctions) {
+    for (var __i = 0; __i < initFunctions.length; __i++) {
+      var func = initFunctions[__i];
       if (typeof window[func] !== 'function') {
-        throw new Error(`Функция инициализации ${func} не найдена`);
+        throw new Error('Функция инициализации ' + func + ' не найдена');
       }
     }
     
@@ -551,7 +567,7 @@ function testMainModule() {
     return true;
     
   } catch (error) {
-    logError(`❌ Ошибка тестирования главного модуля: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Ошибка тестирования главного модуля: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     return false;
   }
@@ -563,42 +579,42 @@ function testMainModule() {
  * 🧪 Интеграционный тест: Полный цикл обработки отзывов
  */
 function testFullReviewProcessingCycle() {
-  const timer = new PerformanceTimer('testFullReviewProcessingCycle');
+  var timer = new PerformanceTimer('testFullReviewProcessingCycle');
   
   try {
     logInfo('🧪 Интеграционный тест: Полный цикл обработки отзывов', LOG_CONFIG.CATEGORIES.TEST);
     
     // Создаем мок UrlFetchApp
-    const originalUrlFetchApp = UrlFetchApp;
+    var originalUrlFetchApp = UrlFetchApp;
     global.UrlFetchApp = createMockWbApi();
     
     try {
       // Этап 1: Сбор отзывов
-      const collectedReviews = collectReviewsForStore(MOCK_STORE_V2);
+      var collectedReviews = collectReviewsForStore(MOCK_STORE_V2);
       
       if (!collectedReviews || typeof collectedReviews.totalReviews === 'undefined') {
         throw new Error('Этап сбора отзывов провален');
       }
       
-      logInfo(`Собрано отзывов: ${collectedReviews.newReviews}/${collectedReviews.totalReviews}`, LOG_CONFIG.CATEGORIES.TEST);
+      logInfo('Собрано отзывов: ' + collectedReviews.newReviews + '/' + collectedReviews.totalReviews, LOG_CONFIG.CATEGORIES.TEST);
       
       // Этап 2: Подготовка ответов
-      const preparedAnswers = prepareAnswersForStore(MOCK_STORE_V2);
+      var preparedAnswers = prepareAnswersForStore(MOCK_STORE_V2);
       
       if (!preparedAnswers || typeof preparedAnswers.preparedAnswers === 'undefined') {
         throw new Error('Этап подготовки ответов провален');
       }
       
-      logInfo(`Подготовлено ответов: ${preparedAnswers.preparedAnswers}/${preparedAnswers.totalReviews}`, LOG_CONFIG.CATEGORIES.TEST);
+      logInfo('Подготовлено ответов: ' + preparedAnswers.preparedAnswers + '/' + preparedAnswers.totalReviews, LOG_CONFIG.CATEGORIES.TEST);
       
       // Этап 3: Отправка ответов
-      const sentAnswers = sendAnswersForStore(MOCK_STORE_V2);
+      var sentAnswers = sendAnswersForStore(MOCK_STORE_V2);
       
       if (!sentAnswers || typeof sentAnswers.sentAnswers === 'undefined') {
         throw new Error('Этап отправки ответов провален');
       }
       
-      logInfo(`Отправлено ответов: ${sentAnswers.sentAnswers}/${sentAnswers.totalPending}`, LOG_CONFIG.CATEGORIES.TEST);
+      logInfo('Отправлено ответов: ' + sentAnswers.sentAnswers + '/' + sentAnswers.totalPending, LOG_CONFIG.CATEGORIES.TEST);
       
     } finally {
       global.UrlFetchApp = originalUrlFetchApp;
@@ -609,7 +625,7 @@ function testFullReviewProcessingCycle() {
     return true;
     
   } catch (error) {
-    logError(`❌ Ошибка интеграционного теста: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Ошибка интеграционного теста: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     return false;
   }
@@ -619,32 +635,32 @@ function testFullReviewProcessingCycle() {
  * 🧪 Интеграционный тест: Система триггеров
  */
 function testTriggerSystemIntegration() {
-  const timer = new PerformanceTimer('testTriggerSystemIntegration');
+  var timer = new PerformanceTimer('testTriggerSystemIntegration');
   
   try {
     logInfo('🧪 Интеграционный тест: Система триггеров', LOG_CONFIG.CATEGORIES.TEST);
     
     // Создаем мок окружения
-    const originalUrlFetchApp = UrlFetchApp;
+    var originalUrlFetchApp = UrlFetchApp;
     global.UrlFetchApp = createMockWbApi();
     
     try {
       // Тест 1: Триггер сбора отзывов
-      const collectResult = hourlyReviewCollector();
+      var collectResult = hourlyReviewCollector();
       
       if (!collectResult || typeof collectResult.processedStores === 'undefined') {
         throw new Error('Триггер сбора отзывов не работает');
       }
       
       // Тест 2: Триггер подготовки ответов
-      const prepareResult = selectReviewAnswers();
+      var prepareResult = selectReviewAnswers();
       
       if (!prepareResult || typeof prepareResult.processedStores === 'undefined') {
         throw new Error('Триггер подготовки ответов не работает');
       }
       
       // Тест 3: Триггер отправки ответов
-      const sendResult = sendReviewAnswers();
+      var sendResult = sendReviewAnswers();
       
       if (!sendResult || typeof sendResult.processedStores === 'undefined') {
         throw new Error('Триггер отправки ответов не работает');
@@ -659,7 +675,7 @@ function testTriggerSystemIntegration() {
     return true;
     
   } catch (error) {
-    logError(`❌ Ошибка интеграционного теста триггеров: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Ошибка интеграционного теста триггеров: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     return false;
   }
@@ -750,14 +766,14 @@ function runAllUnitTestsV2() {
   try {
     logInfo('🧪 ===== ЗАПУСК ВСЕХ UNIT ТЕСТОВ v2.0 =====', LOG_CONFIG.CATEGORIES.TEST);
     
-    const results = {
+    var results = {
       total: 0,
       passed: 0,
       failed: 0,
       errors: []
     };
     
-    const testSuites = [
+    var testSuites = [
       { name: 'Config Module', test: testConfigModule },
       { name: 'Logger Module', test: testLoggerModule },
       { name: 'Store Manager Module', test: testStoreManagerModule },
@@ -768,34 +784,35 @@ function runAllUnitTestsV2() {
       { name: 'Main Module', test: testMainModule }
     ];
     
-    for (const suite of testSuites) {
+    for (var __i = 0; __i < testSuites.length; __i++) {
+      var suite = testSuites[__i];
       results.total++;
-      logInfo(`🧪 Тестирование модуля: ${suite.name}`, LOG_CONFIG.CATEGORIES.TEST);
+      logInfo('🧪 Тестирование модуля: ' + suite.name, LOG_CONFIG.CATEGORIES.TEST);
       
       try {
-        const success = suite.test();
+        var success = suite.test();
         if (success) {
           results.passed++;
-          logSuccess(`✅ ${suite.name} - ПРОЙДЕН`, LOG_CONFIG.CATEGORIES.TEST);
+          logSuccess('✅ ' + suite.name + ' - ПРОЙДЕН', LOG_CONFIG.CATEGORIES.TEST);
         } else {
           results.failed++;
-          logError(`❌ ${suite.name} - ПРОВАЛЕН`, LOG_CONFIG.CATEGORIES.TEST);
+          logError('❌ ' + suite.name + ' - ПРОВАЛЕН', LOG_CONFIG.CATEGORIES.TEST);
         }
       } catch (error) {
         results.failed++;
-        results.errors.push(`${suite.name}: ${error.message}`);
-        logError(`❌ ${suite.name} - ОШИБКА: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+        results.errors.push(suite.name + ': ' + error.message);
+        logError('❌ ' + suite.name + ' - ОШИБКА: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
       }
     }
     
     // Выводим итоговый отчет
     logInfo('🧪 ===== ИТОГИ UNIT ТЕСТОВ v2.0 =====', LOG_CONFIG.CATEGORIES.TEST);
-    logInfo(`📊 Всего модулей протестировано: ${results.total}`, LOG_CONFIG.CATEGORIES.TEST);
-    logSuccess(`✅ Пройдено: ${results.passed}`, LOG_CONFIG.CATEGORIES.TEST);
-    logError(`❌ Провалено: ${results.failed}`, LOG_CONFIG.CATEGORIES.TEST);
+    logInfo('📊 Всего модулей протестировано: ' + results.total, LOG_CONFIG.CATEGORIES.TEST);
+    logSuccess('✅ Пройдено: ' + results.passed, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Провалено: ' + results.failed, LOG_CONFIG.CATEGORIES.TEST);
     
-    const successRate = Math.round((results.passed / results.total) * 100);
-    logInfo(`📈 Процент успеха: ${successRate}%`, LOG_CONFIG.CATEGORIES.TEST);
+    var successRate = Math.round((results.passed / results.total) * 100);
+    logInfo('📈 Процент успеха: ' + successRate + '%', LOG_CONFIG.CATEGORIES.TEST);
     
     if (successRate === 100) {
       logSuccess('🎉 ВСЕ UNIT ТЕСТЫ v2.0 ПРОЙДЕНЫ УСПЕШНО!', LOG_CONFIG.CATEGORIES.TEST);
@@ -804,7 +821,7 @@ function runAllUnitTestsV2() {
     return results;
     
   } catch (error) {
-    logError(`❌ Критическая ошибка при запуске unit тестов: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Критическая ошибка при запуске unit тестов: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
     return null;
   }
 }
@@ -816,46 +833,47 @@ function runAllIntegrationTestsV2() {
   try {
     logInfo('🧪 ===== ЗАПУСК ИНТЕГРАЦИОННЫХ ТЕСТОВ v2.0 =====', LOG_CONFIG.CATEGORIES.TEST);
     
-    const results = {
+    var results = {
       total: 0,
       passed: 0,
       failed: 0,
       errors: []
     };
     
-    const testSuites = [
+    var testSuites = [
       { name: 'Full Review Processing Cycle', test: testFullReviewProcessingCycle },
       { name: 'Trigger System Integration', test: testTriggerSystemIntegration }
     ];
     
-    for (const suite of testSuites) {
+    for (var __i = 0; __i < testSuites.length; __i++) {
+      var suite = testSuites[__i];
       results.total++;
-      logInfo(`🧪 Интеграционный тест: ${suite.name}`, LOG_CONFIG.CATEGORIES.TEST);
+      logInfo('🧪 Интеграционный тест: ' + suite.name, LOG_CONFIG.CATEGORIES.TEST);
       
       try {
-        const success = suite.test();
+        var success = suite.test();
         if (success) {
           results.passed++;
-          logSuccess(`✅ ${suite.name} - ПРОЙДЕН`, LOG_CONFIG.CATEGORIES.TEST);
+          logSuccess('✅ ' + suite.name + ' - ПРОЙДЕН', LOG_CONFIG.CATEGORIES.TEST);
         } else {
           results.failed++;
-          logError(`❌ ${suite.name} - ПРОВАЛЕН`, LOG_CONFIG.CATEGORIES.TEST);
+          logError('❌ ' + suite.name + ' - ПРОВАЛЕН', LOG_CONFIG.CATEGORIES.TEST);
         }
       } catch (error) {
         results.failed++;
-        results.errors.push(`${suite.name}: ${error.message}`);
-        logError(`❌ ${suite.name} - ОШИБКА: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+        results.errors.push(suite.name + ': ' + error.message);
+        logError('❌ ' + suite.name + ' - ОШИБКА: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
       }
     }
     
     // Выводим итоговый отчет
     logInfo('🧪 ===== ИТОГИ ИНТЕГРАЦИОННЫХ ТЕСТОВ v2.0 =====', LOG_CONFIG.CATEGORIES.TEST);
-    logInfo(`📊 Всего тестов: ${results.total}`, LOG_CONFIG.CATEGORIES.TEST);
-    logSuccess(`✅ Пройдено: ${results.passed}`, LOG_CONFIG.CATEGORIES.TEST);
-    logError(`❌ Провалено: ${results.failed}`, LOG_CONFIG.CATEGORIES.TEST);
+    logInfo('📊 Всего тестов: ' + results.total, LOG_CONFIG.CATEGORIES.TEST);
+    logSuccess('✅ Пройдено: ' + results.passed, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Провалено: ' + results.failed, LOG_CONFIG.CATEGORIES.TEST);
     
-    const successRate = Math.round((results.passed / results.total) * 100);
-    logInfo(`📈 Процент успеха: ${successRate}%`, LOG_CONFIG.CATEGORIES.TEST);
+    var successRate = Math.round((results.passed / results.total) * 100);
+    logInfo('📈 Процент успеха: ' + successRate + '%', LOG_CONFIG.CATEGORIES.TEST);
     
     if (successRate === 100) {
       logSuccess('🎉 ВСЕ ИНТЕГРАЦИОННЫЕ ТЕСТЫ v2.0 ПРОЙДЕНЫ УСПЕШНО!', LOG_CONFIG.CATEGORIES.TEST);
@@ -864,7 +882,7 @@ function runAllIntegrationTestsV2() {
     return results;
     
   } catch (error) {
-    logError(`❌ Критическая ошибка при запуске интеграционных тестов: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Критическая ошибка при запуске интеграционных тестов: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
     return null;
   }
 }
@@ -876,7 +894,7 @@ function runCompleteTestSuiteV2() {
   try {
     logInfo('🧪 ===== ЗАПУСК ПОЛНОГО НАБОРА ТЕСТОВ MP REVIEW MANAGER v2.0 =====', LOG_CONFIG.CATEGORIES.TEST);
     
-    const overallResults = {
+    var overallResults = {
       unitTests: null,
       integrationTests: null,
       overallSuccess: false
@@ -891,8 +909,8 @@ function runCompleteTestSuiteV2() {
     // Подводим общие итоги
     logInfo('🧪 ===== ОБЩИЕ ИТОГИ ТЕСТИРОВАНИЯ v2.0 =====', LOG_CONFIG.CATEGORIES.TEST);
     
-    const unitSuccess = overallResults.unitTests?.passed === overallResults.unitTests?.total;
-    const integrationSuccess = overallResults.integrationTests?.passed === overallResults.integrationTests?.total;
+    var unitSuccess = overallResults.unitTests?.passed === overallResults.unitTests?.total;
+    var integrationSuccess = overallResults.integrationTests?.passed === overallResults.integrationTests?.total;
     
     overallResults.overallSuccess = unitSuccess && integrationSuccess;
     
@@ -909,7 +927,7 @@ function runCompleteTestSuiteV2() {
     return overallResults;
     
   } catch (error) {
-    logError(`❌ Критическая ошибка при запуске полного набора тестов: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+    logError('❌ Критическая ошибка при запуске полного набора тестов: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
     return null;
   }
 }
@@ -919,31 +937,31 @@ function runCompleteTestSuiteV2() {
  */
 function showTestResults(results) {
   try {
-    let message = '🧪 РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ MP REVIEW MANAGER v2.0\\n\\n';
+    var message = '🧪 РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ MP REVIEW MANAGER v2.0\n\n';
     
     if (results.unitTests) {
-      message += `📦 UNIT ТЕСТЫ:\\n`;
-      message += `   ✅ Пройдено: ${results.unitTests.passed}\\n`;
-      message += `   ❌ Провалено: ${results.unitTests.failed}\\n`;
-      message += `   📊 Всего: ${results.unitTests.total}\\n\\n`;
+      message += `📦 UNIT ТЕСТЫ:\n`;
+      message += '   ✅ Пройдено: ' + results.unitTests.passed + '\n';
+      message += '   ❌ Провалено: ' + results.unitTests.failed + '\n';
+      message += '   📊 Всего: ' + results.unitTests.total + '\n\n';
     }
     
     if (results.integrationTests) {
-      message += `🔗 ИНТЕГРАЦИОННЫЕ ТЕСТЫ:\\n`;
-      message += `   ✅ Пройдено: ${results.integrationTests.passed}\\n`;
-      message += `   ❌ Провалено: ${results.integrationTests.failed}\\n`;
-      message += `   📊 Всего: ${results.integrationTests.total}\\n\\n`;
+      message += `🔗 ИНТЕГРАЦИОННЫЕ ТЕСТЫ:\n`;
+      message += '   ✅ Пройдено: ' + results.integrationTests.passed + '\n';
+      message += '   ❌ Провалено: ' + results.integrationTests.failed + '\n';
+      message += '   📊 Всего: ' + results.integrationTests.total + '\n\n';
     }
     
-    message += `📈 ОБЩИЙ РЕЗУЛЬТАТ: ${results.overallSuccess ? '✅ УСПЕШНО' : '❌ ТРЕБУЕТСЯ ДОРАБОТКА'}\\n\\n`;
+    message += '📈 ОБЩИЙ РЕЗУЛЬТАТ: ' + results.overallSuccess ? '✅ УСПЕШНО' : '❌ ТРЕБУЕТСЯ ДОРАБОТКА' + '\n\n';
     message += 'Подробные логи смотрите в консоли Google Apps Script.';
     
-    const title = results.overallSuccess ? '✅ Все тесты пройдены' : '⚠️ Есть проблемы';
+    var title = results.overallSuccess ? '✅ Все тесты пройдены' : '⚠️ Есть проблемы';
     
     SpreadsheetApp.getUi().alert(title, message, SpreadsheetApp.getUi().ButtonSet.OK);
     
   } catch (error) {
-    logError(`Ошибка показа результатов тестов: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+    logError('Ошибка показа результатов тестов: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
   }
 }
 
@@ -956,43 +974,44 @@ function runQuickTestsV2() {
   try {
     logInfo('🧪 Запуск быстрых тестов v2.0', LOG_CONFIG.CATEGORIES.TEST);
     
-    const criticalModules = [
+    var criticalModules = [
       { name: 'Config', test: testConfigModule },
       { name: 'Logger', test: testLoggerModule },
       { name: 'Store Manager', test: testStoreManagerModule },
       { name: 'WB API', test: testWbApiModule }
     ];
     
-    let passed = 0;
-    let total = criticalModules.length;
+    var passed = 0;
+    var total = criticalModules.length;
     
-    for (const module of criticalModules) {
+    for (var __i = 0; __i < criticalModules.length; __i++) {
+      var module = criticalModules[__i];
       try {
         if (module.test()) {
           passed++;
-          logSuccess(`✅ ${module.name}`, LOG_CONFIG.CATEGORIES.TEST);
+          logSuccess('✅ ' + module.name, LOG_CONFIG.CATEGORIES.TEST);
         } else {
-          logError(`❌ ${module.name}`, LOG_CONFIG.CATEGORIES.TEST);
+          logError('❌ ' + module.name, LOG_CONFIG.CATEGORIES.TEST);
         }
       } catch (error) {
-        logError(`❌ ${module.name}: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
+        logError('❌ ' + module.name + ': ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
       }
     }
     
-    const success = passed === total;
-    const message = success ? 
-      `✅ Быстрые тесты пройдены: ${passed}/${total}\\n\\nОсновные модули системы работают корректно.` :
-      `⚠️ Быстрые тесты: ${passed}/${total}\\n\\nОбнаружены проблемы с критическими модулями.`;
+    var success = passed === total;
+    var message = success ? 
+      '✅ Быстрые тесты пройдены: ' + passed + '/' + total + '\n\nОсновные модули системы работают корректно.' :
+      '⚠️ Быстрые тесты: ' + passed + '/' + total + '\n\nОбнаружены проблемы с критическими модулями.';
     
-    const title = success ? 'Быстрые тесты пройдены' : 'Проблемы в быстрых тестах';
+    var title = success ? 'Быстрые тесты пройдены' : 'Проблемы в быстрых тестах';
     
     SpreadsheetApp.getUi().alert(title, message, SpreadsheetApp.getUi().ButtonSet.OK);
     
     return success;
     
   } catch (error) {
-    logError(`❌ Ошибка быстрых тестов: ${error.message}`, LOG_CONFIG.CATEGORIES.TEST);
-    SpreadsheetApp.getUi().alert('Ошибка тестирования', `Ошибка: ${error.message}`, SpreadsheetApp.getUi().ButtonSet.OK);
+    logError('❌ Ошибка быстрых тестов: ' + error.message, LOG_CONFIG.CATEGORIES.TEST);
+    SpreadsheetApp.getUi().alert('Ошибка тестирования', 'Ошибка: ' + error.message, SpreadsheetApp.getUi().ButtonSet.OK);
     return false;
   }
 }

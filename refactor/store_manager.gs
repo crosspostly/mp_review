@@ -13,18 +13,18 @@
 
 function getStores() {
   try {
-    const storesJson = PropertiesService.getUserProperties().getProperty(CONFIG.PROPERTIES_KEY);
+    var storesJson = PropertiesService.getUserProperties().getProperty(CONFIG.PROPERTIES_KEY);
     if (!storesJson) return [];
     
-    const stores = JSON.parse(storesJson);
+    var stores = JSON.parse(storesJson);
     
     // ИСПРАВЛЕНИЕ forEach ERROR: Проверяем что stores это массив
     if (!Array.isArray(stores)) {
-      logError(`getStores: stores не является массивом, получено: ${typeof stores}`, LOG_CONFIG.CATEGORIES.STORE);
+      logError('getStores: stores не является массивом, получено: ' + typeof stores, LOG_CONFIG.CATEGORIES.STORE);
       return [];
     }
     
-    return stores.filter(store => store && store.id).map(store => {
+    return stores.filter(function(store) { return store && store.id; }).map(store => {
         if (typeof store.isActive === 'undefined') store.isActive = true;
         // Ensure settings object exists for backward compatibility
         if (!store.settings) store.settings = {};
@@ -32,7 +32,7 @@ function getStores() {
     });
     
   } catch (error) {
-    logError(`getStores: Ошибка получения магазинов: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
+    logError('getStores: Ошибка получения магазинов: ' + error.message, LOG_CONFIG.CATEGORIES.STORE);
     return [];
   }
 }
@@ -43,21 +43,21 @@ function getStores() {
  */
 function getActiveStores() {
   try {
-    const allStores = getStores();
+    var allStores = getStores();
     
     // ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА forEach: Проверяем что allStores это массив
     if (!Array.isArray(allStores)) {
-      logError(`getActiveStores: allStores не является массивом, получено: ${typeof allStores}`, LOG_CONFIG.CATEGORIES.STORE);
+      logError('getActiveStores: allStores не является массивом, получено: ' + typeof allStores, LOG_CONFIG.CATEGORIES.STORE);
       return [];
     }
     
-    const activeStores = allStores.filter(store => store.isActive === true);
+    var activeStores = allStores.filter(function(store) { return store.isActive === true; });
     
-    logInfo(`Активных магазинов: ${activeStores.length} из ${allStores.length}`, LOG_CONFIG.CATEGORIES.STORE);
+    logInfo('Активных магазинов: ' + activeStores.length + ' из ' + allStores.length, LOG_CONFIG.CATEGORIES.STORE);
     return activeStores;
     
   } catch (error) {
-    logError(`Ошибка получения активных магазинов: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
+    logError('Ошибка получения активных магазинов: ' + error.message, LOG_CONFIG.CATEGORIES.STORE);
     return [];
   }
 }
@@ -74,19 +74,19 @@ function getStoreById(storeId) {
       return null;
     }
     
-    const stores = getStores();
-    const store = stores.find(s => s.id === storeId);
+    var stores = getStores();
+    var store = stores.find(s => s.id === storeId);
     
     if (!store) {
-      logWarning(`Магазин с ID ${storeId} не найден`, LOG_CONFIG.CATEGORIES.STORE);
+      logWarning('Магазин с ID ' + storeId + ' не найден', LOG_CONFIG.CATEGORIES.STORE);
       return null;
     }
     
-    logDebug(`Найден магазин: ${store.name} (${storeId})`, LOG_CONFIG.CATEGORIES.STORE);
+    logDebug('Найден магазин: ' + store.name + ' (' + storeId + ')', LOG_CONFIG.CATEGORIES.STORE);
     return store;
     
   } catch (error) {
-    logError(`Ошибка поиска магазина ${storeId}: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
+    logError('Ошибка поиска магазина ' + storeId + ': ' + error.message, LOG_CONFIG.CATEGORIES.STORE);
     return null;
   }
 }
@@ -97,39 +97,39 @@ function getStoreById(storeId) {
  * @returns {Array<Object>} Обновленный список всех магазинов
  */
 function saveStore(store) {
-  log(`Сохранение магазина: ${store.name}${store.settings && store.settings.startDate ? ' (дата начала: ' + store.settings.startDate + ')' : ''}`);
-  const stores = getStores();
-  const storeIndex = stores.findIndex(s => s.id === store.id);
+  log('Сохранение магазина: ' + store.name + '' + store.settings && store.settings.startDate ? ' (дата начала: ' + store.settings.startDate + ')' : '');
+  var stores = getStores();
+  var storeIndex = stores.findIndex(s => s.id === store.id);
   
   if (typeof store.isActive === 'undefined') store.isActive = true;
   // Ensure settings object exists
   if (!store.settings) store.settings = {};
   
   // 🚀 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Проверяем изменения настроек
-  let shouldResetProgress = false;
+  var shouldResetProgress = false;
   if (storeIndex > -1) {
-    const oldStore = stores[storeIndex];
+    var oldStore = stores[storeIndex];
     
     // Проверяем изменение важных настроек, влияющих на пагинацию
-    const oldStartDate = oldStore.settings?.startDate;
-    const newStartDate = store.settings?.startDate;
-    const oldIncludeAnswered = oldStore.settings?.includeAnswered;
-    const newIncludeAnswered = store.settings?.includeAnswered;
-    const oldSortOldestFirst = oldStore.settings?.sortOldestFirst;
-    const newSortOldestFirst = store.settings?.sortOldestFirst;
+    var oldStartDate = oldStore.settings?.startDate;
+    var newStartDate = store.settings?.startDate;
+    var oldIncludeAnswered = oldStore.settings?.includeAnswered;
+    var newIncludeAnswered = store.settings?.includeAnswered;
+    var oldSortOldestFirst = oldStore.settings?.sortOldestFirst;
+    var newSortOldestFirst = store.settings?.sortOldestFirst;
     
     if (oldStartDate !== newStartDate) {
-      log(`[${store.name}] 📅 ИЗМЕНЕНА дата начала поиска: "${oldStartDate}" → "${newStartDate}"`);
+      log('[' + store.name + '] 📅 ИЗМЕНЕНА дата начала поиска: "' + oldStartDate + '" → "' + newStartDate + '"');
       shouldResetProgress = true;
     }
     
     if (oldIncludeAnswered !== newIncludeAnswered) {
-      log(`[${store.name}] 🔄 ИЗМЕНЕНА настройка включения отвеченных: ${oldIncludeAnswered} → ${newIncludeAnswered}`);
+      log('[' + store.name + '] 🔄 ИЗМЕНЕНА настройка включения отвеченных: ' + oldIncludeAnswered + ' → ' + newIncludeAnswered);
       shouldResetProgress = true;
     }
     
     if (typeof oldSortOldestFirst !== 'undefined' && oldSortOldestFirst !== newSortOldestFirst) {
-      log(`[${store.name}] 📊 ИЗМЕНЕНА настройка сортировки: sortOldestFirst ${oldSortOldestFirst} → ${newSortOldestFirst}`);
+      log('[' + store.name + '] 📊 ИЗМЕНЕНА настройка сортировки: sortOldestFirst ' + oldSortOldestFirst + ' → ' + newSortOldestFirst);
       shouldResetProgress = true;
     }
     
@@ -143,25 +143,25 @@ function saveStore(store) {
   // 🚀 СБРАСЫВАЕМ ПРОГРЕСС при изменении критических настроек
   if (shouldResetProgress) {
     resetStoreProgress(store.id);
-    log(`[${store.name}] 🔄 СБРОШЕН прогресс обработки из-за изменения настроек`);
+    log('[' + store.name + '] 🔄 СБРОШЕН прогресс обработки из-за изменения настроек');
   }
   
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
   
   // ✅ ИСПРАВЛЕНО: Создаем лист с НАЗВАНИЕМ, а не ID
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName(store.name); // ← ПО НАЗВАНИЮ!
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(store.name); // ← ПО НАЗВАНИЮ!
     
     if (!sheet) {
       sheet = ss.insertSheet(store.name); // ← ПО НАЗВАНИЮ!
       sheet.getRange(1, 1, 1, CONFIG.HEADERS.length).setValues([CONFIG.HEADERS]);
       sheet.getRange(1, 1, 1, CONFIG.HEADERS.length).setFontWeight('bold');
       sheet.getRange(1, 1, 1, CONFIG.HEADERS.length).setBackground('#e8f0fe');
-      log(`📄 Создан лист: "${store.name}"`);
+      log('📄 Создан лист: "' + store.name + '"');
     }
   } catch (e) {
-    log(`❌ Ошибка создания листа для ${store.name}: ${e.message}`);
+    log('❌ Ошибка создания листа для ' + store.name + ': ' + e.message);
   }
   
   return stores;
@@ -173,7 +173,7 @@ function saveStore(store) {
  * @returns {boolean} Успешность операции
  */
 function deleteStore(storeId) {
-  const timer = new PerformanceTimer('deleteStore');
+  var timer = new PerformanceTimer('deleteStore');
   
   try {
     if (!storeId) {
@@ -182,34 +182,34 @@ function deleteStore(storeId) {
       return false;
     }
     
-    const stores = getStores();
-    const storeIndex = stores.findIndex(s => s.id === storeId);
+    var stores = getStores();
+    var storeIndex = stores.findIndex(s => s.id === storeId);
     
     if (storeIndex === -1) {
-      logWarning(`Магазин для удаления не найден: ${storeId}`, LOG_CONFIG.CATEGORIES.STORE);
+      logWarning('Магазин для удаления не найден: ' + storeId, LOG_CONFIG.CATEGORIES.STORE);
       timer.finish(LOG_CONFIG.LEVELS.WARNING);
       return false;
     }
     
-    const storeName = stores[storeIndex].name;
+    var storeName = stores[storeIndex].name;
     
     // Удаляем магазин из массива
     stores.splice(storeIndex, 1);
     
     // Сохраняем обновленный список (используем UserProperties как в старой системе)
-    const props = PropertiesService.getUserProperties();
+    var props = PropertiesService.getUserProperties();
     props.setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
     
     // Очищаем связанные данные
     cleanupStoreData(storeId);
     
-    logSuccess(`Магазин ${storeName} (${storeId}) успешно удален`, LOG_CONFIG.CATEGORIES.STORE);
+    logSuccess('Магазин ' + storeName + ' (' + storeId + ') успешно удален', LOG_CONFIG.CATEGORIES.STORE);
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     
     return true;
     
   } catch (error) {
-    logError(`Ошибка удаления магазина ${storeId}: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
+    logError('Ошибка удаления магазина ' + storeId + ': ' + error.message, LOG_CONFIG.CATEGORIES.STORE);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     return false;
   }
@@ -221,7 +221,7 @@ function deleteStore(storeId) {
  * @returns {Object} Результат валидации { isValid: boolean, errors: Array }
  */
 function validateStore(store) {
-  const errors = [];
+  var errors = [];
   
   try {
     // Обязательные поля
@@ -252,7 +252,7 @@ function validateStore(store) {
     // Валидация настроек
     if (store.settings) {
       if (store.settings.startDate) {
-        const startDate = new Date(store.settings.startDate);
+        var startDate = new Date(store.settings.startDate);
         if (isNaN(startDate.getTime())) {
           errors.push('Некорректный формат даты начала');
         }
@@ -269,10 +269,10 @@ function validateStore(store) {
     };
     
   } catch (error) {
-    logError(`Ошибка валидации магазина: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
+    logError('Ошибка валидации магазина: ' + error.message, LOG_CONFIG.CATEGORIES.STORE);
     return {
       isValid: false,
-      errors: [`Ошибка валидации: ${error.message}`]
+      errors: ['Ошибка валидации: ' + error.message]
     };
   }
 }
@@ -283,11 +283,11 @@ function validateStore(store) {
  * @returns {string} Уникальный ID магазина
  */
 function generateStoreId(marketplace) {
-  const prefix = marketplace === 'Wildberries' ? 'wb' : 'ozon';
-  const timestamp = Date.now().toString().slice(-6); // Последние 6 цифр timestamp
-  const random = Math.floor(Math.random() * 100).toString().padStart(2, '0');
+  var prefix = marketplace === 'Wildberries' ? 'wb' : 'ozon';
+  var timestamp = Date.now().toString().slice(-6); // Последние 6 цифр timestamp
+  var random = Math.floor(Math.random() * 100).toString().padStart(2, '0');
   
-  return `${prefix}_${timestamp}_${random}`;
+  return prefix + '_' + timestamp + '_' + random;
 }
 
 /**
@@ -296,15 +296,15 @@ function generateStoreId(marketplace) {
  */
 function createStoreSheetIfNotExists(store) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName(store.id);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(store.id);
     
     if (!sheet) {
       // Создаем новый лист
       sheet = ss.insertSheet(store.id);
       
       // Устанавливаем заголовки
-      const headers = [
+      var headers = [
         'reviewId', 'createdDate', 'rating', 'text', 'product',
         'status', 'processedDate', 'answer', 'errorMsg'
       ];
@@ -312,18 +312,18 @@ function createStoreSheetIfNotExists(store) {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       
       // Форматирование заголовков
-      const headerRange = sheet.getRange(1, 1, 1, headers.length);
+      var headerRange = sheet.getRange(1, 1, 1, headers.length);
       headerRange.setFontWeight('bold');
       headerRange.setBackground('#e8f0fe');
       
       // Автоширина колонок
       sheet.autoResizeColumns(1, headers.length);
       
-      logSuccess(`Создан лист для магазина: ${store.name} (${store.id})`, LOG_CONFIG.CATEGORIES.STORE);
+      logSuccess('Создан лист для магазина: ' + store.name + ' (' + store.id + ')', LOG_CONFIG.CATEGORIES.STORE);
     }
     
   } catch (error) {
-    logError(`Ошибка создания листа для магазина ${store.id}: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
+    logError('Ошибка создания листа для магазина ' + store.id + ': ' + error.message, LOG_CONFIG.CATEGORIES.STORE);
   }
 }
 
@@ -333,24 +333,24 @@ function createStoreSheetIfNotExists(store) {
  */
 function cleanupStoreData(storeId) {
   try {
-    const props = PropertiesService.getUserProperties();
+    var props = PropertiesService.getUserProperties();
     
     // Удаляем кеш отзывов магазина
-    const cacheKey = `${CACHE_CONFIG.PREFIX_REVIEW_IDS}${storeId}`;
+    var cacheKey = CACHE_CONFIG.PREFIX_REVIEW_IDS + '' + storeId;
     props.deleteProperty(cacheKey);
     
     // Удаляем позицию полоски
-    const stripeKey = `${CACHE_CONFIG.PREFIX_STRIPE_POSITION}${storeId}`;
+    var stripeKey = CACHE_CONFIG.PREFIX_STRIPE_POSITION + '' + storeId;
     props.deleteProperty(stripeKey);
     
     // Удаляем прогресс магазина
-    const progressKey = `${CACHE_CONFIG.PREFIX_STORE_PROGRESS}${storeId}`;
+    var progressKey = CACHE_CONFIG.PREFIX_STORE_PROGRESS + '' + storeId;
     props.deleteProperty(progressKey);
     
-    logInfo(`Очищены данные для удаленного магазина: ${storeId}`, LOG_CONFIG.CATEGORIES.STORE);
+    logInfo('Очищены данные для удаленного магазина: ' + storeId, LOG_CONFIG.CATEGORIES.STORE);
     
   } catch (error) {
-    logError(`Ошибка очистки данных магазина ${storeId}: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
+    logError('Ошибка очистки данных магазина ' + storeId + ': ' + error.message, LOG_CONFIG.CATEGORIES.STORE);
   }
 }
 
@@ -360,15 +360,15 @@ function cleanupStoreData(storeId) {
  */
 function getStoreStatistics() {
   try {
-    const stores = getStores();
-    const activeStores = stores.filter(s => s.isActive);
+    var stores = getStores();
+    var activeStores = stores.filter(function(s) { return s.isActive; });
     
-    const byMarketplace = stores.reduce((acc, store) => {
+    var byMarketplace = stores.reduce(function(acc, store) {
       acc[store.marketplace] = (acc[store.marketplace] || 0) + 1;
       return acc;
     }, {});
     
-    const stats = {
+    var stats = {
       total: stores.length,
       active: activeStores.length,
       inactive: stores.length - activeStores.length,
@@ -379,7 +379,7 @@ function getStoreStatistics() {
     return stats;
     
   } catch (error) {
-    logError(`Ошибка получения статистики магазинов: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
+    logError('Ошибка получения статистики магазинов: ' + error.message, LOG_CONFIG.CATEGORIES.STORE);
     return { total: 0, active: 0, inactive: 0, byMarketplace: {}, error: error.message };
   }
 }
@@ -398,9 +398,9 @@ function testWbConnection(store) {
     }
     
     // Простая проверка - запрос отзывов с лимитом 1
-    const url = `${WB_CONFIG.API_BASE_URL}${WB_CONFIG.ENDPOINTS.GET_FEEDBACKS}?take=1&skip=0`;
+    var url = WB_CONFIG.API_BASE_URL + '' + WB_CONFIG.ENDPOINTS.GET_FEEDBACKS + '?take=1&skip=0';
     
-    const response = UrlFetchApp.fetch(url, {
+    var response = UrlFetchApp.fetch(url, {
       method: 'GET',
       headers: {
         'Authorization': store.credentials.apiKey
@@ -408,14 +408,14 @@ function testWbConnection(store) {
       muteHttpExceptions: true
     });
     
-    const responseCode = response.getResponseCode();
+    var responseCode = response.getResponseCode();
     
     if (responseCode === 200) {
       return { success: true, message: 'Подключение успешно' };
     } else {
       return { 
         success: false, 
-        error: `HTTP ${responseCode}: ${response.getContentText()}` 
+        error: 'HTTP ' + responseCode + ': ' + response.getContentText() 
       };
     }
     
@@ -439,14 +439,14 @@ function testOzonConnection(store) {
     }
     
     // Простая проверка - запрос отзывов с лимитом 1
-    const url = `${OZON_CONFIG.API_BASE_URL}${OZON_CONFIG.ENDPOINTS.GET_FEEDBACKS}`;
+    var url = OZON_CONFIG.API_BASE_URL + '' + OZON_CONFIG.ENDPOINTS.GET_FEEDBACKS;
     
-    const payload = {
+    var payload = {
       limit: 1,
       with_photos: false
     };
     
-    const response = UrlFetchApp.fetch(url, {
+    var response = UrlFetchApp.fetch(url, {
       method: 'POST',
       headers: {
         'Client-Id': store.credentials.clientId,
@@ -458,14 +458,14 @@ function testOzonConnection(store) {
       followRedirects: true
     });
     
-    const responseCode = response.getResponseCode();
+    var responseCode = response.getResponseCode();
     
     if (responseCode === 200) {
       return { success: true, message: 'Подключение успешно' };
     } else {
       return { 
         success: false, 
-        error: `HTTP ${responseCode}: ${response.getContentText()}` 
+        error: 'HTTP ' + responseCode + ': ' + response.getContentText() 
       };
     }
     
@@ -491,10 +491,10 @@ function getAllStores() {
  */
 function exportStoreConfigs() {
   try {
-    const stores = getStores();
+    var stores = getStores();
     
     // Убираем чувствительные данные для экспорта
-    const safeStores = stores.map(store => ({
+    var safeStores = stores.map(store => ({
       id: store.id,
       name: store.name,
       marketplace: store.marketplace,
@@ -504,13 +504,13 @@ function exportStoreConfigs() {
       hasCredentials: !!(store.credentials?.apiKey)
     }));
     
-    log(`Экспорт конфигурации ${safeStores.length} магазинов`);
+    log('Экспорт конфигурации ' + safeStores.length + ' магазинов');
     
     return JSON.stringify(safeStores, null, 2);
     
   } catch (error) {
-    log(`Ошибка экспорта конфигураций магазинов: ${error.message}`);
-    return `{"error": "${error.message}"}`;
+    log('Ошибка экспорта конфигураций магазинов: ' + error.message);
+    return '{"error": "' + error.message + '"}';
   }
 }
 
@@ -523,10 +523,10 @@ function exportStoreConfigs() {
  */
 function testWbContentApiAccess(apiKey) {
   try {
-    const url = 'https://suppliers-api.wildberries.ru/content/v2/cards/cursor/list';
-    const payload = { limit: 1 }; // Минимальный тест-запрос
+    var url = 'https://suppliers-api.wildberries.ru/content/v2/cards/cursor/list';
+    var payload = { limit: 1 }; // Минимальный тест-запрос
     
-    const response = UrlFetchApp.fetch(url, {
+    var response = UrlFetchApp.fetch(url, {
       method: 'POST',
       headers: { 
         'Authorization': apiKey,
@@ -536,12 +536,12 @@ function testWbContentApiAccess(apiKey) {
       muteHttpExceptions: true
     });
     
-    const code = response.getResponseCode();
-    log(`[Content API Test] Статус: ${code}`);
+    var code = response.getResponseCode();
+    log('[Content API Test] Статус: ' + code);
     
     return code === 200;
   } catch (e) {
-    log(`[Content API Test] Ошибка: ${e.message}`);
+    log('[Content API Test] Ошибка: ' + e.message);
     return false;
   }
 }
@@ -551,13 +551,13 @@ function testWbContentApiAccess(apiKey) {
  */
 function resetStoreProgress(storeId) {
   try {
-    const props = PropertiesService.getUserProperties();
-    const progressKey = `${CONFIG.PROGRESS_KEY}_${storeId}`;
+    var props = PropertiesService.getUserProperties();
+    var progressKey = CONFIG.PROGRESS_KEY + '_' + storeId;
     props.deleteProperty(progressKey);
-    log(`[Progress] 🔄 Сброшен прогресс для магазина: ${storeId}`);
+    log('[Progress] 🔄 Сброшен прогресс для магазина: ' + storeId);
     return true;
   } catch (e) {
-    log(`[Progress] ❌ Ошибка сброса прогресса для ${storeId}: ${e.message}`);
+    log('[Progress] ❌ Ошибка сброса прогресса для ' + storeId + ': ' + e.message);
     return false;
   }
 }
