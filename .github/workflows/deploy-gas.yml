@@ -40,11 +40,13 @@ jobs:
           echo "❌ ОШИБКА: Секрет CLASP_CREDENTIALS не найден!"
           echo ""
           echo "🔧 Как исправить:"
-          echo "1. Откройте: https://github.com/${{ github.repository }}/settings/secrets/actions"
-          echo "2. Нажмите 'New repository secret'"
-          echo "3. Name: CLASP_CREDENTIALS"
-          echo "4. Value: Вставьте JSON Service Account"
-          echo "5. Нажмите 'Add secret'"
+          echo "1. На своем компьютере выполните: clasp login"
+          echo "2. Скопируйте содержимое файла ~/.clasprc.json"
+          echo "3. Откройте: https://github.com/${{ github.repository }}/settings/secrets/actions"
+          echo "4. Нажмите 'New repository secret'"
+          echo "5. Name: CLASP_CREDENTIALS"
+          echo "6. Value: Вставьте содержимое .clasprc.json"
+          echo "7. Нажмите 'Add secret'"
           echo ""
           exit 1
         fi
@@ -57,7 +59,7 @@ jobs:
           echo "❌ ОШИБКА: CLASP_CREDENTIALS не является валидным JSON!"
           echo ""
           echo "🔧 Как исправить:"
-          echo "1. Проверьте, что скопировали ВЕСЬ JSON целиком"
+          echo "1. Проверьте, что скопировали ВЕСЬ JSON целиком из ~/.clasprc.json"
           echo "2. JSON должен начинаться с { и заканчиваться на }"
           echo "3. Удалите секрет и создайте заново"
           echo ""
@@ -66,53 +68,36 @@ jobs:
         echo "✅ JSON валиден"
         echo ""
         
-        # Шаг 3: Проверка обязательных полей
-        echo "📋 Шаг 3: Проверка обязательных полей..."
+        # Шаг 3: Проверка структуры OAuth токена
+        echo "📋 Шаг 3: Проверка структуры OAuth токена..."
         
-        HAS_TYPE=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.type // empty')
-        HAS_PROJECT_ID=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.project_id // empty')
-        HAS_PRIVATE_KEY=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.private_key // empty')
-        HAS_CLIENT_EMAIL=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.client_email // empty')
+        HAS_TOKEN=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.token // empty')
+        HAS_OAUTH=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.oauth2ClientSettings // empty')
         
-        ERRORS=0
-        
-        if [ -z "$HAS_TYPE" ]; then
-          echo "❌ Отсутствует поле: type"
-          ERRORS=$((ERRORS + 1))
+        if [ -z "$HAS_TOKEN" ]; then
+          echo "⚠️ ПРЕДУПРЕЖДЕНИЕ: Отсутствует поле 'token'"
+          echo "Это должен быть OAuth токен из clasp login"
         else
-          echo "✅ type: $HAS_TYPE"
+          echo "✅ token найден"
+          
+          ACCESS_TOKEN=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.token.access_token // empty')
+          REFRESH_TOKEN=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.token.refresh_token // empty')
+          
+          if [ -n "$ACCESS_TOKEN" ]; then
+            echo "✅ access_token: [PRESENT]"
+          fi
+          
+          if [ -n "$REFRESH_TOKEN" ]; then
+            echo "✅ refresh_token: [PRESENT]"
+          fi
         fi
         
-        if [ -z "$HAS_PROJECT_ID" ]; then
-          echo "❌ Отсутствует поле: project_id"
-          ERRORS=$((ERRORS + 1))
-        else
-          echo "✅ project_id: $HAS_PROJECT_ID"
-        fi
-        
-        if [ -z "$HAS_PRIVATE_KEY" ]; then
-          echo "❌ Отсутствует поле: private_key"
-          ERRORS=$((ERRORS + 1))
-        else
-          echo "✅ private_key: [PRESENT]"
-        fi
-        
-        if [ -z "$HAS_CLIENT_EMAIL" ]; then
-          echo "❌ Отсутствует поле: client_email"
-          ERRORS=$((ERRORS + 1))
-        else
-          echo "✅ client_email: $HAS_CLIENT_EMAIL"
-        fi
-        
-        if [ $ERRORS -gt 0 ]; then
-          echo ""
-          echo "❌ ОШИБКА: Найдено $ERRORS отсутствующих полей!"
-          echo ""
-          echo "🔧 Как исправить:"
-          echo "1. Убедитесь, что скопировали ПОЛНЫЙ JSON Service Account"
-          echo "2. JSON должен содержать все поля: type, project_id, private_key, client_email"
-          echo ""
-          exit 1
+        if [ -n "$HAS_OAUTH" ]; then
+          CLIENT_ID=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.oauth2ClientSettings.clientId // empty')
+          echo "✅ oauth2ClientSettings найдены"
+          if [ -n "$CLIENT_ID" ]; then
+            echo "✅ clientId: ${CLIENT_ID:0:20}..."
+          fi
         fi
         echo ""
         

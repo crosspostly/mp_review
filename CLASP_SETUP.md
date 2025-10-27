@@ -11,7 +11,29 @@
 
 ## 🔑 Что нужно сделать ВАМ
 
-### Шаг 1: Добавить секрет CLASP_CREDENTIALS в GitHub
+### Шаг 1: Получить OAuth токен clasp
+
+**На своем компьютере:**
+
+1. Установите clasp глобально (если еще не установлен):
+   ```bash
+   npm install -g @google/clasp
+   ```
+
+2. Авторизуйтесь в clasp:
+   ```bash
+   clasp login
+   ```
+   
+   Это откроет браузер для авторизации Google. Войдите под своим аккаунтом.
+
+3. После успешной авторизации, найдите файл `.clasprc.json`:
+   - **Mac/Linux**: `~/.clasprc.json`
+   - **Windows**: `%USERPROFILE%\.clasprc.json`
+
+4. Скопируйте **ВСЁ содержимое** этого файла
+
+### Шаг 2: Добавить секрет CLASP_CREDENTIALS в GitHub
 
 1. Откройте ваш репозиторий на GitHub: https://github.com/crosspostly/mp_review
 
@@ -23,49 +45,30 @@
 
 5. Заполните:
    - **Name**: `CLASP_CREDENTIALS`
-   - **Value**: Вставьте ВЕСЬ JSON который вы получили для Service Account
+   - **Value**: Вставьте содержимое файла `.clasprc.json` которое вы скопировали
    
+   Пример содержимого `.clasprc.json`:
    ```json
    {
-     "type": "service_account",
-     "project_id": "crosspostly",
-     "private_key_id": "...",
-     "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
-     "client_email": "pusk-453@crosspostly.iam.gserviceaccount.com",
-     ...
+     "token": {
+       "access_token": "ya29.a0AfB_by...",
+       "refresh_token": "1//09...",
+       "scope": "https://www.googleapis.com/auth/...",
+       "token_type": "Bearer",
+       "expiry_date": 1234567890000
+     },
+     "oauth2ClientSettings": {
+       "clientId": "1072944905499-vm2v2i5dvn0a0d2o4ca36i1vge8cvbn0.apps.googleusercontent.com",
+       "clientSecret": "v6V3fKV_zWU7iw1DrzzqOjh7",
+       "redirectUri": "http://localhost"
+     },
+     "isLocalCreds": false
    }
    ```
 
 6. Нажмите **Add secret**
 
-### Шаг 2: Дать доступ Service Account к вашему Apps Script проекту
-
-1. Откройте ваш Google Apps Script проект: https://script.google.com
-
-2. Нажмите **⚙️ Project Settings** (слева внизу)
-
-3. Прокрутите вниз до раздела **Google Cloud Platform (GCP) Project**
-
-4. Нажмите **Change project**
-
-5. Введите Project Number проекта `crosspostly` (найдите его в Google Cloud Console)
-
-6. **ИЛИ** добавьте Service Account напрямую:
-   - Откройте **Share** (справа вверху в Apps Script)
-   - Добавьте email: `pusk-453@crosspostly.iam.gserviceaccount.com`
-   - Права: **Editor**
-
-### Шаг 3: Включить Google Apps Script API
-
-1. Перейдите в Google Cloud Console: https://console.cloud.google.com
-
-2. Выберите проект **crosspostly**
-
-3. Перейдите в **APIs & Services** → **Library**
-
-4. Найдите **Google Apps Script API**
-
-5. Нажмите **ENABLE**
+**Вот и всё!** 🎉 После этого шага автодеплой заработает автоматически!
 
 ---
 
