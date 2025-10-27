@@ -487,23 +487,23 @@ jobs:
         exit_code=0
         
         if [ "${{ needs.code-analysis.result }}" = "success" ]; then
-          ((success_count++))
+          success_count=$((success_count + 1))
         fi
         
         if [ "${{ needs.unit-tests.result }}" = "success" ]; then
-          ((success_count++))
+          success_count=$((success_count + 1))
         fi
         
         if [ "${{ needs.security-tests.result }}" = "success" ]; then
-          ((success_count++))
+          success_count=$((success_count + 1))
         fi
         
         if [ "${{ needs.performance-tests.result }}" = "success" ]; then
-          ((success_count++))
+          success_count=$((success_count + 1))
         fi
         
         if [ "${{ needs.documentation.result }}" = "success" ]; then
-          ((success_count++))
+          success_count=$((success_count + 1))
         fi
         
         success_rate=$((success_count * 100 / total_count))
