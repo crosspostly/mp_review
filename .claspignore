@@ -1,0 +1,40 @@
+# Игнорировать для clasp push
+
+# Git
+.git/**
+.gitignore
+.github/**
+
+# Node
+node_modules/**
+package.json
+package-lock.json
+
+# Documentation
+*.md
+!appsscript.json
+
+# CI/CD
+.clasp.json
+
+# Старые файлы (не в refactor/)
+code.gs
+triggers.gs
+tests.gs
+api_fixes.gs
+api_testing.gs
+ozon_functions.gs
+
+# IDE
+.vscode/**
+.idea/**
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

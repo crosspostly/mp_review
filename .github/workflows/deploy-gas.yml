@@ -1,0 +1,313 @@
+name: 🚀 Deploy to Google Apps Script
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'refactor/**'
+      - 'appsscript.json'
+      - '.clasp.json'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: 🚀 Deploy to GAS
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout кода
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: 📦 Install clasp
+      run: |
+        npm install -g @google/clasp
+        echo "✅ clasp установлен"
+        clasp --version
+        
+    - name: 🔑 Setup clasp credentials
+      run: |
+        echo "🔑 ===== НАСТРОЙКА CREDENTIALS ====="
+        echo ""
+        
+        # Шаг 1: Проверка наличия секрета
+        echo "📋 Шаг 1: Проверка наличия секрета CLASP_CREDENTIALS..."
+        if [ -z "${{ secrets.CLASP_CREDENTIALS }}" ]; then
+          echo "❌ ОШИБКА: Секрет CLASP_CREDENTIALS не найден!"
+          echo ""
+          echo "🔧 Как исправить:"
+          echo "1. Откройте: https://github.com/${{ github.repository }}/settings/secrets/actions"
+          echo "2. Нажмите 'New repository secret'"
+          echo "3. Name: CLASP_CREDENTIALS"
+          echo "4. Value: Вставьте JSON Service Account"
+          echo "5. Нажмите 'Add secret'"
+          echo ""
+          exit 1
+        fi
+        echo "✅ Секрет CLASP_CREDENTIALS найден"
+        echo ""
+        
+        # Шаг 2: Проверка формата JSON
+        echo "📋 Шаг 2: Валидация формата JSON..."
+        if ! echo '${{ secrets.CLASP_CREDENTIALS }}' | jq . > /dev/null 2>&1; then
+          echo "❌ ОШИБКА: CLASP_CREDENTIALS не является валидным JSON!"
+          echo ""
+          echo "🔧 Как исправить:"
+          echo "1. Проверьте, что скопировали ВЕСЬ JSON целиком"
+          echo "2. JSON должен начинаться с { и заканчиваться на }"
+          echo "3. Удалите секрет и создайте заново"
+          echo ""
+          exit 1
+        fi
+        echo "✅ JSON валиден"
+        echo ""
+        
+        # Шаг 3: Проверка обязательных полей
+        echo "📋 Шаг 3: Проверка обязательных полей..."
+        
+        HAS_TYPE=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.type // empty')
+        HAS_PROJECT_ID=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.project_id // empty')
+        HAS_PRIVATE_KEY=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.private_key // empty')
+        HAS_CLIENT_EMAIL=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.client_email // empty')
+        
+        ERRORS=0
+        
+        if [ -z "$HAS_TYPE" ]; then
+          echo "❌ Отсутствует поле: type"
+          ERRORS=$((ERRORS + 1))
+        else
+          echo "✅ type: $HAS_TYPE"
+        fi
+        
+        if [ -z "$HAS_PROJECT_ID" ]; then
+          echo "❌ Отсутствует поле: project_id"
+          ERRORS=$((ERRORS + 1))
+        else
+          echo "✅ project_id: $HAS_PROJECT_ID"
+        fi
+        
+        if [ -z "$HAS_PRIVATE_KEY" ]; then
+          echo "❌ Отсутствует поле: private_key"
+          ERRORS=$((ERRORS + 1))
+        else
+          echo "✅ private_key: [PRESENT]"
+        fi
+        
+        if [ -z "$HAS_CLIENT_EMAIL" ]; then
+          echo "❌ Отсутствует поле: client_email"
+          ERRORS=$((ERRORS + 1))
+        else
+          echo "✅ client_email: $HAS_CLIENT_EMAIL"
+        fi
+        
+        if [ $ERRORS -gt 0 ]; then
+          echo ""
+          echo "❌ ОШИБКА: Найдено $ERRORS отсутствующих полей!"
+          echo ""
+          echo "🔧 Как исправить:"
+          echo "1. Убедитесь, что скопировали ПОЛНЫЙ JSON Service Account"
+          echo "2. JSON должен содержать все поля: type, project_id, private_key, client_email"
+          echo ""
+          exit 1
+        fi
+        echo ""
+        
+        # Шаг 4: Создание .clasprc.json
+        echo "📋 Шаг 4: Создание .clasprc.json..."
+        echo '${{ secrets.CLASP_CREDENTIALS }}' > ~/.clasprc.json
+        
+        if [ ! -f ~/.clasprc.json ]; then
+          echo "❌ ОШИБКА: Не удалось создать ~/.clasprc.json"
+          exit 1
+        fi
+        
+        FILE_SIZE=$(wc -c < ~/.clasprc.json)
+        echo "✅ Файл ~/.clasprc.json создан (размер: $FILE_SIZE байт)"
+        echo ""
+        
+        # Шаг 5: Финальная проверка
+        echo "📋 Шаг 5: Финальная проверка конфигурации..."
+        if jq . ~/.clasprc.json > /dev/null 2>&1; then
+          echo "✅ Credentials успешно настроены!"
+        else
+          echo "❌ ОШИБКА: Файл ~/.clasprc.json поврежден"
+          exit 1
+        fi
+        echo ""
+        echo "✅ ===== CREDENTIALS ГОТОВЫ ====="
+        
+    - name: 📋 Verify configuration
+      run: |
+        echo "📋 ===== ПРОВЕРКА КОНФИГУРАЦИИ ====="
+        echo ""
+        
+        # Проверка .clasp.json
+        echo "📋 Проверка .clasp.json..."
+        if [ ! -f ".clasp.json" ]; then
+          echo "❌ ОШИБКА: .clasp.json не найден!"
+          echo ""
+          echo "🔧 Как исправить:"
+          echo "1. Убедитесь, что файл .clasp.json есть в репозитории"
+          echo "2. Проверьте путь к файлу"
+          echo ""
+          exit 1
+        fi
+        
+        echo "✅ Файл .clasp.json найден"
+        echo ""
+        echo "📄 Содержимое .clasp.json:"
+        cat .clasp.json
+        echo ""
+        
+        # Валидация .clasp.json
+        echo "📋 Валидация .clasp.json..."
+        if ! jq . .clasp.json > /dev/null 2>&1; then
+          echo "❌ ОШИБКА: .clasp.json не является валидным JSON!"
+          exit 1
+        fi
+        
+        SCRIPT_ID=$(jq -r '.scriptId // empty' .clasp.json)
+        ROOT_DIR=$(jq -r '.rootDir // empty' .clasp.json)
+        
+        if [ -z "$SCRIPT_ID" ]; then
+          echo "❌ ОШИБКА: scriptId отсутствует в .clasp.json"
+          exit 1
+        fi
+        
+        echo "✅ scriptId: $SCRIPT_ID"
+        
+        if [ -n "$ROOT_DIR" ]; then
+          echo "✅ rootDir: $ROOT_DIR"
+          
+          if [ ! -d "$ROOT_DIR" ]; then
+            echo "❌ ОШИБКА: Директория $ROOT_DIR не найдена!"
+            exit 1
+          fi
+          
+          echo "✅ Директория $ROOT_DIR существует"
+        fi
+        echo ""
+        
+        # Проверка appsscript.json
+        echo "📋 Проверка appsscript.json..."
+        if [ ! -f "appsscript.json" ]; then
+          echo "❌ ОШИБКА: appsscript.json не найден!"
+          echo ""
+          echo "🔧 Как исправить:"
+          echo "1. Убедитесь, что файл appsscript.json есть в репозитории"
+          echo "2. Проверьте путь к файлу"
+          echo ""
+          exit 1
+        fi
+        
+        echo "✅ Файл appsscript.json найден"
+        echo ""
+        echo "📄 Содержимое appsscript.json:"
+        cat appsscript.json
+        echo ""
+        
+        # Валидация appsscript.json
+        echo "📋 Валидация appsscript.json..."
+        if ! jq . appsscript.json > /dev/null 2>&1; then
+          echo "❌ ОШИБКА: appsscript.json не является валидным JSON!"
+          exit 1
+        fi
+        
+        echo "✅ appsscript.json валиден"
+        echo ""
+        
+        # Проверка наличия файлов для загрузки
+        if [ -n "$ROOT_DIR" ]; then
+          echo "📋 Проверка файлов в $ROOT_DIR..."
+          GS_FILES=$(find "$ROOT_DIR" -name "*.gs" 2>/dev/null | wc -l)
+          HTML_FILES=$(find "$ROOT_DIR" -name "*.html" 2>/dev/null | wc -l)
+          
+          echo "📊 Найдено .gs файлов: $GS_FILES"
+          echo "📊 Найдено .html файлов: $HTML_FILES"
+          
+          if [ $GS_FILES -eq 0 ] && [ $HTML_FILES -eq 0 ]; then
+            echo "⚠️ ПРЕДУПРЕЖДЕНИЕ: Не найдено файлов для загрузки!"
+          fi
+          echo ""
+        fi
+        
+        echo "✅ ===== КОНФИГУРАЦИЯ ПРОВЕРЕНА ====="
+        
+    - name: 📤 Push to Google Apps Script
+      run: |
+        echo "📤 ===== ЗАГРУЗКА В GOOGLE APPS SCRIPT ====="
+        echo ""
+        
+        echo "📋 Подготовка к загрузке..."
+        echo "🎯 Target Script ID: $(jq -r '.scriptId' .clasp.json)"
+        echo "📁 Source directory: $(jq -r '.rootDir // "."' .clasp.json)"
+        echo ""
+        
+        # Попытка push с подробным выводом
+        echo "📤 Выполнение clasp push --force..."
+        echo ""
+        
+        if clasp push --force 2>&1 | tee /tmp/clasp_push.log; then
+          echo ""
+          echo "✅ Push выполнен успешно!"
+          echo ""
+          
+          # Показываем что было загружено
+          echo "📊 Загруженные файлы:"
+          if [ -f /tmp/clasp_push.log ]; then
+            grep "└─" /tmp/clasp_push.log || echo "  (детали недоступны)"
+          fi
+        else
+          echo ""
+          echo "❌ ОШИБКА: Push провалился!"
+          echo ""
+          
+          # Анализируем ошибку
+          if grep -q "Permission denied" /tmp/clasp_push.log 2>/dev/null; then
+            echo "🔧 Причина: Нет доступа к проекту"
+            echo ""
+            echo "Как исправить:"
+            echo "1. Откройте: https://script.google.com"
+            echo "2. Найдите проект с Script ID: $(jq -r '.scriptId' .clasp.json)"
+            echo "3. Нажмите Share"
+            echo "4. Добавьте: $(jq -r '.client_email' ~/.clasprc.json)"
+            echo "5. Права: Editor"
+          elif grep -q "User has not enabled" /tmp/clasp_push.log 2>/dev/null; then
+            echo "🔧 Причина: Apps Script API не включен"
+            echo ""
+            echo "Как исправить:"
+            echo "1. Откройте: https://console.cloud.google.com/apis/library/script.googleapis.com"
+            echo "2. Выберите проект: $(jq -r '.project_id' ~/.clasprc.json)"
+            echo "3. Нажмите ENABLE"
+          elif grep -q "not found" /tmp/clasp_push.log 2>/dev/null; then
+            echo "🔧 Причина: Проект не найден"
+            echo ""
+            echo "Как исправить:"
+            echo "1. Проверьте Script ID в .clasp.json"
+            echo "2. Убедитесь, что проект существует в https://script.google.com"
+          else
+            echo "🔧 Неизвестная ошибка"
+            echo ""
+            echo "Лог ошибки:"
+            cat /tmp/clasp_push.log
+          fi
+          echo ""
+          exit 1
+        fi
+        
+        echo ""
+        echo "✅ ===== КОД УСПЕШНО ЗАГРУЖЕН ====="
+        
+    - name: 📊 Deployment info
+      run: |
+        echo "📊 ===== ИНФОРМАЦИЯ О ДЕПЛОЕ ====="
+        echo "🕐 Время: $(date)"
+        echo "📝 Коммит: ${{ github.sha }}"
+        echo "👤 Автор: ${{ github.actor }}"
+        echo "🌿 Ветка: ${{ github.ref_name }}"
+        echo "🎯 Script ID: $(grep scriptId .clasp.json | cut -d'"' -f4)"
+        echo "✅ Деплой завершен успешно!"
