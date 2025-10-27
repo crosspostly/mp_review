@@ -1,0 +1,78 @@
+name: 🚀 Deploy to Google Apps Script
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'refactor/**'
+      - 'appsscript.json'
+      - '.clasp.json'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: 🚀 Deploy to GAS
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout кода
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: 📦 Install clasp
+      run: |
+        npm install -g @google/clasp
+        echo "✅ clasp установлен"
+        clasp --version
+        
+    - name: 🔑 Setup clasp credentials
+      run: |
+        echo "🔑 Настройка credentials..."
+        
+        # Создаем директорию для credentials
+        mkdir -p ~/.clasprc.json
+        
+        # Создаем .clasprc.json из секрета
+        echo '${{ secrets.CLASP_CREDENTIALS }}' > ~/.clasprc.json
+        
+        echo "✅ Credentials настроены"
+        
+    - name: 📋 Verify configuration
+      run: |
+        echo "📋 Проверка конфигурации..."
+        
+        if [ ! -f ".clasp.json" ]; then
+          echo "❌ .clasp.json не найден!"
+          exit 1
+        fi
+        
+        if [ ! -f "appsscript.json" ]; then
+          echo "❌ appsscript.json не найден!"
+          exit 1
+        fi
+        
+        echo "✅ Конфигурация проверена"
+        cat .clasp.json
+        
+    - name: 📤 Push to Google Apps Script
+      run: |
+        echo "📤 Загрузка в Google Apps Script..."
+        
+        # Push изменений
+        clasp push --force
+        
+        echo "✅ Код успешно загружен в Google Apps Script!"
+        
+    - name: 📊 Deployment info
+      run: |
+        echo "📊 ===== ИНФОРМАЦИЯ О ДЕПЛОЕ ====="
+        echo "🕐 Время: $(date)"
+        echo "📝 Коммит: ${{ github.sha }}"
+        echo "👤 Автор: ${{ github.actor }}"
+        echo "🌿 Ветка: ${{ github.ref_name }}"
+        echo "🎯 Script ID: $(grep scriptId .clasp.json | cut -d'"' -f4)"
+        echo "✅ Деплой завершен успешно!"
