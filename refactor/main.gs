@@ -1248,3 +1248,12 @@ function ensureSystemSheetsExist() {
     logError(`Ошибка создания системных листов: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
   }
 }
+
+// ============ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ HTML ============
+
+/**
+ * Функция для включения HTML файлов (нужна для HtmlService)
+ */
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
