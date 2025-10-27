@@ -484,6 +484,7 @@ jobs:
         # Подсчет успешных тестов
         success_count=0
         total_count=5
+        exit_code=0
         
         if [ "${{ needs.code-analysis.result }}" = "success" ]; then
           ((success_count++))
