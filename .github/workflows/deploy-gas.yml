@@ -123,6 +123,24 @@ jobs:
           exit 1
         fi
         echo ""
+        
+        # Шаг 6: Проверка и обновление access token через refresh token
+        echo "📋 Шаг 6: Проверка актуальности токена..."
+        
+        # Проверяем expiry_date
+        EXPIRY=$(jq -r '.token.expiry_date // 0' ~/.clasprc.json)
+        CURRENT_TIME=$(date +%s)000  # Миллисекунды
+        
+        if [ "$EXPIRY" -lt "$CURRENT_TIME" ]; then
+          echo "⚠️ Access token истек (expiry: $EXPIRY, current: $CURRENT_TIME)"
+          echo "🔄 Токен будет автоматически обновлен через refresh_token при первом запросе clasp"
+        else
+          echo "✅ Access token актуален"
+          TIME_LEFT=$(( ($EXPIRY - $CURRENT_TIME) / 1000 / 60 ))
+          echo "⏰ Осталось: ~$TIME_LEFT минут"
+        fi
+        echo ""
+        
         echo "✅ ===== CREDENTIALS ГОТОВЫ ====="
         
     - name: 📋 Verify configuration

@@ -28,10 +28,28 @@
    Это откроет браузер для авторизации Google. Войдите под своим аккаунтом.
 
 3. После успешной авторизации, найдите файл `.clasprc.json`:
-   - **Mac/Linux**: `~/.clasprc.json`
-   - **Windows**: `%USERPROFILE%\.clasprc.json`
+   
+   **Mac/Linux:**
+   ```bash
+   cat ~/.clasprc.json
+   ```
+   
+   **Windows (PowerShell):**
+   ```powershell
+   Get-Content "$env:USERPROFILE\.clasprc.json"
+   ```
+   
+   **Windows (CMD):**
+   ```cmd
+   type "%USERPROFILE%\.clasprc.json"
+   ```
+   
+   Если файл не найден, попробуйте:
+   ```powershell
+   Get-Content "$env:APPDATA\npm\node_modules\@google\clasp\.clasprc.json"
+   ```
 
-4. Скопируйте **ВСЁ содержимое** этого файла
+4. Скопируйте **ВСЁ содержимое** файла
 
 ### Шаг 2: Добавить секрет CLASP_CREDENTIALS в GitHub
 
