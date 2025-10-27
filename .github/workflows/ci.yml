@@ -1,549 +1,313 @@
-name: 🧪 Continuous Integration & Testing
+name: 🚀 Deploy to Google Apps Script
 
 on:
   push:
-    branches: [ main, develop ]
-  pull_request:
     branches: [ main ]
-  schedule:
-    # Запуск тестов каждый день в 2:00 UTC
-    - cron: '0 2 * * *'
+    paths:
+      - 'refactor/**'
+      - 'appsscript.json'
+      - '.clasp.json'
+  workflow_dispatch:
 
 jobs:
-  # 🔍 Анализ кода
-  code-analysis:
-    name: 📊 Анализ кода
+  deploy:
+    name: 🚀 Deploy to GAS
     runs-on: ubuntu-latest
     
     steps:
     - name: 📥 Checkout кода
       uses: actions/checkout@v4
       
-    - name: 🔍 Анализ Google Apps Script файлов
+    - name: 🔧 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: 📦 Install clasp
       run: |
-        echo "🔍 Анализ структуры проекта..."
+        npm install -g @google/clasp
+        echo "✅ clasp установлен"
+        clasp --version
         
-        # Проверяем наличие основных файлов
-        echo "📁 Проверка основных файлов:"
-        ls -la *.gs
+    - name: 🔑 Setup clasp credentials
+      run: |
+        echo "🔑 ===== НАСТРОЙКА CREDENTIALS ====="
+        echo ""
         
-        # Проверяем синтаксис JavaScript
-        echo "🔧 Проверка синтаксиса JavaScript:"
-        for file in *.gs; do
-          if [ -f "$file" ]; then
-            echo "  ✅ $file - найден"
-            # Базовая проверка синтаксиса
-            if grep -q "function " "$file"; then
-              echo "    ✅ Содержит функции"
-            else
-              echo "    ⚠️ Не содержит функций"
-            fi
+        # Шаг 1: Проверка наличия секрета
+        echo "📋 Шаг 1: Проверка наличия секрета CLASP_CREDENTIALS..."
+        if [ -z "${{ secrets.CLASP_CREDENTIALS }}" ]; then
+          echo "❌ ОШИБКА: Секрет CLASP_CREDENTIALS не найден!"
+          echo ""
+          echo "🔧 Как исправить:"
+          echo "1. Откройте: https://github.com/${{ github.repository }}/settings/secrets/actions"
+          echo "2. Нажмите 'New repository secret'"
+          echo "3. Name: CLASP_CREDENTIALS"
+          echo "4. Value: Вставьте JSON Service Account"
+          echo "5. Нажмите 'Add secret'"
+          echo ""
+          exit 1
+        fi
+        echo "✅ Секрет CLASP_CREDENTIALS найден"
+        echo ""
+        
+        # Шаг 2: Проверка формата JSON
+        echo "📋 Шаг 2: Валидация формата JSON..."
+        if ! echo '${{ secrets.CLASP_CREDENTIALS }}' | jq . > /dev/null 2>&1; then
+          echo "❌ ОШИБКА: CLASP_CREDENTIALS не является валидным JSON!"
+          echo ""
+          echo "🔧 Как исправить:"
+          echo "1. Проверьте, что скопировали ВЕСЬ JSON целиком"
+          echo "2. JSON должен начинаться с { и заканчиваться на }"
+          echo "3. Удалите секрет и создайте заново"
+          echo ""
+          exit 1
+        fi
+        echo "✅ JSON валиден"
+        echo ""
+        
+        # Шаг 3: Проверка обязательных полей
+        echo "📋 Шаг 3: Проверка обязательных полей..."
+        
+        HAS_TYPE=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.type // empty')
+        HAS_PROJECT_ID=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.project_id // empty')
+        HAS_PRIVATE_KEY=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.private_key // empty')
+        HAS_CLIENT_EMAIL=$(echo '${{ secrets.CLASP_CREDENTIALS }}' | jq -r '.client_email // empty')
+        
+        ERRORS=0
+        
+        if [ -z "$HAS_TYPE" ]; then
+          echo "❌ Отсутствует поле: type"
+          ERRORS=$((ERRORS + 1))
+        else
+          echo "✅ type: $HAS_TYPE"
+        fi
+        
+        if [ -z "$HAS_PROJECT_ID" ]; then
+          echo "❌ Отсутствует поле: project_id"
+          ERRORS=$((ERRORS + 1))
+        else
+          echo "✅ project_id: $HAS_PROJECT_ID"
+        fi
+        
+        if [ -z "$HAS_PRIVATE_KEY" ]; then
+          echo "❌ Отсутствует поле: private_key"
+          ERRORS=$((ERRORS + 1))
+        else
+          echo "✅ private_key: [PRESENT]"
+        fi
+        
+        if [ -z "$HAS_CLIENT_EMAIL" ]; then
+          echo "❌ Отсутствует поле: client_email"
+          ERRORS=$((ERRORS + 1))
+        else
+          echo "✅ client_email: $HAS_CLIENT_EMAIL"
+        fi
+        
+        if [ $ERRORS -gt 0 ]; then
+          echo ""
+          echo "❌ ОШИБКА: Найдено $ERRORS отсутствующих полей!"
+          echo ""
+          echo "🔧 Как исправить:"
+          echo "1. Убедитесь, что скопировали ПОЛНЫЙ JSON Service Account"
+          echo "2. JSON должен содержать все поля: type, project_id, private_key, client_email"
+          echo ""
+          exit 1
+        fi
+        echo ""
+        
+        # Шаг 4: Создание .clasprc.json
+        echo "📋 Шаг 4: Создание .clasprc.json..."
+        echo '${{ secrets.CLASP_CREDENTIALS }}' > ~/.clasprc.json
+        
+        if [ ! -f ~/.clasprc.json ]; then
+          echo "❌ ОШИБКА: Не удалось создать ~/.clasprc.json"
+          exit 1
+        fi
+        
+        FILE_SIZE=$(wc -c < ~/.clasprc.json)
+        echo "✅ Файл ~/.clasprc.json создан (размер: $FILE_SIZE байт)"
+        echo ""
+        
+        # Шаг 5: Финальная проверка
+        echo "📋 Шаг 5: Финальная проверка конфигурации..."
+        if jq . ~/.clasprc.json > /dev/null 2>&1; then
+          echo "✅ Credentials успешно настроены!"
+        else
+          echo "❌ ОШИБКА: Файл ~/.clasprc.json поврежден"
+          exit 1
+        fi
+        echo ""
+        echo "✅ ===== CREDENTIALS ГОТОВЫ ====="
+        
+    - name: 📋 Verify configuration
+      run: |
+        echo "📋 ===== ПРОВЕРКА КОНФИГУРАЦИИ ====="
+        echo ""
+        
+        # Проверка .clasp.json
+        echo "📋 Проверка .clasp.json..."
+        if [ ! -f ".clasp.json" ]; then
+          echo "❌ ОШИБКА: .clasp.json не найден!"
+          echo ""
+          echo "🔧 Как исправить:"
+          echo "1. Убедитесь, что файл .clasp.json есть в репозитории"
+          echo "2. Проверьте путь к файлу"
+          echo ""
+          exit 1
+        fi
+        
+        echo "✅ Файл .clasp.json найден"
+        echo ""
+        echo "📄 Содержимое .clasp.json:"
+        cat .clasp.json
+        echo ""
+        
+        # Валидация .clasp.json
+        echo "📋 Валидация .clasp.json..."
+        if ! jq . .clasp.json > /dev/null 2>&1; then
+          echo "❌ ОШИБКА: .clasp.json не является валидным JSON!"
+          exit 1
+        fi
+        
+        SCRIPT_ID=$(jq -r '.scriptId // empty' .clasp.json)
+        ROOT_DIR=$(jq -r '.rootDir // empty' .clasp.json)
+        
+        if [ -z "$SCRIPT_ID" ]; then
+          echo "❌ ОШИБКА: scriptId отсутствует в .clasp.json"
+          exit 1
+        fi
+        
+        echo "✅ scriptId: $SCRIPT_ID"
+        
+        if [ -n "$ROOT_DIR" ]; then
+          echo "✅ rootDir: $ROOT_DIR"
+          
+          if [ ! -d "$ROOT_DIR" ]; then
+            echo "❌ ОШИБКА: Директория $ROOT_DIR не найдена!"
+            exit 1
           fi
-        done
+          
+          echo "✅ Директория $ROOT_DIR существует"
+        fi
+        echo ""
         
-        # Проверяем документацию
-        echo "📚 Проверка документации:"
-        if [ -f "README_GITHUB.md" ]; then
-          echo "  ✅ README найден"
-        else
-          echo "  ❌ README отсутствует"
+        # Проверка appsscript.json
+        echo "📋 Проверка appsscript.json..."
+        if [ ! -f "appsscript.json" ]; then
+          echo "❌ ОШИБКА: appsscript.json не найден!"
+          echo ""
+          echo "🔧 Как исправить:"
+          echo "1. Убедитесь, что файл appsscript.json есть в репозитории"
+          echo "2. Проверьте путь к файлу"
+          echo ""
+          exit 1
         fi
         
-        if [ -f "DEPLOYMENT_GUIDE.md" ]; then
-          echo "  ✅ Руководство по развертыванию найдено"
-        else
-          echo "  ❌ Руководство по развертыванию отсутствует"
+        echo "✅ Файл appsscript.json найден"
+        echo ""
+        echo "📄 Содержимое appsscript.json:"
+        cat appsscript.json
+        echo ""
+        
+        # Валидация appsscript.json
+        echo "📋 Валидация appsscript.json..."
+        if ! jq . appsscript.json > /dev/null 2>&1; then
+          echo "❌ ОШИБКА: appsscript.json не является валидным JSON!"
+          exit 1
         fi
-
-  # 🧪 Unit тесты
-  unit-tests:
-    name: 🧪 Unit тесты
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: 📥 Checkout кода
-      uses: actions/checkout@v4
-      
-    - name: 🧪 Запуск unit тестов
+        
+        echo "✅ appsscript.json валиден"
+        echo ""
+        
+        # Проверка наличия файлов для загрузки
+        if [ -n "$ROOT_DIR" ]; then
+          echo "📋 Проверка файлов в $ROOT_DIR..."
+          GS_FILES=$(find "$ROOT_DIR" -name "*.gs" 2>/dev/null | wc -l)
+          HTML_FILES=$(find "$ROOT_DIR" -name "*.html" 2>/dev/null | wc -l)
+          
+          echo "📊 Найдено .gs файлов: $GS_FILES"
+          echo "📊 Найдено .html файлов: $HTML_FILES"
+          
+          if [ $GS_FILES -eq 0 ] && [ $HTML_FILES -eq 0 ]; then
+            echo "⚠️ ПРЕДУПРЕЖДЕНИЕ: Не найдено файлов для загрузки!"
+          fi
+          echo ""
+        fi
+        
+        echo "✅ ===== КОНФИГУРАЦИЯ ПРОВЕРЕНА ====="
+        
+    - name: 📤 Push to Google Apps Script
       run: |
-        echo "🧪 Запуск unit тестов..."
+        echo "📤 ===== ЗАГРУЗКА В GOOGLE APPS SCRIPT ====="
+        echo ""
         
-        # Создаем тестовое окружение
-        echo "🔧 Настройка тестового окружения..."
+        echo "📋 Подготовка к загрузке..."
+        echo "🎯 Target Script ID: $(jq -r '.scriptId' .clasp.json)"
+        echo "📁 Source directory: $(jq -r '.rootDir // "."' .clasp.json)"
+        echo ""
         
-        # Симуляция Google Apps Script окружения
-        cat > test_environment.js << 'EOF'
-        // Симуляция Google Apps Script API
-        global.UrlFetchApp = {
-          fetch: function(url, options) {
-            return {
-              getResponseCode: function() { return 200; },
-              getContentText: function() { 
-                return JSON.stringify({
-                  data: {
-                    feedbacks: [
-                      {
-                        id: 'test-1',
-                        productValuation: 5,
-                        text: 'Тестовый отзыв',
-                        createdDate: new Date().toISOString(),
-                        isAnswered: false
-                      }
-                    ]
-                  }
-                });
-              }
-            };
-          }
-        };
+        # Попытка push с подробным выводом
+        echo "📤 Выполнение clasp push --force..."
+        echo ""
         
-        global.Utilities = {
-          sleep: function(ms) { /* симуляция */ }
-        };
-        
-        global.SpreadsheetApp = {
-          getActiveSpreadsheet: function() {
-            return {
-              getSheetByName: function(name) {
-                return {
-                  getRange: function() { return { getValue: () => '', setValue: () => {} }; },
-                  appendRow: function() {},
-                  getLastRow: function() { return 1; }
-                };
-              }
-            };
-          }
-        };
-        
-        global.PropertiesService = {
-          getScriptProperties: function() {
-            return {
-              getProperty: function(key) { return null; },
-              setProperty: function(key, value) { return null; }
-            };
-          }
-        };
-        
-        // Симуляция функций логирования
-        global.log = function(msg, level, category) { 
-          console.log(`[${level || 'INFO'}-${category || 'SYSTEM'}] ${msg}`); 
-        };
-        global.logDebug = function(msg, category) { 
-          console.log(`[DEBUG-${category || 'SYSTEM'}] ${msg}`); 
-        };
-        global.logSuccess = function(msg, category) { 
-          console.log(`[SUCCESS-${category || 'SYSTEM'}] ${msg}`); 
-        };
-        global.logError = function(msg, category) { 
-          console.log(`[ERROR-${category || 'SYSTEM'}] ${msg}`); 
-        };
-        global.logWarning = function(msg, category) { 
-          console.log(`[WARNING-${category || 'SYSTEM'}] ${msg}`); 
-        };
-        
-        // Мок данные
-        global.MOCK_STORE = {
-          id: 'test-store',
-          name: 'Test Store',
-          credentials: {
-            apiKey: 'test-api-key'
-          },
-          settings: {
-            startDate: '2024-01-01',
-            minRating: 4
-          }
-        };
-        
-        global.MOCK_WB_FEEDBACKS = [
-          {
-            id: 'wb-test-1',
-            productValuation: 5,
-            text: 'Отличный товар!',
-            createdDate: '2024-01-15T10:00:00Z',
-            isAnswered: false
-          }
-        ];
-        
-        global.MOCK_OZON_FEEDBACKS = [
-          {
-            id: 'ozon-test-1',
-            rating: 5,
-            text: 'Отличный товар!',
-            created_at: '2024-01-15T10:00:00Z',
-            is_answered: false
-          }
-        ];
-        EOF
-        
-        # Запускаем тесты
-        echo "🚀 Запуск тестов..."
-        
-        # Тест 1: Проверка основных функций
-        echo "📋 Тест 1: Проверка основных функций"
-        node -e "
-        require('./test_environment.js');
-        
-        // Симуляция функции getWbFeedbacks
-        function getWbFeedbacks(apiKey, includeAnswered, store) {
-          console.log('Тестируем getWbFeedbacks...');
-          return MOCK_WB_FEEDBACKS;
-        }
-        
-        // Симуляция функции getOzonFeedbacks
-        function getOzonFeedbacks(apiKey, includeAnswered, store) {
-          console.log('Тестируем getOzonFeedbacks...');
-          return MOCK_OZON_FEEDBACKS;
-        }
-        
-        // Тесты
-        try {
-          const wbFeedbacks = getWbFeedbacks('test-key', false, MOCK_STORE);
-          if (!Array.isArray(wbFeedbacks)) {
-            throw new Error('getWbFeedbacks должен возвращать массив');
-          }
-          console.log('✅ getWbFeedbacks работает корректно');
+        if clasp push --force 2>&1 | tee /tmp/clasp_push.log; then
+          echo ""
+          echo "✅ Push выполнен успешно!"
+          echo ""
           
-          const ozonFeedbacks = getOzonFeedbacks('test-key', false, MOCK_STORE);
-          if (!Array.isArray(ozonFeedbacks)) {
-            throw new Error('getOzonFeedbacks должен возвращать массив');
-          }
-          console.log('✅ getOzonFeedbacks работает корректно');
-          
-          console.log('🎉 Все основные тесты пройдены!');
-        } catch (error) {
-          console.error('❌ Ошибка в тестах:', error.message);
-          process.exit(1);
-        }
-        "
-        
-        # Тест 2: Проверка WB API v2
-        echo "📋 Тест 2: Проверка WB API v2"
-        node -e "
-        require('./test_environment.js');
-        
-        // Симуляция функции buildWbApiV2Url
-        function buildWbApiV2Url(includeAnswered, skip, take, store) {
-          const baseUrl = 'https://feedbacks-api.wildberries.ru/api/v2/feedbacks';
-          const params = new URLSearchParams();
-          params.append('isAnswered', includeAnswered);
-          params.append('take', take);
-          params.append('skip', skip);
-          params.append('order', 'dateDesc');
-          
-          if (store?.settings?.startDate) {
-            params.append('dateFrom', store.settings.startDate);
-          }
-          
-          if (store?.settings?.minRating) {
-            params.append('valuation', store.settings.minRating);
-          }
-          
-          return \`\${baseUrl}?\${params.toString()}\`;
-        }
-        
-        try {
-          const url = buildWbApiV2Url(false, 0, 100, MOCK_STORE);
-          if (!url.includes('/api/v2/feedbacks')) {
-            throw new Error('URL должен содержать v2 endpoint');
-          }
-          if (!url.includes('dateFrom=2024-01-01')) {
-            throw new Error('URL должен содержать фильтр по дате');
-          }
-          if (!url.includes('valuation=4')) {
-            throw new Error('URL должен содержать фильтр по рейтингу');
-          }
-          console.log('✅ buildWbApiV2Url работает корректно');
-          console.log('🎉 WB API v2 тесты пройдены!');
-        } catch (error) {
-          console.error('❌ Ошибка в WB API v2 тестах:', error.message);
-          process.exit(1);
-        }
-        "
-        
-        # Тест 3: Проверка обработки ошибок
-        echo "📋 Тест 3: Проверка обработки ошибок"
-        node -e "
-        require('./test_environment.js');
-        
-        // Симуляция функции с обработкой ошибок
-        function testErrorHandling() {
-          try {
-            // Симуляция ошибки
-            throw new Error('Тестовая ошибка');
-          } catch (error) {
-            console.log('✅ Ошибка корректно обработана:', error.message);
-            return true;
-          }
-        }
-        
-        try {
-          const result = testErrorHandling();
-          if (!result) {
-            throw new Error('Обработка ошибок не работает');
-          }
-          console.log('🎉 Тесты обработки ошибок пройдены!');
-        } catch (error) {
-          console.error('❌ Ошибка в тестах обработки ошибок:', error.message);
-          process.exit(1);
-        }
-        "
-        
-        echo "🎉 Все unit тесты пройдены успешно!"
-
-  # 🔒 Security тесты
-  security-tests:
-    name: 🔒 Security тесты
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: 📥 Checkout кода
-      uses: actions/checkout@v4
-      
-    - name: 🔒 Запуск security тестов
-      run: |
-        echo "🔒 Запуск security тестов..."
-        
-        # Проверка на уязвимости в коде
-        echo "🔍 Проверка на уязвимости..."
-        
-        # Проверка на хардкод API ключей
-        echo "🔑 Проверка на хардкод API ключей:"
-        if grep -r "api.*key.*=" *.gs; then
-          echo "  ⚠️ Найдены потенциальные хардкод API ключи"
+          # Показываем что было загружено
+          echo "📊 Загруженные файлы:"
+          if [ -f /tmp/clasp_push.log ]; then
+            grep "└─" /tmp/clasp_push.log || echo "  (детали недоступны)"
+          fi
         else
-          echo "  ✅ Хардкод API ключей не найден"
-        fi
-        
-        # Проверка на SQL инъекции
-        echo "💉 Проверка на SQL инъекции:"
-        if grep -r "SELECT\|INSERT\|UPDATE\|DELETE" *.gs; then
-          echo "  ⚠️ Найдены SQL запросы (проверьте безопасность)"
-        else
-          echo "  ✅ SQL запросы не найдены"
-        fi
-        
-        # Проверка на XSS
-        echo "🌐 Проверка на XSS:"
-        if grep -r "innerHTML\|outerHTML" *.gs; then
-          echo "  ⚠️ Найдены потенциальные XSS уязвимости"
-        else
-          echo "  ✅ XSS уязвимости не найдены"
-        fi
-        
-        # Проверка на чувствительные данные
-        echo "🔐 Проверка на чувствительные данные:"
-        if grep -r "password\|secret\|token" *.gs; then
-          echo "  ⚠️ Найдены потенциальные чувствительные данные"
-        else
-          echo "  ✅ Чувствительные данные не найдены"
-        fi
-        
-        echo "🎉 Security тесты завершены!"
-
-  # 📊 Performance тесты
-  performance-tests:
-    name: 📊 Performance тесты
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: 📥 Checkout кода
-      uses: actions/checkout@v4
-      
-    - name: 📊 Запуск performance тестов
-      run: |
-        echo "📊 Запуск performance тестов..."
-        
-        # Тест производительности
-        echo "⏱️ Тест производительности..."
-        
-        node -e "
-        const startTime = Date.now();
-        
-        // Симуляция обработки большого количества данных
-        const largeDataset = Array(1000).fill().map((_, i) => ({
-          id: \`item-\${i}\`,
-          text: \`Test item \${i}\`,
-          rating: Math.floor(Math.random() * 5) + 1
-        }));
-        
-        // Симуляция фильтрации
-        const filtered = largeDataset.filter(item => item.rating >= 4);
-        
-        const endTime = Date.now();
-        const duration = endTime - startTime;
-        
-        console.log(\`⏱️ Время обработки 1000 элементов: \${duration}мс\`);
-        
-        if (duration > 1000) {
-          console.log('⚠️ Медленная обработка данных');
-        } else {
-          console.log('✅ Производительность в норме');
-        }
-        
-        console.log(\`📊 Обработано: \${largeDataset.length} элементов\`);
-        console.log(\`📊 Отфильтровано: \${filtered.length} элементов\`);
-        "
-        
-        # Тест памяти
-        echo "🧠 Тест использования памяти..."
-        
-        node -e "
-        const used = process.memoryUsage();
-        console.log('🧠 Использование памяти:');
-        console.log(\`  RSS: \${Math.round(used.rss / 1024 / 1024)} MB\`);
-        console.log(\`  Heap Used: \${Math.round(used.heapUsed / 1024 / 1024)} MB\`);
-        console.log(\`  Heap Total: \${Math.round(used.heapTotal / 1024 / 1024)} MB\`);
-        "
-        
-        echo "🎉 Performance тесты завершены!"
-
-  # 📚 Документация
-  documentation:
-    name: 📚 Проверка документации
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: 📥 Checkout кода
-      uses: actions/checkout@v4
-      
-    - name: 📚 Проверка документации
-      run: |
-        echo "📚 Проверка документации..."
-        
-        # Проверка наличия основных файлов документации
-        echo "📋 Проверка файлов документации:"
-        
-        files=(
-          "README_GITHUB.md"
-          "DEPLOYMENT_GUIDE.md"
-          "API_DOCUMENTATION_ANALYSIS.md"
-          "GITHUB_COMMIT_INSTRUCTIONS.md"
-        )
-        
-        for file in "${files[@]}"; do
-          if [ -f "$file" ]; then
-            echo "  ✅ $file - найден"
-            
-            # Проверка размера файла
-            size=$(wc -c < "$file")
-            if [ $size -gt 1000 ]; then
-              echo "    ✅ Размер файла: $size байт (достаточно)"
-            else
-              echo "    ⚠️ Размер файла: $size байт (мало)"
-            fi
-            
-            # Проверка на наличие заголовков
-            if grep -q "^#" "$file"; then
-              echo "    ✅ Содержит заголовки"
-            else
-              echo "    ⚠️ Не содержит заголовки"
-            fi
+          echo ""
+          echo "❌ ОШИБКА: Push провалился!"
+          echo ""
+          
+          # Анализируем ошибку
+          if grep -q "Permission denied" /tmp/clasp_push.log 2>/dev/null; then
+            echo "🔧 Причина: Нет доступа к проекту"
+            echo ""
+            echo "Как исправить:"
+            echo "1. Откройте: https://script.google.com"
+            echo "2. Найдите проект с Script ID: $(jq -r '.scriptId' .clasp.json)"
+            echo "3. Нажмите Share"
+            echo "4. Добавьте: $(jq -r '.client_email' ~/.clasprc.json)"
+            echo "5. Права: Editor"
+          elif grep -q "User has not enabled" /tmp/clasp_push.log 2>/dev/null; then
+            echo "🔧 Причина: Apps Script API не включен"
+            echo ""
+            echo "Как исправить:"
+            echo "1. Откройте: https://console.cloud.google.com/apis/library/script.googleapis.com"
+            echo "2. Выберите проект: $(jq -r '.project_id' ~/.clasprc.json)"
+            echo "3. Нажмите ENABLE"
+          elif grep -q "not found" /tmp/clasp_push.log 2>/dev/null; then
+            echo "🔧 Причина: Проект не найден"
+            echo ""
+            echo "Как исправить:"
+            echo "1. Проверьте Script ID в .clasp.json"
+            echo "2. Убедитесь, что проект существует в https://script.google.com"
           else
-            echo "  ❌ $file - отсутствует"
+            echo "🔧 Неизвестная ошибка"
+            echo ""
+            echo "Лог ошибки:"
+            cat /tmp/clasp_push.log
           fi
-        done
-        
-        # Проверка README
-        echo "📖 Проверка README:"
-        if [ -f "README_GITHUB.md" ]; then
-          if grep -q "## Описание" "README_GITHUB.md"; then
-            echo "  ✅ Содержит раздел 'Описание'"
-          else
-            echo "  ⚠️ Не содержит раздел 'Описание'"
-          fi
-          
-          if grep -q "## Установка" "README_GITHUB.md"; then
-            echo "  ✅ Содержит раздел 'Установка'"
-          else
-            echo "  ⚠️ Не содержит раздел 'Установка'"
-          fi
+          echo ""
+          exit 1
         fi
         
-        echo "🎉 Проверка документации завершена!"
-
-  # 🎯 Итоговый отчет
-  test-summary:
-    name: 🎯 Итоговый отчет
-    runs-on: ubuntu-latest
-    needs: [code-analysis, unit-tests, security-tests, performance-tests, documentation]
-    if: always()
-    
-    steps:
-    - name: 🎯 Генерация отчета
+        echo ""
+        echo "✅ ===== КОД УСПЕШНО ЗАГРУЖЕН ====="
+        
+    - name: 📊 Deployment info
       run: |
-        echo "🎯 ===== ИТОГОВЫЙ ОТЧЕТ ТЕСТИРОВАНИЯ ====="
-        echo ""
-        echo "📊 Статус тестов:"
-        echo "  🔍 Анализ кода: ${{ needs.code-analysis.result }}"
-        echo "  🧪 Unit тесты: ${{ needs.unit-tests.result }}"
-        echo "  🔒 Security тесты: ${{ needs.security-tests.result }}"
-        echo "  📊 Performance тесты: ${{ needs.performance-tests.result }}"
-        echo "  📚 Документация: ${{ needs.documentation.result }}"
-        echo ""
-        
-        # Подсчет успешных тестов
-        success_count=0
-        total_count=5
-        exit_code=0
-        
-        if [ "${{ needs.code-analysis.result }}" = "success" ]; then
-          ((success_count++))
-        else
-          exit_code=1
-        fi
-        
-        if [ "${{ needs.unit-tests.result }}" = "success" ]; then
-          ((success_count++))
-        else
-          exit_code=1
-        fi
-        
-        if [ "${{ needs.security-tests.result }}" = "success" ]; then
-          ((success_count++))
-        else
-          exit_code=1
-        fi
-        
-        if [ "${{ needs.performance-tests.result }}" = "success" ]; then
-          ((success_count++))
-        else
-          exit_code=1
-        fi
-        
-        if [ "${{ needs.documentation.result }}" = "success" ]; then
-          ((success_count++))
-        else
-          exit_code=1
-        fi
-        
-        success_rate=$((success_count * 100 / total_count))
-        
-        echo "📈 Процент успеха: $success_rate%"
-        echo ""
-        
-        if [ $success_rate -eq 100 ]; then
-          echo "🎉 ВСЕ ТЕСТЫ ПРОЙДЕНЫ УСПЕШНО!"
-          echo "✅ Система готова к развертыванию"
-          exit_code=0
-        elif [ $success_rate -ge 80 ]; then
-          echo "⚠️ Большинство тестов пройдено ($success_rate%)"
-          echo "🔧 Требуется исправление $((total_count - success_count)) тестов"
-          exit_code=1
-        else
-          echo "❌ Критический уровень ошибок ($success_rate%)"
-          echo "🚨 Требуется серьезная доработка"
-          exit_code=1
-        fi
-        
-        echo ""
-        echo "🎯 ===== КОНЕЦ ОТЧЕТА ====="
-        echo ""
-        
-        # Возвращаем правильный exit code
-        if [ $exit_code -eq 0 ]; then
-          echo "✅ CI проверка завершена успешно"
-        else
-          echo "❌ CI проверка завершена с ошибками"
-        fi
-        
-        exit $exit_code
+        echo "📊 ===== ИНФОРМАЦИЯ О ДЕПЛОЕ ====="
+        echo "🕐 Время: $(date)"
+        echo "📝 Коммит: ${{ github.sha }}"
+        echo "👤 Автор: ${{ github.actor }}"
+        echo "🌿 Ветка: ${{ github.ref_name }}"
+        echo "🎯 Script ID: $(grep scriptId .clasp.json | cut -d'"' -f4)"
+        echo "✅ Деплой завершен успешно!"
