@@ -126,7 +126,7 @@ function addToReviewIdsCacheForStore(storeId, newReviewIds) {
         existingCache.add(id);
         addedCount++;
       }
-    });
+    }
     
     if (addedCount > 0) {
       // Сохраняем обновленный кеш
@@ -162,7 +162,7 @@ function filterNewReviewsForStore(storeId, reviews) {
     }
     
     var cachedIds = getReviewIdsCacheForStore(storeId);
-    var newReviews = reviews.filter(function(review) { return !cachedIds.has(review.id; }));
+    var newReviews = reviews.filter(function(review) { return !cachedIds.has(review.id); });
     
     logCache('FILTER', storeId, 'Новых отзывов: ' + newReviews.length + ' из ' + reviews.length);
     timer.finish();
@@ -354,7 +354,7 @@ function clearStoreProgress(storeId, processType = null) {
       var type = processTypes[i];
         var progressKey = CACHE_CONFIG.PREFIX_STORE_PROGRESS + '' + storeId + '_' + type;
         props.deleteProperty(progressKey);
-      });
+      }
       logCache('PROGRESS', storeId, 'Очищен весь прогресс');
     }
     
@@ -399,7 +399,7 @@ function getCacheStatistics() {
       };
       
       stats.totals.totalReviewIds += cacheSize;
-    });
+    }
     
     // Приблизительный расчет использования памяти
     stats.totals.cacheUsage = Math.round(stats.totals.totalReviewIds * 50 / 1024); // ~50 bytes per ID, in KB
@@ -503,13 +503,13 @@ function cleanupOldCaches() {
               logCache('CLEANUP', store.id, 'Очищен устаревший прогресс ' + processType);
             }
           }
-        });
+        }
         
       } catch (error) {
         logError('Ошибка очистки кеша для магазина ' + store.id + ': ' + error.message, LOG_CONFIG.CATEGORIES.CACHE);
         errors++;
       }
-    });
+    }
     
     var result = {
       totalStores: stores.length,
@@ -567,7 +567,7 @@ function exportCacheReport() {
       report += '   └─ Позиция полоски: ' + store.stripePosition + '\n';
       
       if (!isLast) report += `\n`;
-    });
+    }
     
     return report;
     
@@ -668,7 +668,7 @@ function clearAllStoreCaches(storeIds = null) {
           var storeId = key.replace(CACHE_CONFIG.PREFIX_REVIEW_IDS, '');
           targetStoreIds.add(storeId);
         }
-      });
+      }
       targetStoreIds = Array.from(targetStoreIds);
     }
     
@@ -713,7 +713,7 @@ function clearAllStoreCaches(storeIds = null) {
         results.errorMessages.push(errorMsg);
         logError(errorMsg, LOG_CONFIG.CATEGORIES.CACHE);
       }
-    });
+    }
     
     // Дополнительно очищаем связанные ключи API статистики
     try {
@@ -728,7 +728,7 @@ function clearAllStoreCaches(storeIds = null) {
       var key = apiKeysToRemove[i];
         props.deleteProperty(key);
         results.clearedCaches++;
-      });
+      }
       
       if (apiKeysToRemove.length > 0) {
         logInfo('Дополнительно очищено ' + apiKeysToRemove.length + ' ключей API статистики', LOG_CONFIG.CATEGORIES.CACHE);
@@ -841,7 +841,7 @@ function validateAndRepairCaches() {
         report.issues.push(store.id + ': Ошибка проверки - ' + error.message);
         logError('Ошибка проверки кеша магазина ' + store.id + ': ' + error.message, LOG_CONFIG.CATEGORIES.CACHE);
       }
-    });
+    }
     
     logSuccess('Проверка целостности завершена: ' + report.checkedStores + ' магазинов, ' + report.repairedCaches + ' исправлено', LOG_CONFIG.CATEGORIES.CACHE);
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
