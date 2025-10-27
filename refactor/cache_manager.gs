@@ -559,3 +559,285 @@ function exportCacheReport() {
     return `Ошибка генерации отчета по кешам: ${error.message}`;
   }
 }
+
+// ============ ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ КЕША ============
+
+/**
+ * ✅ ДОДЕЛАНО: Инициализирует кеш для нового магазина
+ * @param {string} storeId - ID магазина
+ * @returns {boolean} Успешность инициализации
+ */
+function initializeCacheForStore(storeId) {
+  const timer = new PerformanceTimer(`initializeCacheForStore-${storeId}`);
+  
+  try {
+    if (!storeId) {
+      throw new Error('ID магазина не может быть пустым');
+    }
+    
+    logInfo(`Инициализация кеша для магазина: ${storeId}`, LOG_CONFIG.CATEGORIES.CACHE);
+    
+    const props = PropertiesService.getScriptProperties();
+    
+    // Инициализируем кеш ID отзывов (пустой массив)
+    const reviewIdsKey = `${CACHE_CONFIG.PREFIX_REVIEW_IDS}${storeId}`;
+    if (!props.getProperty(reviewIdsKey)) {
+      props.setProperty(reviewIdsKey, JSON.stringify([]));
+      logCache('INIT', storeId, 'Создан пустой кеш ID отзывов', LOG_CONFIG.LEVELS.SUCCESS);
+    }
+    
+    // Инициализируем позицию полоски (0)
+    const stripeKey = `${CACHE_CONFIG.PREFIX_STRIPE_POSITION}${storeId}`;
+    if (!props.getProperty(stripeKey)) {
+      props.setProperty(stripeKey, '0');
+      logCache('INIT', storeId, 'Установлена начальная позиция полоски: 0', LOG_CONFIG.LEVELS.SUCCESS);
+    }
+    
+    // Инициализируем прогресс обработки (пустой объект)
+    const progressKey = `${CACHE_CONFIG.PREFIX_STORE_PROGRESS}${storeId}`;
+    if (!props.getProperty(progressKey)) {
+      const initialProgress = {
+        lastRun: new Date().toISOString(),
+        totalPages: 0,
+        processedPages: 0,
+        lastProcessedId: null,
+        status: 'initialized'
+      };
+      props.setProperty(progressKey, JSON.stringify(initialProgress));
+      logCache('INIT', storeId, 'Создан начальный объект прогресса', LOG_CONFIG.LEVELS.SUCCESS);
+    }
+    
+    logSuccess(`Кеш для магазина ${storeId} успешно инициализирован`, LOG_CONFIG.CATEGORIES.CACHE);
+    timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
+    
+    return true;
+    
+  } catch (error) {
+    logError(`Ошибка инициализации кеша для магазина ${storeId}: ${error.message}`, LOG_CONFIG.CATEGORIES.CACHE);
+    timer.finish(LOG_CONFIG.LEVELS.ERROR);
+    return false;
+  }
+}
+
+/**
+ * ✅ ДОДЕЛАНО: Очищает кеши всех магазинов
+ * @param {Array} storeIds - Массив ID магазинов для очистки (если не указан - все)
+ * @returns {Object} Результат очистки с статистикой
+ */
+function clearAllStoreCaches(storeIds = null) {
+  const timer = new PerformanceTimer('clearAllStoreCaches');
+  
+  try {
+    logInfo('Запуск очистки кешей всех магазинов', LOG_CONFIG.CATEGORIES.CACHE);
+    
+    const props = PropertiesService.getScriptProperties();
+    const results = {
+      clearedCaches: 0,
+      errors: 0,
+      errorMessages: [],
+      processedStores: []
+    };
+    
+    // Получаем все ключи из Properties
+    const allKeys = props.getKeys();
+    
+    // Определяем какие магазины обрабатывать
+    let targetStoreIds = storeIds;
+    if (!targetStoreIds) {
+      // Автоматически находим все ID магазинов из ключей кеша
+      targetStoreIds = new Set();
+      allKeys.forEach(key => {
+        if (key.startsWith(CACHE_CONFIG.PREFIX_REVIEW_IDS)) {
+          const storeId = key.replace(CACHE_CONFIG.PREFIX_REVIEW_IDS, '');
+          targetStoreIds.add(storeId);
+        }
+      });
+      targetStoreIds = Array.from(targetStoreIds);
+    }
+    
+    logInfo(`Найдено магазинов для очистки кешей: ${targetStoreIds.length}`, LOG_CONFIG.CATEGORIES.CACHE);
+    
+    // Очищаем кеши для каждого магазина
+    targetStoreIds.forEach(storeId => {
+      try {
+        let storeCleared = 0;
+        
+        // Очищаем кеш ID отзывов
+        const reviewIdsKey = `${CACHE_CONFIG.PREFIX_REVIEW_IDS}${storeId}`;
+        if (props.getProperty(reviewIdsKey)) {
+          props.deleteProperty(reviewIdsKey);
+          storeCleared++;
+        }
+        
+        // Очищаем позицию полоски
+        const stripeKey = `${CACHE_CONFIG.PREFIX_STRIPE_POSITION}${storeId}`;
+        if (props.getProperty(stripeKey)) {
+          props.deleteProperty(stripeKey);
+          storeCleared++;
+        }
+        
+        // Очищаем прогресс
+        const progressKey = `${CACHE_CONFIG.PREFIX_STORE_PROGRESS}${storeId}`;
+        if (props.getProperty(progressKey)) {
+          props.deleteProperty(progressKey);
+          storeCleared++;
+        }
+        
+        if (storeCleared > 0) {
+          results.clearedCaches += storeCleared;
+          results.processedStores.push(storeId);
+          logCache('CLEAR', storeId, `Очищено ${storeCleared} ключей кеша`, LOG_CONFIG.LEVELS.SUCCESS);
+        }
+        
+      } catch (error) {
+        results.errors++;
+        const errorMsg = `Ошибка очистки ${storeId}: ${error.message}`;
+        results.errorMessages.push(errorMsg);
+        logError(errorMsg, LOG_CONFIG.CATEGORIES.CACHE);
+      }
+    });
+    
+    // Дополнительно очищаем связанные ключи API статистики
+    try {
+      const apiKeysToRemove = allKeys.filter(key => 
+        key.startsWith('API_REQUESTS_') || 
+        key.startsWith('API_ERRORS_') || 
+        key.startsWith('API_AVG_TIME_') ||
+        key.startsWith('API_TIME_COUNT_') ||
+        key.startsWith('API_TOTAL_TIME_')
+      );
+      
+      apiKeysToRemove.forEach(key => {
+        props.deleteProperty(key);
+        results.clearedCaches++;
+      });
+      
+      if (apiKeysToRemove.length > 0) {
+        logInfo(`Дополнительно очищено ${apiKeysToRemove.length} ключей API статистики`, LOG_CONFIG.CATEGORIES.CACHE);
+      }
+    } catch (error) {
+      logWarning(`Ошибка очистки API статистики: ${error.message}`, LOG_CONFIG.CATEGORIES.CACHE);
+    }
+    
+    logSuccess(`Очистка кешей завершена: ${results.clearedCaches} ключей, ${results.processedStores.length} магазинов`, LOG_CONFIG.CATEGORIES.CACHE);
+    timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
+    
+    return results;
+    
+  } catch (error) {
+    logError(`Критическая ошибка очистки кешей: ${error.message}`, LOG_CONFIG.CATEGORIES.CACHE);
+    timer.finish(LOG_CONFIG.LEVELS.ERROR);
+    
+    return {
+      clearedCaches: 0,
+      errors: 1,
+      errorMessages: [error.message],
+      processedStores: []
+    };
+  }
+}
+
+/**
+ * ✅ ДОДЕЛАНО: Проверяет целостность кешей и исправляет проблемы
+ * @returns {Object} Отчет о проверке и исправлениях
+ */
+function validateAndRepairCaches() {
+  const timer = new PerformanceTimer('validateAndRepairCaches');
+  
+  try {
+    logInfo('Запуск проверки целостности кешей', LOG_CONFIG.CATEGORIES.CACHE);
+    
+    const props = PropertiesService.getScriptProperties();
+    const report = {
+      checkedStores: 0,
+      repairedCaches: 0,
+      corruptedCaches: 0,
+      issues: []
+    };
+    
+    // Получаем все активные магазины
+    const activeStores = getActiveStores();
+    
+    activeStores.forEach(store => {
+      try {
+        report.checkedStores++;
+        const storeId = store.id;
+        let storeIssues = 0;
+        
+        // Проверяем кеш ID отзывов
+        const reviewIdsKey = `${CACHE_CONFIG.PREFIX_REVIEW_IDS}${storeId}`;
+        const reviewIdsValue = props.getProperty(reviewIdsKey);
+        
+        if (!reviewIdsValue) {
+          // Отсутствует кеш - создаем пустой
+          props.setProperty(reviewIdsKey, JSON.stringify([]));
+          report.issues.push(`${storeId}: Создан отсутствующий кеш ID отзывов`);
+          storeIssues++;
+        } else {
+          try {
+            const parsedIds = JSON.parse(reviewIdsValue);
+            if (!Array.isArray(parsedIds)) {
+              // Некорректный формат - исправляем
+              props.setProperty(reviewIdsKey, JSON.stringify([]));
+              report.issues.push(`${storeId}: Исправлен некорректный формат кеша ID`);
+              storeIssues++;
+            } else if (parsedIds.length > CACHE_CONFIG.MAX_CACHE_SIZE) {
+              // Превышен размер - обрезаем
+              const truncated = parsedIds.slice(-CACHE_CONFIG.MAX_CACHE_SIZE);
+              props.setProperty(reviewIdsKey, JSON.stringify(truncated));
+              report.issues.push(`${storeId}: Обрезан переполненный кеш (было ${parsedIds.length}, стало ${truncated.length})`);
+              storeIssues++;
+            }
+          } catch (parseError) {
+            // Поврежденный JSON - пересоздаем
+            props.setProperty(reviewIdsKey, JSON.stringify([]));
+            report.issues.push(`${storeId}: Восстановлен поврежденный кеш ID отзывов`);
+            report.corruptedCaches++;
+            storeIssues++;
+          }
+        }
+        
+        // Проверяем позицию полоски
+        const stripeKey = `${CACHE_CONFIG.PREFIX_STRIPE_POSITION}${storeId}`;
+        const stripeValue = props.getProperty(stripeKey);
+        
+        if (!stripeValue) {
+          props.setProperty(stripeKey, '0');
+          report.issues.push(`${storeId}: Создана отсутствующая позиция полоски`);
+          storeIssues++;
+        } else {
+          const stripePosition = parseInt(stripeValue);
+          if (isNaN(stripePosition) || stripePosition < 0 || stripePosition >= CACHE_CONFIG.MAX_STRIPES) {
+            props.setProperty(stripeKey, '0');
+            report.issues.push(`${storeId}: Исправлена некорректная позиция полоски (${stripeValue} → 0)`);
+            storeIssues++;
+          }
+        }
+        
+        if (storeIssues > 0) {
+          report.repairedCaches++;
+        }
+        
+      } catch (error) {
+        report.issues.push(`${store.id}: Ошибка проверки - ${error.message}`);
+        logError(`Ошибка проверки кеша магазина ${store.id}: ${error.message}`, LOG_CONFIG.CATEGORIES.CACHE);
+      }
+    });
+    
+    logSuccess(`Проверка целостности завершена: ${report.checkedStores} магазинов, ${report.repairedCaches} исправлено`, LOG_CONFIG.CATEGORIES.CACHE);
+    timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
+    
+    return report;
+    
+  } catch (error) {
+    logError(`Ошибка проверки целостности кешей: ${error.message}`, LOG_CONFIG.CATEGORIES.CACHE);
+    timer.finish(LOG_CONFIG.LEVELS.ERROR);
+    
+    return {
+      checkedStores: 0,
+      repairedCaches: 0,
+      corruptedCaches: 0,
+      issues: [`Критическая ошибка: ${error.message}`]
+    };
+  }
+}
