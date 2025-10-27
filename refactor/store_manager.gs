@@ -1,43 +1,26 @@
 /**
- * @file store-manager.gs
- * @description Модуль управления магазинами для MP Review Manager
- * @version 2.0
- * @date 2025-10-26
+ * 🔄 ВОССТАНОВЛЕННАЯ СТАРАЯ РАБОЧАЯ СИСТЕМА УПРАВЛЕНИЯ МАГАЗИНАМИ
  * 
- * АРХИТЕКТУРА:
- * - Централизованное управление магазинами
- * - CRUD операции для магазинов
- * - Валидация данных магазинов
- * - Интеграция с Google Sheets и PropertiesService
+ * Возвращена из code.gs для совместимости с существующим интерфейсом
+ * и восстановления функциональности:
+ * - Листы создаются по НАЗВАНИЮ магазина, а не ID
+ * - Рабочие кнопки "Проверить" и "Загрузить" с логами
+ * - Сохранение существующих магазинов
+ * - Стабильная система без зависаний
  */
 
-/**
- * Получает все магазины из системы
- * @returns {Array<Object>} Массив объектов магазинов
- */
+// ============ СТАРЫЕ РАБОЧИЕ ФУНКЦИИ ИЗ CODE.GS ============
+
 function getStores() {
-  const timer = new PerformanceTimer('getStores');
-  
-  try {
-    const props = PropertiesService.getScriptProperties();
-    const storesJson = props.getProperty(CONFIG.PROPERTIES_KEY);
-    
-    if (!storesJson) {
-      logInfo('Магазины не найдены в PropertiesService', LOG_CONFIG.CATEGORIES.STORE);
-      timer.finish();
-      return [];
-    }
-    
-    const stores = JSON.parse(storesJson);
-    logInfo(`Загружено магазинов: ${stores.length}`, LOG_CONFIG.CATEGORIES.STORE);
-    timer.finish();
-    return stores;
-    
-  } catch (error) {
-    logError(`Ошибка получения магазинов: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
-    timer.finish(LOG_CONFIG.LEVELS.ERROR);
-    return [];
-  }
+  const storesJson = PropertiesService.getUserProperties().getProperty(CONFIG.PROPERTIES_KEY);
+  if (!storesJson) return [];
+  const stores = JSON.parse(storesJson);
+  return stores.filter(store => store && store.id).map(store => {
+      if (typeof store.isActive === 'undefined') store.isActive = true;
+      // Ensure settings object exists for backward compatibility
+      if (!store.settings) store.settings = {};
+      return store;
+  });
 }
 
 /**
@@ -93,55 +76,74 @@ function getStoreById(storeId) {
  * @returns {Array<Object>} Обновленный список всех магазинов
  */
 function saveStore(store) {
-  const timer = new PerformanceTimer('saveStore');
+  log(`Сохранение магазина: ${store.name}${store.settings && store.settings.startDate ? ' (дата начала: ' + store.settings.startDate + ')' : ''}`);
+  const stores = getStores();
+  const storeIndex = stores.findIndex(s => s.id === store.id);
   
-  try {
-    // Валидация входных данных
-    const validation = validateStore(store);
-    if (!validation.isValid) {
-      logError(`Валидация магазина провалена: ${validation.errors.join(', ')}`, LOG_CONFIG.CATEGORIES.STORE);
-      timer.finish(LOG_CONFIG.LEVELS.ERROR);
-      return [];
+  if (typeof store.isActive === 'undefined') store.isActive = true;
+  // Ensure settings object exists
+  if (!store.settings) store.settings = {};
+  
+  // 🚀 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Проверяем изменения настроек
+  let shouldResetProgress = false;
+  if (storeIndex > -1) {
+    const oldStore = stores[storeIndex];
+    
+    // Проверяем изменение важных настроек, влияющих на пагинацию
+    const oldStartDate = oldStore.settings?.startDate;
+    const newStartDate = store.settings?.startDate;
+    const oldIncludeAnswered = oldStore.settings?.includeAnswered;
+    const newIncludeAnswered = store.settings?.includeAnswered;
+    const oldSortOldestFirst = oldStore.settings?.sortOldestFirst;
+    const newSortOldestFirst = store.settings?.sortOldestFirst;
+    
+    if (oldStartDate !== newStartDate) {
+      log(`[${store.name}] 📅 ИЗМЕНЕНА дата начала поиска: "${oldStartDate}" → "${newStartDate}"`);
+      shouldResetProgress = true;
     }
     
-    const stores = getStores();
-    let isNewStore = true;
-    
-    // Генерируем ID для нового магазина или находим существующий
-    if (!store.id) {
-      store.id = generateStoreId(store.marketplace);
-      logInfo(`Создается новый магазин с ID: ${store.id}`, LOG_CONFIG.CATEGORIES.STORE);
-    } else {
-      const existingIndex = stores.findIndex(s => s.id === store.id);
-      if (existingIndex !== -1) {
-        stores[existingIndex] = store;
-        isNewStore = false;
-        logInfo(`Обновлен существующий магазин: ${store.name} (${store.id})`, LOG_CONFIG.CATEGORIES.STORE);
-      }
+    if (oldIncludeAnswered !== newIncludeAnswered) {
+      log(`[${store.name}] 🔄 ИЗМЕНЕНА настройка включения отвеченных: ${oldIncludeAnswered} → ${newIncludeAnswered}`);
+      shouldResetProgress = true;
     }
     
-    if (isNewStore) {
-      stores.push(store);
-      logInfo(`Добавлен новый магазин: ${store.name} (${store.id})`, LOG_CONFIG.CATEGORIES.STORE);
+    if (typeof oldSortOldestFirst !== 'undefined' && oldSortOldestFirst !== newSortOldestFirst) {
+      log(`[${store.name}] 📊 ИЗМЕНЕНА настройка сортировки: sortOldestFirst ${oldSortOldestFirst} → ${newSortOldestFirst}`);
+      shouldResetProgress = true;
     }
     
-    // Сохраняем обновленный список в PropertiesService
-    const props = PropertiesService.getScriptProperties();
-    props.setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
-    
-    // Создаем лист для магазина если его нет
-    createStoreSheetIfNotExists(store);
-    
-    logSuccess(`Магазин ${store.name} успешно сохранен`, LOG_CONFIG.CATEGORIES.STORE);
-    timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
-    
-    return stores;
-    
-  } catch (error) {
-    logError(`Ошибка сохранения магазина: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
-    timer.finish(LOG_CONFIG.LEVELS.ERROR);
-    return [];
+    stores[storeIndex] = store; 
+  } else {
+    store.id = store.id || new Date().getTime().toString(); 
+    stores.push(store);
+    shouldResetProgress = false; // Новый магазин - нет старого прогресса для сброса
   }
+  
+  // 🚀 СБРАСЫВАЕМ ПРОГРЕСС при изменении критических настроек
+  if (shouldResetProgress) {
+    resetStoreProgress(store.id);
+    log(`[${store.name}] 🔄 СБРОШЕН прогресс обработки из-за изменения настроек`);
+  }
+  
+  PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
+  
+  // ✅ ИСПРАВЛЕНО: Создаем лист с НАЗВАНИЕМ, а не ID
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName(store.name); // ← ПО НАЗВАНИЮ!
+    
+    if (!sheet) {
+      sheet = ss.insertSheet(store.name); // ← ПО НАЗВАНИЮ!
+      sheet.getRange(1, 1, 1, CONFIG.HEADERS.length).setValues([CONFIG.HEADERS]);
+      sheet.getRange(1, 1, 1, CONFIG.HEADERS.length).setFontWeight('bold');
+      sheet.getRange(1, 1, 1, CONFIG.HEADERS.length).setBackground('#e8f0fe');
+      log(`📄 Создан лист: "${store.name}"`);
+    }
+  } catch (e) {
+    log(`❌ Ошибка создания листа для ${store.name}: ${e.message}`);
+  }
+  
+  return stores;
 }
 
 /**
@@ -173,8 +175,8 @@ function deleteStore(storeId) {
     // Удаляем магазин из массива
     stores.splice(storeIndex, 1);
     
-    // Сохраняем обновленный список
-    const props = PropertiesService.getScriptProperties();
+    // Сохраняем обновленный список (используем UserProperties как в старой системе)
+    const props = PropertiesService.getUserProperties();
     props.setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
     
     // Очищаем связанные данные
@@ -310,7 +312,7 @@ function createStoreSheetIfNotExists(store) {
  */
 function cleanupStoreData(storeId) {
   try {
-    const props = PropertiesService.getScriptProperties();
+    const props = PropertiesService.getUserProperties();
     
     // Удаляем кеш отзывов магазина
     const cacheKey = `${CACHE_CONFIG.PREFIX_REVIEW_IDS}${storeId}`;
@@ -361,56 +363,7 @@ function getStoreStatistics() {
   }
 }
 
-/**
- * Тестирует подключение к API для магазина
- * @param {string} storeId - ID магазина для тестирования
- * @returns {Object} Результат тестирования подключения
- */
-function testStoreConnection(storeId) {
-  const timer = new PerformanceTimer(`testStoreConnection-${storeId}`);
-  
-  try {
-    const store = getStoreById(storeId);
-    if (!store) {
-      return {
-        success: false,
-        error: 'Магазин не найден'
-      };
-    }
-    
-    logInfo(`Тестирование подключения к ${store.marketplace} для магазина ${store.name}`, LOG_CONFIG.CATEGORIES.STORE);
-    
-    let testResult = { success: false, error: 'Неподдерживаемый маркетплейс' };
-    
-    if (store.marketplace === 'Wildberries') {
-      // Тестируем WB API
-      testResult = testWbConnection(store);
-    } else if (store.marketplace === 'Ozon') {
-      // Тестируем Ozon API
-      testResult = testOzonConnection(store);
-    }
-    
-    const level = testResult.success ? LOG_CONFIG.LEVELS.SUCCESS : LOG_CONFIG.LEVELS.ERROR;
-    const message = testResult.success 
-      ? `Подключение к ${store.marketplace} успешно`
-      : `Ошибка подключения к ${store.marketplace}: ${testResult.error}`;
-    
-    log(message, level, LOG_CONFIG.CATEGORIES.STORE, { storeId, marketplace: store.marketplace });
-    timer.finish(level);
-    
-    return testResult;
-    
-  } catch (error) {
-    const errorMessage = `Ошибка тестирования магазина ${storeId}: ${error.message}`;
-    logError(errorMessage, LOG_CONFIG.CATEGORIES.STORE);
-    timer.finish(LOG_CONFIG.LEVELS.ERROR);
-    
-    return {
-      success: false,
-      error: errorMessage
-    };
-  }
-}
+// УБРАНО: Дублирование функции testStoreConnection - используется версия из main.gs
 
 /**
  * Тестирует подключение к WB API
@@ -530,12 +483,60 @@ function exportStoreConfigs() {
       hasCredentials: !!(store.credentials?.apiKey)
     }));
     
-    logInfo(`Экспорт конфигурации ${safeStores.length} магазинов`, LOG_CONFIG.CATEGORIES.STORE);
+    log(`Экспорт конфигурации ${safeStores.length} магазинов`);
     
     return JSON.stringify(safeStores, null, 2);
     
   } catch (error) {
-    logError(`Ошибка экспорта конфигураций магазинов: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
+    log(`Ошибка экспорта конфигураций магазинов: ${error.message}`);
     return `{"error": "${error.message}"}`;
+  }
+}
+
+// ============ ВОССТАНОВЛЕННЫЕ ФУНКЦИИ ИЗ CODE.GS ============
+
+// УБРАНО: Дублирующая функция testStoreConnection - используется версия из main.gs
+
+/**
+ * ✅ Вспомогательная функция тестирования WB Content API
+ */
+function testWbContentApiAccess(apiKey) {
+  try {
+    const url = 'https://suppliers-api.wildberries.ru/content/v2/cards/cursor/list';
+    const payload = { limit: 1 }; // Минимальный тест-запрос
+    
+    const response = UrlFetchApp.fetch(url, {
+      method: 'POST',
+      headers: { 
+        'Authorization': apiKey,
+        'Content-Type': 'application/json'
+      },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    
+    const code = response.getResponseCode();
+    log(`[Content API Test] Статус: ${code}`);
+    
+    return code === 200;
+  } catch (e) {
+    log(`[Content API Test] Ошибка: ${e.message}`);
+    return false;
+  }
+}
+
+/**
+ * ✅ Необходимые функции прогресса из code.gs
+ */
+function resetStoreProgress(storeId) {
+  try {
+    const props = PropertiesService.getUserProperties();
+    const progressKey = `${CONFIG.PROGRESS_KEY}_${storeId}`;
+    props.deleteProperty(progressKey);
+    log(`[Progress] 🔄 Сброшен прогресс для магазина: ${storeId}`);
+    return true;
+  } catch (e) {
+    log(`[Progress] ❌ Ошибка сброса прогресса для ${storeId}: ${e.message}`);
+    return false;
   }
 }
