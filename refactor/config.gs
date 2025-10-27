@@ -316,3 +316,171 @@ function getBatchSize(operation) {
       return 10; // По умолчанию малый батч
   }
 }
+
+// ============ API СТАТИСТИКА И МОНИТОРИНГ ============
+
+/**
+ * ✅ ДОДЕЛАНО: Получает трекер статистики API с полной функциональностью
+ * @returns {Object} Объект трекера со всеми методами
+ */
+function getApiStatsTracker() {
+  return {
+    /**
+     * Увеличивает счетчик запросов для маркетплейса
+     * @param {string} marketplace - 'ozon' или 'wildberries'
+     */
+    incrementRequests: function(marketplace) {
+      try {
+        const props = PropertiesService.getScriptProperties();
+        const key = `API_REQUESTS_${marketplace.toUpperCase()}`;
+        const current = parseInt(props.getProperty(key) || '0');
+        props.setProperty(key, (current + 1).toString());
+        
+        logDebug(`API Stats: Запросов ${marketplace}: ${current + 1}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+      } catch (error) {
+        logWarning(`Ошибка записи статистики запросов: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+      }
+    },
+    
+    /**
+     * Увеличивает счетчик ошибок для маркетплейса
+     * @param {string} marketplace - 'ozon' или 'wildberries'
+     */
+    incrementErrors: function(marketplace) {
+      try {
+        const props = PropertiesService.getScriptProperties();
+        const key = `API_ERRORS_${marketplace.toUpperCase()}`;
+        const current = parseInt(props.getProperty(key) || '0');
+        props.setProperty(key, (current + 1).toString());
+        
+        logWarning(`API Stats: Ошибок ${marketplace}: ${current + 1}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+      } catch (error) {
+        logWarning(`Ошибка записи статистики ошибок: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+      }
+    },
+    
+    /**
+     * Записывает время ответа API
+     * @param {string} marketplace - 'ozon' или 'wildberries'
+     * @param {number} responseTime - Время ответа в миллисекундах
+     */
+    recordResponseTime: function(marketplace, responseTime) {
+      try {
+        const props = PropertiesService.getScriptProperties();
+        const key = `API_AVG_TIME_${marketplace.toUpperCase()}`;
+        const countKey = `API_TIME_COUNT_${marketplace.toUpperCase()}`;
+        const totalKey = `API_TOTAL_TIME_${marketplace.toUpperCase()}`;
+        
+        const currentAvg = parseFloat(props.getProperty(key) || '0');
+        const currentCount = parseInt(props.getProperty(countKey) || '0');
+        const currentTotal = parseInt(props.getProperty(totalKey) || '0');
+        
+        // Вычисляем новое среднее время и общее время
+        const newTotal = currentTotal + responseTime;
+        const newCount = currentCount + 1;
+        const newAvg = newTotal / newCount;
+        
+        props.setProperty(key, newAvg.toFixed(2));
+        props.setProperty(countKey, newCount.toString());
+        props.setProperty(totalKey, newTotal.toString());
+        
+        logDebug(`API Stats: Время ${marketplace}: ${responseTime}ms (среднее: ${newAvg.toFixed(2)}ms)`, LOG_CONFIG.CATEGORIES.SYSTEM);
+      } catch (error) {
+        logWarning(`Ошибка записи времени ответа: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+      }
+    },
+    
+    /**
+     * Получает статистику для маркетплейса
+     * @param {string} marketplace - 'ozon' или 'wildberries' или 'all' для общей статистики
+     * @returns {Object} Объект со статистикой
+     */
+    getStats: function(marketplace) {
+      try {
+        const props = PropertiesService.getScriptProperties();
+        
+        if (marketplace === 'all') {
+          // Общая статистика по всем маркетплейсам
+          const ozStats = this.getStats('ozon');
+          const wbStats = this.getStats('wildberries');
+          
+          return {
+            total: {
+              requests: ozStats.requests + wbStats.requests,
+              errors: ozStats.errors + wbStats.errors,
+              averageResponseTime: ((ozStats.averageResponseTime * ozStats.requests) + 
+                                   (wbStats.averageResponseTime * wbStats.requests)) / 
+                                   (ozStats.requests + wbStats.requests) || 0
+            },
+            ozon: ozStats,
+            wildberries: wbStats
+          };
+        } else {
+          // Статистика для конкретного маркетплейса
+          const marketplace_upper = marketplace.toUpperCase();
+          
+          const requests = parseInt(props.getProperty(`API_REQUESTS_${marketplace_upper}`) || '0');
+          const errors = parseInt(props.getProperty(`API_ERRORS_${marketplace_upper}`) || '0');
+          const averageResponseTime = parseFloat(props.getProperty(`API_AVG_TIME_${marketplace_upper}`) || '0');
+          const timeCount = parseInt(props.getProperty(`API_TIME_COUNT_${marketplace_upper}`) || '0');
+          const totalResponseTime = parseInt(props.getProperty(`API_TOTAL_TIME_${marketplace_upper}`) || '0');
+          
+          return {
+            marketplace: marketplace,
+            requests: requests,
+            errors: errors,
+            averageResponseTime: averageResponseTime,
+            totalResponseTime: totalResponseTime,
+            timeCount: timeCount,
+            // Дополнительные поля для совместимости с getOzonApiStatistics
+            lastRequestTime: timeCount > 0 ? new Date() : null
+          };
+        }
+      } catch (error) {
+        logError(`Ошибка получения статистики API: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+        return {
+          marketplace: marketplace,
+          requests: 0,
+          errors: 0,
+          averageResponseTime: 0,
+          totalResponseTime: 0,
+          timeCount: 0,
+          lastRequestTime: null
+        };
+      }
+    },
+    
+    /**
+     * Очищает статистику API
+     * @param {string} marketplace - 'ozon', 'wildberries' или 'all'
+     */
+    resetStats: function(marketplace) {
+      try {
+        const props = PropertiesService.getScriptProperties();
+        
+        if (marketplace === 'all') {
+          // Очищаем статистику для всех маркетплейсов
+          ['OZON', 'WILDBERRIES'].forEach(mp => {
+            props.deleteProperty(`API_REQUESTS_${mp}`);
+            props.deleteProperty(`API_ERRORS_${mp}`);
+            props.deleteProperty(`API_AVG_TIME_${mp}`);
+            props.deleteProperty(`API_TIME_COUNT_${mp}`);
+            props.deleteProperty(`API_TOTAL_TIME_${mp}`);
+          });
+        } else {
+          // Очищаем статистику для конкретного маркетплейса
+          const marketplace_upper = marketplace.toUpperCase();
+          props.deleteProperty(`API_REQUESTS_${marketplace_upper}`);
+          props.deleteProperty(`API_ERRORS_${marketplace_upper}`);
+          props.deleteProperty(`API_AVG_TIME_${marketplace_upper}`);
+          props.deleteProperty(`API_TIME_COUNT_${marketplace_upper}`);
+          props.deleteProperty(`API_TOTAL_TIME_${marketplace_upper}`);
+        }
+        
+        logInfo(`API статистика очищена для: ${marketplace}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+      } catch (error) {
+        logError(`Ошибка очистки статистики API: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+      }
+    }
+  };
+}
