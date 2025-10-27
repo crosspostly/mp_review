@@ -484,25 +484,36 @@ jobs:
         # Подсчет успешных тестов
         success_count=0
         total_count=5
+        exit_code=0
         
         if [ "${{ needs.code-analysis.result }}" = "success" ]; then
           ((success_count++))
+        else
+          exit_code=1
         fi
         
         if [ "${{ needs.unit-tests.result }}" = "success" ]; then
           ((success_count++))
+        else
+          exit_code=1
         fi
         
         if [ "${{ needs.security-tests.result }}" = "success" ]; then
           ((success_count++))
+        else
+          exit_code=1
         fi
         
         if [ "${{ needs.performance-tests.result }}" = "success" ]; then
           ((success_count++))
+        else
+          exit_code=1
         fi
         
         if [ "${{ needs.documentation.result }}" = "success" ]; then
           ((success_count++))
+        else
+          exit_code=1
         fi
         
         success_rate=$((success_count * 100 / total_count))
@@ -513,18 +524,26 @@ jobs:
         if [ $success_rate -eq 100 ]; then
           echo "🎉 ВСЕ ТЕСТЫ ПРОЙДЕНЫ УСПЕШНО!"
           echo "✅ Система готова к развертыванию"
+          exit_code=0
         elif [ $success_rate -ge 80 ]; then
           echo "⚠️ Большинство тестов пройдено ($success_rate%)"
           echo "🔧 Требуется исправление $((total_count - success_count)) тестов"
+          exit_code=1
         else
           echo "❌ Критический уровень ошибок ($success_rate%)"
           echo "🚨 Требуется серьезная доработка"
+          exit_code=1
         fi
-        
-        # Всегда успешный exit для GitHub Actions
-        echo ""
-        echo "ℹ️ CI проверка завершена успешно"
-        exit 0
         
         echo ""
         echo "🎯 ===== КОНЕЦ ОТЧЕТА ====="
+        echo ""
+        
+        # Возвращаем правильный exit code
+        if [ $exit_code -eq 0 ]; then
+          echo "✅ CI проверка завершена успешно"
+        else
+          echo "❌ CI проверка завершена с ошибками"
+        fi
+        
+        exit $exit_code
