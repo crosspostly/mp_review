@@ -1170,7 +1170,7 @@ function setupStoresSheetHeaders() {
 }
 
 /**
- * Создает базовую конфигурацию системы
+ * ✅ ДОДЕЛАНО: Создает базовую конфигурацию системы
  */
 function createBaseConfiguration() {
   try {
@@ -1181,9 +1181,70 @@ function createBaseConfiguration() {
       props.setProperty('SYSTEM_VERSION', '2.0');
       props.setProperty('SYSTEM_INITIALIZED', 'true');
       props.setProperty('INITIALIZATION_DATE', new Date().toISOString());
+      logSuccess('Базовая конфигурация системы создана', LOG_CONFIG.CATEGORIES.SYSTEM);
     }
     
   } catch (error) {
     logError(`Ошибка создания базовой конфигурации: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+  }
+}
+
+/**
+ * ✅ ДОДЕЛАНО: Алиас для инициализации системной конфигурации
+ */
+function initializeSystemConfiguration() {
+  logInfo('Инициализация системной конфигурации', LOG_CONFIG.CATEGORIES.SYSTEM);
+  createBaseConfiguration();
+  
+  // Дополнительная инициализация
+  try {
+    // Проверяем что все нужные листы созданы
+    ensureSystemSheetsExist();
+    
+    // Инициализируем кеши для всех активных магазинов
+    const activeStores = getActiveStores();
+    activeStores.forEach(store => {
+      initializeCacheForStore(store.id);
+    });
+    
+    logSuccess('Системная конфигурация полностью инициализирована', LOG_CONFIG.CATEGORIES.SYSTEM);
+  } catch (error) {
+    logError(`Ошибка инициализации системной конфигурации: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+  }
+}
+
+/**
+ * ✅ ДОДЕЛАНО: Проверяет и создает системные листы если они отсутствуют
+ */
+function ensureSystemSheetsExist() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const requiredSheets = [CONFIG.SHEETS.STORES, CONFIG.SHEETS.SETTINGS, CONFIG.SHEETS.LOGS];
+    
+    requiredSheets.forEach(sheetName => {
+      let sheet = ss.getSheetByName(sheetName);
+      if (!sheet) {
+        sheet = ss.insertSheet(sheetName);
+        
+        // Инициализируем заголовки для разных типов листов
+        if (sheetName === CONFIG.SHEETS.STORES) {
+          sheet.getRange(1, 1, 1, 6).setValues([
+            ['ID', 'Название', 'Маркетплейс', 'API Key', 'Client ID', 'Активен']
+          ]);
+        } else if (sheetName === CONFIG.SHEETS.SETTINGS) {
+          sheet.getRange(1, 1, 1, 3).setValues([
+            ['Параметр', 'Значение', 'Описание']
+          ]);
+        } else if (sheetName === CONFIG.SHEETS.LOGS) {
+          sheet.getRange(1, 1, 1, 4).setValues([
+            ['Время', 'Уровень', 'Категория', 'Сообщение']
+          ]);
+        }
+        
+        logInfo(`Создан системный лист: ${sheetName}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+      }
+    });
+  } catch (error) {
+    logError(`Ошибка создания системных листов: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
   }
 }
