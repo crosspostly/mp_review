@@ -61,6 +61,13 @@ function onOpen() {
         .addItem('📊 Системная диагностика', 'runSystemDiagnostics')
         .addItem('🔄 Сброс кешей', 'clearAllCaches'))
       
+      // Режим разработчика
+      .addSubMenu(ui.createMenu('🛠️ Режим разработчика')
+        .addItem('✅ Включить', 'enableDevMode')
+        .addItem('❌ Выключить', 'disableDevMode')
+        .addItem('📊 Статус', 'showDevModeStatus')
+        .addItem('🐞 Показать логи', 'showLogsSheet'))
+      
       .addSeparator()
       .addItem('❓ Справка', 'showHelp');
     
@@ -159,8 +166,8 @@ function testStoreConnection(credentials, marketplace) {
         return { success: false, message: 'API ключ не указан' };
       }
       
-      // Простой тест WB API
-      const url = `${WB_CONFIG.API_BASE_URL}${WB_CONFIG.ENDPOINTS.GET_FEEDBACKS}?take=1&skip=0`;
+      // Простой тест WB API - ИСПРАВЛЕНО: добавлен обязательный параметр isAnswered
+      const url = `${WB_CONFIG.API_BASE_URL}${WB_CONFIG.ENDPOINTS.GET_FEEDBACKS}?isAnswered=false&take=1&skip=0`;
       
       const response = UrlFetchApp.fetch(url, {
         method: 'GET',
@@ -168,10 +175,21 @@ function testStoreConnection(credentials, marketplace) {
         muteHttpExceptions: true
       });
       
-      if (response.getResponseCode() === 200) {
-        return { success: true, message: '✅ Подключение к WB API успешно!' };
+      const code = response.getResponseCode();
+      const responseBody = response.getContentText();
+      
+      logInfo(`[WB Test] Статус: ${code}, Ответ: ${responseBody.substring(0, 200)}...`, LOG_CONFIG.CATEGORIES.WB_API);
+      
+      if (code === 200) {
+        return { success: true, message: '✅ Подключение к WB API успешно! Ключ имеет доступ к отзывам.' };
+      } else if (code === 401) {
+        return { success: false, message: '❌ Ошибка 401: Неверный API ключ WB' };
+      } else if (code === 403) {
+        return { success: false, message: '❌ Ошибка 403: API ключ не имеет необходимых разрешений' };
+      } else if (code === 429) {
+        return { success: false, message: '❌ Ошибка 429: Превышен лимит запросов WB API' };
       } else {
-        return { success: false, message: `❌ Ошибка WB API: ${response.getResponseCode()}` };
+        return { success: false, message: `❌ Ошибка WB API: ${code}. ${responseBody.substring(0, 100)}` };
       }
       
     } else if (marketplace === 'Ozon') {
@@ -186,17 +204,30 @@ function testStoreConnection(credentials, marketplace) {
         method: 'POST',
         headers: {
           'Client-Id': credentials.clientId,
-          'Api-Key': credentials.apiKey,
-          'Content-Type': 'application/json'
+          'Api-Key': credentials.apiKey
         },
+        contentType: 'application/json',
         payload: JSON.stringify({ limit: 1 }),
         muteHttpExceptions: true
       });
       
-      if (response.getResponseCode() === 200) {
-        return { success: true, message: '✅ Подключение к Ozon API успешно!' };
+      const code = response.getResponseCode();
+      const responseBody = response.getContentText();
+      
+      logInfo(`[Ozon Test] Статус: ${code}, Ответ: ${responseBody.substring(0, 200)}...`, LOG_CONFIG.CATEGORIES.OZON_API);
+      
+      if (code === 200) {
+        return { success: true, message: '✅ Подключение к Ozon API успешно! Доступ к отзывам подтвержден.' };
+      } else if (code === 401) {
+        return { success: false, message: '❌ Ошибка 401: Неверные Client ID или API Key для Ozon' };
+      } else if (code === 403) {
+        return { success: false, message: '❌ Ошибка 403: Недостаточно прав доступа для Ozon API' };
+      } else if (code === 404) {
+        return { success: false, message: '❌ Ошибка 404: API endpoint не найден. Проверьте URL Ozon API' };
+      } else if (code === 429) {
+        return { success: false, message: '❌ Ошибка 429: Превышен лимит запросов Ozon API' };
       } else {
-        return { success: false, message: `❌ Ошибка Ozon API: ${response.getResponseCode()}` };
+        return { success: false, message: `❌ Ошибка Ozon API: ${code}. ${responseBody.substring(0, 100)}` };
       }
     }
     
@@ -292,12 +323,18 @@ function showActiveStores() {
     
     let message = `Активные магазины (${activeStores.length}):\n\n`;
     
-    activeStores.forEach((store, index) => {
-      message += `${index + 1}. ${store.name}\n`;
-      message += `   Маркетплейс: ${store.marketplace}\n`;
-      message += `   Статус: ${store.isActive ? '✅ Активен' : '❌ Неактивен'}\n`;
-      message += `   Добавлен: ${new Date(store.createdDate).toLocaleDateString('ru-RU')}\n\n`;
-    });
+    // ЗАЩИТА forEach ERROR: Дополнительная проверка что activeStores это массив
+    if (Array.isArray(activeStores)) {
+      activeStores.forEach((store, index) => {
+        message += `${index + 1}. ${store.name}\n`;
+        message += `   Маркетплейс: ${store.marketplace}\n`;
+        message += `   Статус: ${store.isActive ? '✅ Активен' : '❌ Неактивен'}\n`;
+        message += `   Добавлен: ${new Date(store.createdDate).toLocaleDateString('ru-RU')}\n\n`;
+      });
+    } else {
+      logError(`showActiveStores: activeStores не массив, получено: ${typeof activeStores}`, LOG_CONFIG.CATEGORIES.UI);
+      message += `⚠️ Ошибка загрузки списка магазинов`;
+    }
     
     showInfoDialog('Активные магазины', message);
     
@@ -1203,9 +1240,15 @@ function initializeSystemConfiguration() {
     
     // Инициализируем кеши для всех активных магазинов
     const activeStores = getActiveStores();
-    activeStores.forEach(store => {
-      initializeCacheForStore(store.id);
-    });
+    
+    // ЗАЩИТА forEach ERROR: Проверяем что activeStores это массив
+    if (Array.isArray(activeStores)) {
+      activeStores.forEach(store => {
+        initializeCacheForStore(store.id);
+      });
+    } else {
+      logError(`setupSystem: activeStores не массив, получено: ${typeof activeStores}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+    }
     
     logSuccess('Системная конфигурация полностью инициализирована', LOG_CONFIG.CATEGORIES.SYSTEM);
   } catch (error) {
@@ -1257,3 +1300,162 @@ function ensureSystemSheetsExist() {
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
+
+// ============ РЕЖИМ РАЗРАБОТЧИКА ============
+
+/**
+ * Включает режим разработчика
+ */
+function enableDevMode() {
+  setDevMode(true);
+}
+
+/**
+ * Выключает режим разработчика  
+ */
+function disableDevMode() {
+  setDevMode(false);
+}
+
+/**
+ * Устанавливает режим разработчика
+ */
+function setDevMode(enabled) {
+  try {
+    PropertiesService.getUserProperties().setProperty(CONFIG.DEV_MODE_KEY, enabled.toString());
+    const status = enabled ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН';
+    
+    logInfo(`Режим разработчика ${status}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+    
+    SpreadsheetApp.getUi().alert(`🛠️ Режим разработчика ${status}`, 
+      enabled ? 
+        'Включен детальный режим логирования и отладки.\\n\\nВсе операции будут записываться в лист "Логи".' :
+        'Логирование переведено в обычный режим.',
+      SpreadsheetApp.getUi().ButtonSet.OK);
+    
+    // Обновляем индикатор статуса
+    updateDevModeStatus();
+    
+  } catch (error) {
+    logError(`Ошибка установки режима разработчика: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+    SpreadsheetApp.getUi().alert('Ошибка', `Не удалось изменить режим разработчика: ${error.message}`, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+/**
+ * Проверяет включен ли режим разработчика
+ */
+function isDevMode() {
+  try {
+    return PropertiesService.getUserProperties().getProperty(CONFIG.DEV_MODE_KEY) === 'true';
+  } catch (error) {
+    logError(`Ошибка проверки режима разработчика: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+    return false;
+  }
+}
+
+/**
+ * Обновляет индикатор статуса режима разработчика
+ */
+function updateDevModeStatus() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let settingsSheet = ss.getSheetByName(CONFIG.SHEETS.SETTINGS);
+    
+    if (!settingsSheet) {
+      settingsSheet = ss.insertSheet(CONFIG.SHEETS.SETTINGS);
+      settingsSheet.getRange(1, 1, 1, 3).setValues([['Параметр', 'Значение', 'Описание']]);
+    }
+    
+    const devModeStatus = isDevMode() ? "🛠️ РЕЖИМ РАЗРАБОТЧИКА: ВКЛ" : "РЕЖИМ РАЗРАБОТЧИКА: ВЫКЛ";
+    
+    // Обновляем статус в листе настроек
+    settingsSheet.getRange(2, 1).setValue('DEV_MODE');
+    settingsSheet.getRange(2, 2).setValue(devModeStatus);
+    settingsSheet.getRange(2, 3).setValue('Включает подробное логирование для отладки');
+    
+    logDebug(`Обновлен индикатор режима разработчика: ${devModeStatus}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+    
+  } catch (error) {
+    logError(`Ошибка обновления индикатора режима разработчика: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+  }
+}
+
+/**
+ * Показывает текущий статус режима разработчика
+ */
+function showDevModeStatus() {
+  try {
+    const isEnabled = isDevMode();
+    const status = isEnabled ? 'ВКЛЮЧЕН ✅' : 'ВЫКЛЮЧЕН ❌';
+    
+    let message = `🛠️ РЕЖИМ РАЗРАБОТЧИКА: ${status}\\n\\n`;
+    
+    if (isEnabled) {
+      message += `📊 АКТИВНЫЕ ВОЗМОЖНОСТИ:\\n`;
+      message += `• Подробное логирование всех операций\\n`;
+      message += `• Детальные сообщения об ошибках\\n`;
+      message += `• Расширенная диагностическая информация\\n`;
+      message += `• Логи записываются в лист "Логи"\\n\\n`;
+      message += `💡 Для выключения используйте:\\n`;
+      message += `   Меню → Режим разработчика → Выключить`;
+    } else {
+      message += `📊 ТЕКУЩИЙ РЕЖИМ:\\n`;
+      message += `• Обычное логирование (только важные события)\\n`;
+      message += `• Минимальный объем отладочной информации\\n\\n`;
+      message += `💡 Для включения используйте:\\n`;
+      message += `   Меню → Режим разработчика → Включить`;
+    }
+    
+    SpreadsheetApp.getUi().alert('Статус режима разработчика', message, SpreadsheetApp.getUi().ButtonSet.OK);
+    
+  } catch (error) {
+    logError(`Ошибка показа статуса режима разработчика: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+    SpreadsheetApp.getUi().alert('Ошибка', 'Не удалось получить статус режима разработчика', SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+/**
+ * Показывает лист с логами
+ */
+function showLogsSheet() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let logsSheet = ss.getSheetByName(CONFIG.SHEETS.LOGS);
+    
+    if (!logsSheet) {
+      // Создаем лист логов если его нет
+      logsSheet = ss.insertSheet(CONFIG.SHEETS.LOGS);
+      logsSheet.getRange(1, 1, 1, 4).setValues([['Время', 'Уровень', 'Категория', 'Сообщение']]);
+      
+      logInfo('Создан новый лист логов', LOG_CONFIG.CATEGORIES.SYSTEM);
+    }
+    
+    // Активируем лист логов
+    ss.setActiveSheet(logsSheet);
+    
+    const rowCount = logsSheet.getLastRow();
+    let message = `📝 ЛИСТ ЛОГОВ АКТИВИРОВАН\\n\\n`;
+    message += `📊 Всего записей: ${rowCount > 1 ? rowCount - 1 : 0}\\n`;
+    
+    if (rowCount > 1) {
+      message += `📅 Последняя запись: ${logsSheet.getRange(rowCount, 1).getValue()}\\n`;
+      message += `\\n💡 Лист автоматически активирован - можете просмотреть все логи`;
+    } else {
+      message += `\\n💡 Лист логов пуст. Записи будут появляться по мере работы системы.`;
+    }
+    
+    // Если режим разработчика выключен, предлагаем включить
+    if (!isDevMode()) {
+      message += `\\n\\n⚠️ Режим разработчика ВЫКЛЮЧЕН\\n`;
+      message += `Для подробного логирования включите режим разработчика`;
+    }
+    
+    SpreadsheetApp.getUi().alert('Лист логов', message, SpreadsheetApp.getUi().ButtonSet.OK);
+    
+    logInfo('Пользователь открыл лист логов', LOG_CONFIG.CATEGORIES.UI);
+    
+  } catch (error) {
+    logError(`Ошибка открытия листа логов: ${error.message}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+    SpreadsheetApp.getUi().alert('Ошибка', 'Не удалось открыть лист логов', SpreadsheetApp.getUi().ButtonSet.OK);
+  }
