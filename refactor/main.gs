@@ -120,7 +120,7 @@ function showStoreManagerSidebar() {
   try {
     logInfo('Открытие панели управления магазинами', LOG_CONFIG.CATEGORIES.UI);
     
-    const html = HtmlService.createTemplateFromFile('StoreManagerSidebar');
+    const html = HtmlService.createTemplateFromFile('refactor/StoreManagerSidebar');
     const htmlOutput = html.evaluate()
       .setTitle('🏪 Управление магазинами')
       .setWidth(400);
