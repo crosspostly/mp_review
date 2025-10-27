@@ -17,13 +17,13 @@
  * @returns {Object} Результат настройки триггеров
  */
 function setupCompleteTriggersSystem(intervalMinutes = TRIGGER_CONFIG.INTERVAL_MINUTES) {
-  const timer = new PerformanceTimer('setupCompleteTriggersSystem');
+  var timer = new PerformanceTimer('setupCompleteTriggersSystem');
   
   try {
     logInfo('Настройка полной системы триггеров', LOG_CONFIG.CATEGORIES.TRIGGER);
     
     // Получаем активные магазины
-    const activeStores = getActiveStores();
+    var activeStores = getActiveStores();
     if (activeStores.length === 0) {
       logWarning('Нет активных магазинов для настройки триггеров', LOG_CONFIG.CATEGORIES.TRIGGER);
       return {
@@ -33,14 +33,14 @@ function setupCompleteTriggersSystem(intervalMinutes = TRIGGER_CONFIG.INTERVAL_M
       };
     }
     
-    logInfo(`Найдено ${activeStores.length} активных магазинов`, LOG_CONFIG.CATEGORIES.TRIGGER);
+    logInfo('Найдено ' + activeStores.length + ' активных магазинов', LOG_CONFIG.CATEGORIES.TRIGGER);
     
     // Удаляем все существующие триггеры
-    const deletedCount = deleteAllSystemTriggers();
-    logInfo(`Удалено старых триггеров: ${deletedCount}`, LOG_CONFIG.CATEGORIES.TRIGGER);
+    var deletedCount = deleteAllSystemTriggers();
+    logInfo('Удалено старых триггеров: ' + deletedCount, LOG_CONFIG.CATEGORIES.TRIGGER);
     
     // Создаем новые триггеры
-    const results = {
+    var results = {
       collectTrigger: null,
       prepareTrigger: null, 
       sendTrigger: null
@@ -76,9 +76,9 @@ function setupCompleteTriggersSystem(intervalMinutes = TRIGGER_CONFIG.INTERVAL_M
       version: '2.0'
     });
     
-    const successCount = Object.values(results).filter(t => t?.success).length;
+    var successCount = Object.values(results).filter(function(t) { return t?.success; }).length;
     
-    logSuccess(`Система триггеров настроена: ${successCount}/3 триггеров созданы`, LOG_CONFIG.CATEGORIES.TRIGGER);
+    logSuccess('Система триггеров настроена: ' + successCount + '/3 триггеров созданы', LOG_CONFIG.CATEGORIES.TRIGGER);
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     
     return {
@@ -90,7 +90,7 @@ function setupCompleteTriggersSystem(intervalMinutes = TRIGGER_CONFIG.INTERVAL_M
     };
     
   } catch (error) {
-    logError(`Ошибка настройки системы триггеров: ${error.message}`, LOG_CONFIG.CATEGORIES.TRIGGER);
+    logError('Ошибка настройки системы триггеров: ' + error.message, LOG_CONFIG.CATEGORIES.TRIGGER);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     
     return {
@@ -105,19 +105,19 @@ function setupCompleteTriggersSystem(intervalMinutes = TRIGGER_CONFIG.INTERVAL_M
  * ТРИГГЕР 1: Сбор отзывов со всех активных магазинов
  */
 function hourlyReviewCollector() {
-  const timer = new PerformanceTimer('hourlyReviewCollector');
+  var timer = new PerformanceTimer('hourlyReviewCollector');
   
   try {
     logTrigger('COLLECT', 'Запуск сбора отзывов', LOG_CONFIG.LEVELS.INFO);
     
-    const activeStores = getActiveStores();
+    var activeStores = getActiveStores();
     if (activeStores.length === 0) {
       logTrigger('COLLECT', 'Нет активных магазинов для обработки', LOG_CONFIG.LEVELS.WARNING);
       timer.finish(LOG_CONFIG.LEVELS.WARNING);
       return;
     }
     
-    const results = {
+    var results = {
       totalStores: activeStores.length,
       processedStores: 0,
       totalReviews: 0,
@@ -125,30 +125,31 @@ function hourlyReviewCollector() {
       errors: []
     };
     
-    const maxExecutionTime = TRIGGER_CONFIG.MAX_EXECUTION_TIME;
-    const startTime = Date.now();
+    var maxExecutionTime = TRIGGER_CONFIG.MAX_EXECUTION_TIME;
+    var startTime = Date.now();
     
     // Обрабатываем магазины последовательно
-    for (const store of activeStores) {
-      const elapsedTime = Date.now() - startTime;
+    for (var __i = 0; __i < activeStores.length; __i++) {
+      var store = activeStores[__i];
+      var elapsedTime = Date.now() - startTime;
       if (elapsedTime > maxExecutionTime) {
-        logTrigger('COLLECT', `Превышено время выполнения, остановка на магазине ${store.name}`, LOG_CONFIG.LEVELS.WARNING);
+        logTrigger('COLLECT', 'Превышено время выполнения, остановка на магазине ' + store.name, LOG_CONFIG.LEVELS.WARNING);
         break;
       }
       
       try {
-        logTrigger('COLLECT', `Обработка магазина: ${store.name} (${store.marketplace})`, LOG_CONFIG.LEVELS.INFO);
+        logTrigger('COLLECT', 'Обработка магазина: ' + store.name + ' (' + store.marketplace + ')', LOG_CONFIG.LEVELS.INFO);
         
-        const storeResults = collectReviewsForStore(store);
+        var storeResults = collectReviewsForStore(store);
         
         results.processedStores++;
         results.totalReviews += storeResults.totalReviews;
         results.newReviews += storeResults.newReviews;
         
-        logTrigger('COLLECT', `${store.name}: ${storeResults.newReviews}/${storeResults.totalReviews} новых отзывов`, LOG_CONFIG.LEVELS.SUCCESS);
+        logTrigger('COLLECT', store.name + ': ' + storeResults.newReviews + '/' + storeResults.totalReviews + ' новых отзывов', LOG_CONFIG.LEVELS.SUCCESS);
         
       } catch (error) {
-        const errorMsg = `Ошибка обработки ${store.name}: ${error.message}`;
+        var errorMsg = 'Ошибка обработки ' + store.name + ': ' + error.message;
         results.errors.push(errorMsg);
         logTrigger('COLLECT', errorMsg, LOG_CONFIG.LEVELS.ERROR);
       }
@@ -157,14 +158,14 @@ function hourlyReviewCollector() {
       Utilities.sleep(500);
     }
     
-    const totalTime = Date.now() - startTime;
-    logTrigger('COLLECT', `Завершено за ${Math.round(totalTime/1000)}с: ${results.processedStores} магазинов, ${results.newReviews} новых отзывов`, LOG_CONFIG.LEVELS.SUCCESS);
+    var totalTime = Date.now() - startTime;
+    logTrigger('COLLECT', 'Завершено за ' + Math.round(totalTime/1000) + 'с: ' + results.processedStores + ' магазинов, ' + results.newReviews + ' новых отзывов', LOG_CONFIG.LEVELS.SUCCESS);
     
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     return results;
     
   } catch (error) {
-    logTrigger('COLLECT', `Критическая ошибка: ${error.message}`, LOG_CONFIG.LEVELS.ERROR);
+    logTrigger('COLLECT', 'Критическая ошибка: ' + error.message, LOG_CONFIG.LEVELS.ERROR);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     throw error;
   }
@@ -174,19 +175,19 @@ function hourlyReviewCollector() {
  * ТРИГГЕР 2: Подготовка ответов для новых отзывов
  */
 function selectReviewAnswers() {
-  const timer = new PerformanceTimer('selectReviewAnswers');
+  var timer = new PerformanceTimer('selectReviewAnswers');
   
   try {
     logTrigger('PREPARE', 'Запуск подготовки ответов', LOG_CONFIG.LEVELS.INFO);
     
-    const activeStores = getActiveStores();
+    var activeStores = getActiveStores();
     if (activeStores.length === 0) {
       logTrigger('PREPARE', 'Нет активных магазинов для обработки', LOG_CONFIG.LEVELS.WARNING);
       timer.finish(LOG_CONFIG.LEVELS.WARNING);
       return;
     }
     
-    const results = {
+    var results = {
       totalStores: activeStores.length,
       processedStores: 0,
       totalReviews: 0,
@@ -194,30 +195,31 @@ function selectReviewAnswers() {
       errors: []
     };
     
-    const maxExecutionTime = TRIGGER_CONFIG.MAX_EXECUTION_TIME;
-    const startTime = Date.now();
+    var maxExecutionTime = TRIGGER_CONFIG.MAX_EXECUTION_TIME;
+    var startTime = Date.now();
     
     // Обрабатываем магазины
-    for (const store of activeStores) {
-      const elapsedTime = Date.now() - startTime;
+    for (var __i = 0; __i < activeStores.length; __i++) {
+      var store = activeStores[__i];
+      var elapsedTime = Date.now() - startTime;
       if (elapsedTime > maxExecutionTime) {
-        logTrigger('PREPARE', `Превышено время выполнения, остановка на магазине ${store.name}`, LOG_CONFIG.LEVELS.WARNING);
+        logTrigger('PREPARE', 'Превышено время выполнения, остановка на магазине ' + store.name, LOG_CONFIG.LEVELS.WARNING);
         break;
       }
       
       try {
-        logTrigger('PREPARE', `Подготовка ответов для: ${store.name}`, LOG_CONFIG.LEVELS.INFO);
+        logTrigger('PREPARE', 'Подготовка ответов для: ' + store.name, LOG_CONFIG.LEVELS.INFO);
         
-        const storeResults = prepareAnswersForStore(store);
+        var storeResults = prepareAnswersForStore(store);
         
         results.processedStores++;
         results.totalReviews += storeResults.totalReviews;
         results.preparedAnswers += storeResults.preparedAnswers;
         
-        logTrigger('PREPARE', `${store.name}: ${storeResults.preparedAnswers}/${storeResults.totalReviews} ответов подготовлено`, LOG_CONFIG.LEVELS.SUCCESS);
+        logTrigger('PREPARE', store.name + ': ' + storeResults.preparedAnswers + '/' + storeResults.totalReviews + ' ответов подготовлено', LOG_CONFIG.LEVELS.SUCCESS);
         
       } catch (error) {
-        const errorMsg = `Ошибка подготовки для ${store.name}: ${error.message}`;
+        var errorMsg = 'Ошибка подготовки для ' + store.name + ': ' + error.message;
         results.errors.push(errorMsg);
         logTrigger('PREPARE', errorMsg, LOG_CONFIG.LEVELS.ERROR);
       }
@@ -226,14 +228,14 @@ function selectReviewAnswers() {
       Utilities.sleep(300);
     }
     
-    const totalTime = Date.now() - startTime;
-    logTrigger('PREPARE', `Завершено за ${Math.round(totalTime/1000)}с: ${results.processedStores} магазинов, ${results.preparedAnswers} ответов готовы`, LOG_CONFIG.LEVELS.SUCCESS);
+    var totalTime = Date.now() - startTime;
+    logTrigger('PREPARE', 'Завершено за ' + Math.round(totalTime/1000) + 'с: ' + results.processedStores + ' магазинов, ' + results.preparedAnswers + ' ответов готовы', LOG_CONFIG.LEVELS.SUCCESS);
     
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     return results;
     
   } catch (error) {
-    logTrigger('PREPARE', `Критическая ошибка: ${error.message}`, LOG_CONFIG.LEVELS.ERROR);
+    logTrigger('PREPARE', 'Критическая ошибка: ' + error.message, LOG_CONFIG.LEVELS.ERROR);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     throw error;
   }
@@ -243,19 +245,19 @@ function selectReviewAnswers() {
  * ТРИГГЕР 3: Отправка подготовленных ответов
  */
 function sendReviewAnswers() {
-  const timer = new PerformanceTimer('sendReviewAnswers');
+  var timer = new PerformanceTimer('sendReviewAnswers');
   
   try {
     logTrigger('SEND', 'Запуск отправки ответов', LOG_CONFIG.LEVELS.INFO);
     
-    const activeStores = getActiveStores();
+    var activeStores = getActiveStores();
     if (activeStores.length === 0) {
       logTrigger('SEND', 'Нет активных магазинов для обработки', LOG_CONFIG.LEVELS.WARNING);
       timer.finish(LOG_CONFIG.LEVELS.WARNING);
       return;
     }
     
-    const results = {
+    var results = {
       totalStores: activeStores.length,
       processedStores: 0,
       totalPending: 0,
@@ -263,47 +265,48 @@ function sendReviewAnswers() {
       errors: []
     };
     
-    const maxExecutionTime = TRIGGER_CONFIG.MAX_EXECUTION_TIME;
-    const startTime = Date.now();
+    var maxExecutionTime = TRIGGER_CONFIG.MAX_EXECUTION_TIME;
+    var startTime = Date.now();
     
     // Обрабатываем магазины
-    for (const store of activeStores) {
-      const elapsedTime = Date.now() - startTime;
+    for (var __i = 0; __i < activeStores.length; __i++) {
+      var store = activeStores[__i];
+      var elapsedTime = Date.now() - startTime;
       if (elapsedTime > maxExecutionTime) {
-        logTrigger('SEND', `Превышено время выполнения, остановка на магазине ${store.name}`, LOG_CONFIG.LEVELS.WARNING);
+        logTrigger('SEND', 'Превышено время выполнения, остановка на магазине ' + store.name, LOG_CONFIG.LEVELS.WARNING);
         break;
       }
       
       try {
-        logTrigger('SEND', `Отправка ответов для: ${store.name}`, LOG_CONFIG.LEVELS.INFO);
+        logTrigger('SEND', 'Отправка ответов для: ' + store.name, LOG_CONFIG.LEVELS.INFO);
         
-        const storeResults = sendAnswersForStore(store);
+        var storeResults = sendAnswersForStore(store);
         
         results.processedStores++;
         results.totalPending += storeResults.totalPending;
         results.sentAnswers += storeResults.sentAnswers;
         
-        logTrigger('SEND', `${store.name}: ${storeResults.sentAnswers}/${storeResults.totalPending} ответов отправлено`, LOG_CONFIG.LEVELS.SUCCESS);
+        logTrigger('SEND', store.name + ': ' + storeResults.sentAnswers + '/' + storeResults.totalPending + ' ответов отправлено', LOG_CONFIG.LEVELS.SUCCESS);
         
       } catch (error) {
-        const errorMsg = `Ошибка отправки для ${store.name}: ${error.message}`;
+        var errorMsg = 'Ошибка отправки для ' + store.name + ': ' + error.message;
         results.errors.push(errorMsg);
         logTrigger('SEND', errorMsg, LOG_CONFIG.LEVELS.ERROR);
       }
       
       // Rate limiting между магазинами и запросами
-      const delay = getApiDelay(store.marketplace);
+      var delay = getApiDelay(store.marketplace);
       Utilities.sleep(delay);
     }
     
-    const totalTime = Date.now() - startTime;
-    logTrigger('SEND', `Завершено за ${Math.round(totalTime/1000)}с: ${results.processedStores} магазинов, ${results.sentAnswers} ответов отправлено`, LOG_CONFIG.LEVELS.SUCCESS);
+    var totalTime = Date.now() - startTime;
+    logTrigger('SEND', 'Завершено за ' + Math.round(totalTime/1000) + 'с: ' + results.processedStores + ' магазинов, ' + results.sentAnswers + ' ответов отправлено', LOG_CONFIG.LEVELS.SUCCESS);
     
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     return results;
     
   } catch (error) {
-    logTrigger('SEND', `Критическая ошибка: ${error.message}`, LOG_CONFIG.LEVELS.ERROR);
+    logTrigger('SEND', 'Критическая ошибка: ' + error.message, LOG_CONFIG.LEVELS.ERROR);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
     throw error;
   }
@@ -316,25 +319,25 @@ function sendReviewAnswers() {
  */
 function collectReviewsForStore(store) {
   try {
-    let newReviews = [];
+    var newReviews = [];
     
     if (store.marketplace === 'Wildberries') {
       newReviews = getWbFeedbacks(store, false);
     } else if (store.marketplace === 'Ozon') {
       newReviews = getOzonFeedbacks(store, false);
     } else {
-      throw new Error(`Неподдерживаемый маркетплейс: ${store.marketplace}`);
+      throw new Error('Неподдерживаемый маркетплейс: ' + store.marketplace);
     }
     
     // Фильтруем новые отзывы через кеш
-    const filteredReviews = filterNewReviewsForStore(store.id, newReviews);
+    var filteredReviews = filterNewReviewsForStore(store.id, newReviews);
     
     // Сохраняем новые отзывы в Google Sheets
     if (filteredReviews.length > 0) {
       saveReviewsToSheet(store, filteredReviews);
       
       // Обновляем кеш
-      const reviewIds = filteredReviews.map(r => r.id);
+      var reviewIds = filteredReviews.map(r => r.id);
       addToReviewIdsCacheForStore(store.id, reviewIds);
     }
     
@@ -344,7 +347,7 @@ function collectReviewsForStore(store) {
     };
     
   } catch (error) {
-    logError(`Ошибка сбора отзывов для магазина ${store.id}: ${error.message}`, LOG_CONFIG.CATEGORIES.TRIGGER);
+    logError('Ошибка сбора отзывов для магазина ' + store.id + ': ' + error.message, LOG_CONFIG.CATEGORIES.TRIGGER);
     throw error;
   }
 }
@@ -355,14 +358,15 @@ function collectReviewsForStore(store) {
 function prepareAnswersForStore(store) {
   try {
     // Получаем отзывы со статусом NEW из Google Sheets
-    const newReviews = getReviewsFromSheetByStatus(store, CONFIG.STATUS.NEW);
+    var newReviews = getReviewsFromSheetByStatus(store, CONFIG.STATUS.NEW);
     
-    let preparedCount = 0;
+    var preparedCount = 0;
     
-    for (const review of newReviews) {
+    for (var __i = 0; __i < newReviews.length; __i++) {
+      var review = newReviews[__i];
       try {
         // Подбираем шаблон ответа
-        const answerTemplate = selectAnswerTemplate(review, store);
+        var answerTemplate = selectAnswerTemplate(review, store);
         
         if (answerTemplate) {
           // Обновляем статус и добавляем ответ
@@ -381,7 +385,7 @@ function prepareAnswersForStore(store) {
         }
         
       } catch (error) {
-        logWarning(`Ошибка подготовки ответа для отзыва ${review.id}: ${error.message}`, LOG_CONFIG.CATEGORIES.TRIGGER);
+        logWarning('Ошибка подготовки ответа для отзыва ' + review.id + ': ' + error.message, LOG_CONFIG.CATEGORIES.TRIGGER);
         
         updateReviewInSheet(store, review.id, {
           status: CONFIG.STATUS.ERROR,
@@ -396,7 +400,7 @@ function prepareAnswersForStore(store) {
     };
     
   } catch (error) {
-    logError(`Ошибка подготовки ответов для магазина ${store.id}: ${error.message}`, LOG_CONFIG.CATEGORIES.TRIGGER);
+    logError('Ошибка подготовки ответов для магазина ' + store.id + ': ' + error.message, LOG_CONFIG.CATEGORIES.TRIGGER);
     throw error;
   }
 }
@@ -407,24 +411,25 @@ function prepareAnswersForStore(store) {
 function sendAnswersForStore(store) {
   try {
     // Получаем отзывы готовые к отправке
-    const pendingReviews = getReviewsFromSheetByStatus(store, CONFIG.STATUS.PENDING);
+    var pendingReviews = getReviewsFromSheetByStatus(store, CONFIG.STATUS.PENDING);
     
     // Ограничиваем количество для контроля времени выполнения
-    const batchSize = getBatchSize('send');
-    const reviewsToSend = pendingReviews.slice(0, batchSize);
+    var batchSize = getBatchSize('send');
+    var reviewsToSend = pendingReviews.slice(0, batchSize);
     
-    let sentCount = 0;
+    var sentCount = 0;
     
-    for (const review of reviewsToSend) {
+    for (var __i = 0; __i < reviewsToSend.length; __i++) {
+      var review = reviewsToSend[__i];
       try {
-        let sendResult = null;
+        var sendResult = null;
         
         if (store.marketplace === 'Wildberries') {
           sendResult = sendWbFeedbackAnswer(review.id, review.answer, store);
         } else if (store.marketplace === 'Ozon') {
           sendResult = sendOzonFeedbackAnswer(review.id, review.answer, store);
         } else {
-          throw new Error(`Неподдерживаемый маркетплейс: ${store.marketplace}`);
+          throw new Error('Неподдерживаемый маркетплейс: ' + store.marketplace);
         }
         
         if (sendResult.success) {
@@ -441,11 +446,11 @@ function sendAnswersForStore(store) {
         }
         
         // Rate limiting между отправками
-        const delay = getApiDelay(store.marketplace);
+        var delay = getApiDelay(store.marketplace);
         Utilities.sleep(delay);
         
       } catch (error) {
-        logWarning(`Ошибка отправки ответа для отзыва ${review.id}: ${error.message}`, LOG_CONFIG.CATEGORIES.TRIGGER);
+        logWarning('Ошибка отправки ответа для отзыва ' + review.id + ': ' + error.message, LOG_CONFIG.CATEGORIES.TRIGGER);
         
         updateReviewInSheet(store, review.id, {
           status: CONFIG.STATUS.ERROR,
@@ -460,7 +465,7 @@ function sendAnswersForStore(store) {
     };
     
   } catch (error) {
-    logError(`Ошибка отправки ответов для магазина ${store.id}: ${error.message}`, LOG_CONFIG.CATEGORIES.TRIGGER);
+    logError('Ошибка отправки ответов для магазина ' + store.id + ': ' + error.message, LOG_CONFIG.CATEGORIES.TRIGGER);
     throw error;
   }
 }
@@ -472,12 +477,12 @@ function sendAnswersForStore(store) {
  */
 function createTrigger(functionName, intervalMinutes, description = '') {
   try {
-    const trigger = ScriptApp.newTrigger(functionName)
+    var trigger = ScriptApp.newTrigger(functionName)
       .timeBased()
       .everyMinutes(intervalMinutes)
       .create();
     
-    logTrigger('CREATE', `Создан триггер: ${functionName} (каждые ${intervalMinutes} мин)`, LOG_CONFIG.LEVELS.SUCCESS);
+    logTrigger('CREATE', 'Создан триггер: ' + functionName + ' (каждые ' + intervalMinutes + ' мин)', LOG_CONFIG.LEVELS.SUCCESS);
     
     return {
       success: true,
@@ -488,7 +493,7 @@ function createTrigger(functionName, intervalMinutes, description = '') {
     };
     
   } catch (error) {
-    logTrigger('CREATE', `Ошибка создания триггера ${functionName}: ${error.message}`, LOG_CONFIG.LEVELS.ERROR);
+    logTrigger('CREATE', 'Ошибка создания триггера ' + functionName + ': ' + error.message, LOG_CONFIG.LEVELS.ERROR);
     
     return {
       success: false,
@@ -503,24 +508,25 @@ function createTrigger(functionName, intervalMinutes, description = '') {
  */
 function deleteAllSystemTriggers() {
   try {
-    const allTriggers = ScriptApp.getProjectTriggers();
-    const systemFunctions = ['hourlyReviewCollector', 'selectReviewAnswers', 'sendReviewAnswers', 'processAllStores'];
+    var allTriggers = ScriptApp.getProjectTriggers();
+    var systemFunctions = ['hourlyReviewCollector', 'selectReviewAnswers', 'sendReviewAnswers', 'processAllStores'];
     
-    let deletedCount = 0;
+    var deletedCount = 0;
     
-    allTriggers.forEach(trigger => {
-      const functionName = trigger.getHandlerFunction();
+    for (var i = 0; i < allTriggers.length; i++) {
+      var trigger = allTriggers[i];
+      var functionName = trigger.getHandlerFunction();
       if (systemFunctions.includes(functionName)) {
         ScriptApp.deleteTrigger(trigger);
         deletedCount++;
-        logTrigger('DELETE', `Удален триггер: ${functionName}`, LOG_CONFIG.LEVELS.INFO);
+        logTrigger('DELETE', 'Удален триггер: ' + functionName, LOG_CONFIG.LEVELS.INFO);
       }
     });
     
     return deletedCount;
     
   } catch (error) {
-    logTrigger('DELETE', `Ошибка удаления триггеров: ${error.message}`, LOG_CONFIG.LEVELS.ERROR);
+    logTrigger('DELETE', 'Ошибка удаления триггеров: ' + error.message, LOG_CONFIG.LEVELS.ERROR);
     return 0;
   }
 }
@@ -530,11 +536,11 @@ function deleteAllSystemTriggers() {
  */
 function getSystemTriggersInfo() {
   try {
-    const allTriggers = ScriptApp.getProjectTriggers();
-    const systemFunctions = ['hourlyReviewCollector', 'selectReviewAnswers', 'sendReviewAnswers'];
+    var allTriggers = ScriptApp.getProjectTriggers();
+    var systemFunctions = ['hourlyReviewCollector', 'selectReviewAnswers', 'sendReviewAnswers'];
     
-    const systemTriggers = allTriggers
-      .filter(trigger => systemFunctions.includes(trigger.getHandlerFunction()))
+    var systemTriggers = allTriggers
+      .filter(function(trigger) { return systemFunctions.includes(trigger.getHandlerFunction(; })))
       .map(trigger => ({
         id: trigger.getUniqueId(),
         functionName: trigger.getHandlerFunction(),
@@ -550,7 +556,7 @@ function getSystemTriggersInfo() {
     };
     
   } catch (error) {
-    logError(`Ошибка получения информации о триггерах: ${error.message}`, LOG_CONFIG.CATEGORIES.TRIGGER);
+    logError('Ошибка получения информации о триггерах: ' + error.message, LOG_CONFIG.CATEGORIES.TRIGGER);
     return {
       total: 0,
       expected: 3,
@@ -565,13 +571,13 @@ function getSystemTriggersInfo() {
  */
 function saveTriggerSystemInfo(info) {
   try {
-    const props = PropertiesService.getScriptProperties();
+    var props = PropertiesService.getScriptProperties();
     props.setProperty('TRIGGER_SYSTEM_INFO', JSON.stringify(info));
     
     logTrigger('SYSTEM', 'Информация о системе триггеров сохранена', LOG_CONFIG.LEVELS.SUCCESS);
     
   } catch (error) {
-    logError(`Ошибка сохранения информации о триггерах: ${error.message}`, LOG_CONFIG.CATEGORIES.TRIGGER);
+    logError('Ошибка сохранения информации о триггерах: ' + error.message, LOG_CONFIG.CATEGORIES.TRIGGER);
   }
 }
 
@@ -580,13 +586,13 @@ function saveTriggerSystemInfo(info) {
  */
 function getTriggerSystemInfo() {
   try {
-    const props = PropertiesService.getScriptProperties();
-    const info = props.getProperty('TRIGGER_SYSTEM_INFO');
+    var props = PropertiesService.getScriptProperties();
+    var info = props.getProperty('TRIGGER_SYSTEM_INFO');
     
     return info ? JSON.parse(info) : null;
     
   } catch (error) {
-    logError(`Ошибка получения информации о системе триггеров: ${error.message}`, LOG_CONFIG.CATEGORIES.TRIGGER);
+    logError('Ошибка получения информации о системе триггеров: ' + error.message, LOG_CONFIG.CATEGORIES.TRIGGER);
     return null;
   }
 }
@@ -600,8 +606,8 @@ function saveReviewsToSheet(store, reviews) {
   try {
     if (!reviews || reviews.length === 0) return;
     
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName(store.id);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(store.id);
     
     // Создаем лист если не существует
     if (!sheet) {
@@ -610,7 +616,7 @@ function saveReviewsToSheet(store, reviews) {
     }
     
     // Подготавливаем данные для вставки
-    const rows = reviews.map(review => [
+    var rows = reviews.map(review => [
       review.id,
       review.createdDate,
       review.rating,
@@ -623,13 +629,13 @@ function saveReviewsToSheet(store, reviews) {
     ]);
     
     // Добавляем строки
-    const startRow = sheet.getLastRow() + 1;
+    var startRow = sheet.getLastRow() + 1;
     sheet.getRange(startRow, 1, rows.length, 9).setValues(rows);
     
-    logStore(store.id, `Сохранено ${reviews.length} отзывов в лист`, LOG_CONFIG.LEVELS.SUCCESS);
+    logStore(store.id, 'Сохранено ' + reviews.length + ' отзывов в лист', LOG_CONFIG.LEVELS.SUCCESS);
     
   } catch (error) {
-    logError(`Ошибка сохранения отзывов в лист ${store.id}: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
+    logError('Ошибка сохранения отзывов в лист ' + store.id + ': ' + error.message, LOG_CONFIG.CATEGORIES.STORE);
     throw error;
   }
 }
@@ -639,19 +645,19 @@ function saveReviewsToSheet(store, reviews) {
  */
 function getReviewsFromSheetByStatus(store, status) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(store.id);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(store.id);
     
     if (!sheet) {
       return [];
     }
     
-    const data = sheet.getDataRange().getValues();
-    const reviews = [];
+    var data = sheet.getDataRange().getValues();
+    var reviews = [];
     
     // Пропускаем заголовок (первая строка)
-    for (let i = 1; i < data.length; i++) {
-      const row = data[i];
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
       
       if (row[5] === status) { // Колонка status
         reviews.push({
@@ -671,7 +677,7 @@ function getReviewsFromSheetByStatus(store, status) {
     return reviews;
     
   } catch (error) {
-    logError(`Ошибка получения отзывов из листа ${store.id}: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
+    logError('Ошибка получения отзывов из листа ' + store.id + ': ' + error.message, LOG_CONFIG.CATEGORIES.STORE);
     return [];
   }
 }
@@ -681,17 +687,17 @@ function getReviewsFromSheetByStatus(store, status) {
  */
 function updateReviewInSheet(store, reviewId, updates) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(store.id);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(store.id);
     
     if (!sheet) {
-      throw new Error(`Лист ${store.id} не найден`);
+      throw new Error('Лист ' + store.id + ' не найден');
     }
     
-    const data = sheet.getDataRange().getValues();
+    var data = sheet.getDataRange().getValues();
     
     // Ищем строку с нужным reviewId
-    for (let i = 1; i < data.length; i++) {
+    for (var i = 1; i < data.length; i++) {
       if (data[i][0] === reviewId) { // Колонка ID
         
         // Обновляем нужные поля
@@ -700,16 +706,16 @@ function updateReviewInSheet(store, reviewId, updates) {
         if (updates.error !== undefined) sheet.getRange(i + 1, 9).setValue(updates.error);
         if (updates.sentDate !== undefined) sheet.getRange(i + 1, 7).setValue(updates.sentDate);
         
-        logDebug(`Обновлен отзыв ${reviewId} в листе ${store.id}`, LOG_CONFIG.CATEGORIES.STORE);
+        logDebug('Обновлен отзыв ' + reviewId + ' в листе ' + store.id, LOG_CONFIG.CATEGORIES.STORE);
         return true;
       }
     }
     
-    logWarning(`Отзыв ${reviewId} не найден в листе ${store.id}`, LOG_CONFIG.CATEGORIES.STORE);
+    logWarning('Отзыв ' + reviewId + ' не найден в листе ' + store.id, LOG_CONFIG.CATEGORIES.STORE);
     return false;
     
   } catch (error) {
-    logError(`Ошибка обновления отзыва ${reviewId} в листе ${store.id}: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
+    logError('Ошибка обновления отзыва ' + reviewId + ' в листе ' + store.id + ': ' + error.message, LOG_CONFIG.CATEGORIES.STORE);
     return false;
   }
 }
@@ -720,7 +726,7 @@ function updateReviewInSheet(store, reviewId, updates) {
 function selectAnswerTemplate(review, store) {
   try {
     // Базовые шаблоны по рейтингу
-    let template = '';
+    var template = '';
     
     switch (review.rating) {
       case 5:
@@ -750,7 +756,7 @@ function selectAnswerTemplate(review, store) {
     return template;
     
   } catch (error) {
-    logError(`Ошибка подбора шаблона для отзыва ${review.id}: ${error.message}`, LOG_CONFIG.CATEGORIES.TRIGGER);
+    logError('Ошибка подбора шаблона для отзыва ' + review.id + ': ' + error.message, LOG_CONFIG.CATEGORIES.TRIGGER);
     return null;
   }
 }
@@ -777,3 +783,5 @@ function setupTriggers60Min() {
 function setupTriggers5Min() {
   return setupCompleteTriggersSystem(5);
 }
+
+// ✅ GAS COMPATIBILITY: const/let→var (76), templates→concat (44), updated 2025-10-27
