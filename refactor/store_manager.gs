@@ -12,15 +12,29 @@
 // ============ СТАРЫЕ РАБОЧИЕ ФУНКЦИИ ИЗ CODE.GS ============
 
 function getStores() {
-  const storesJson = PropertiesService.getUserProperties().getProperty(CONFIG.PROPERTIES_KEY);
-  if (!storesJson) return [];
-  const stores = JSON.parse(storesJson);
-  return stores.filter(store => store && store.id).map(store => {
-      if (typeof store.isActive === 'undefined') store.isActive = true;
-      // Ensure settings object exists for backward compatibility
-      if (!store.settings) store.settings = {};
-      return store;
-  });
+  try {
+    const storesJson = PropertiesService.getUserProperties().getProperty(CONFIG.PROPERTIES_KEY);
+    if (!storesJson) return [];
+    
+    const stores = JSON.parse(storesJson);
+    
+    // ИСПРАВЛЕНИЕ forEach ERROR: Проверяем что stores это массив
+    if (!Array.isArray(stores)) {
+      logError(`getStores: stores не является массивом, получено: ${typeof stores}`, LOG_CONFIG.CATEGORIES.STORE);
+      return [];
+    }
+    
+    return stores.filter(store => store && store.id).map(store => {
+        if (typeof store.isActive === 'undefined') store.isActive = true;
+        // Ensure settings object exists for backward compatibility
+        if (!store.settings) store.settings = {};
+        return store;
+    });
+    
+  } catch (error) {
+    logError(`getStores: Ошибка получения магазинов: ${error.message}`, LOG_CONFIG.CATEGORIES.STORE);
+    return [];
+  }
 }
 
 /**
@@ -30,6 +44,13 @@ function getStores() {
 function getActiveStores() {
   try {
     const allStores = getStores();
+    
+    // ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА forEach: Проверяем что allStores это массив
+    if (!Array.isArray(allStores)) {
+      logError(`getActiveStores: allStores не является массивом, получено: ${typeof allStores}`, LOG_CONFIG.CATEGORIES.STORE);
+      return [];
+    }
+    
     const activeStores = allStores.filter(store => store.isActive === true);
     
     logInfo(`Активных магазинов: ${activeStores.length} из ${allStores.length}`, LOG_CONFIG.CATEGORIES.STORE);
