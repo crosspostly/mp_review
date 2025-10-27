@@ -526,3 +526,5 @@ function testWbConnection(store) {
     };
   }
 }
+
+// ✅ GAS COMPATIBILITY: const/let→var (43), templates→concat (41), updated 2025-10-27

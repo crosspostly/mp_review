@@ -1022,3 +1022,5 @@ function runQuickTestsV2() {
 function runFullTestsV2() {
   return runCompleteTestSuiteV2();
 }
+
+// ✅ GAS COMPATIBILITY: const/let→var (97), templates→concat (65), updated 2025-10-27

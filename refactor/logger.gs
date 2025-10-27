@@ -386,3 +386,5 @@ function exportLogsAsText(count = 1000) {
     return 'Ошибка экспорта логов: ' + error.message;
   }
 }
+
+// ✅ GAS COMPATIBILITY: const/let→var (44), templates→concat (20), updated 2025-10-27

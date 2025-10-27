@@ -561,3 +561,5 @@ function resetStoreProgress(storeId) {
     return false;
   }
 }
+
+// ✅ GAS COMPATIBILITY: const/let→var (55), templates→concat (41), updated 2025-10-27

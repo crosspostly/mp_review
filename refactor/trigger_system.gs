@@ -783,3 +783,5 @@ function setupTriggers60Min() {
 function setupTriggers5Min() {
   return setupCompleteTriggersSystem(5);
 }
+
+// ✅ GAS COMPATIBILITY: const/let→var (76), templates→concat (44), updated 2025-10-27

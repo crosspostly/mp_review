@@ -936,3 +936,5 @@ function getOzonApiStatistics(storeId) {
     return null;
   }
 }
+
+// ✅ GAS COMPATIBILITY: const/let→var (115), templates→concat (60), updated 2025-10-27
