@@ -125,7 +125,10 @@ function addToReviewIdsCacheForStore(storeId, newReviewIds) {
     if (addedCount > 0) {
       // Сохраняем обновленный кеш
       saveReviewIdsCacheForStore(storeId, existingCache);
-      logCache('ADD', storeId, `Добавлено ${addedCount} новых ID (было ${existingCache.size - addedCount})`);\n    } else {\n      logCache('ADD', storeId, 'Новых ID не добавлено (все дубликаты)');\n    }
+      logCache('ADD', storeId, `Добавлено ${addedCount} новых ID (было ${existingCache.size - addedCount})`);
+    } else {
+      logCache('ADD', storeId, 'Новых ID не добавлено (все дубликаты)');
+    }
     
     timer.finish(addedCount > 0 ? LOG_CONFIG.LEVELS.SUCCESS : LOG_CONFIG.LEVELS.INFO);
     return addedCount;
