@@ -197,33 +197,25 @@ jobs:
         
         # Проверка appsscript.json
         echo "📋 Проверка appsscript.json..."
-        
-        # Определяем путь к appsscript.json (в rootDir если указан)
-        if [ -n "$ROOT_DIR" ]; then
-          APPSSCRIPT_PATH="$ROOT_DIR/appsscript.json"
-        else
-          APPSSCRIPT_PATH="appsscript.json"
-        fi
-        
-        if [ ! -f "$APPSSCRIPT_PATH" ]; then
-          echo "❌ ОШИБКА: appsscript.json не найден по пути: $APPSSCRIPT_PATH"
+        if [ ! -f "appsscript.json" ]; then
+          echo "❌ ОШИБКА: appsscript.json не найден!"
           echo ""
           echo "🔧 Как исправить:"
-          echo "1. Убедитесь, что файл appsscript.json есть в директории: $ROOT_DIR"
+          echo "1. Убедитесь, что файл appsscript.json есть в репозитории"
           echo "2. Проверьте путь к файлу"
           echo ""
           exit 1
         fi
         
-        echo "✅ Файл appsscript.json найден по пути: $APPSSCRIPT_PATH"
+        echo "✅ Файл appsscript.json найден"
         echo ""
         echo "📄 Содержимое appsscript.json:"
-        cat "$APPSSCRIPT_PATH"
+        cat appsscript.json
         echo ""
         
         # Валидация appsscript.json
         echo "📋 Валидация appsscript.json..."
-        if ! jq . "$APPSSCRIPT_PATH" > /dev/null 2>&1; then
+        if ! jq . appsscript.json > /dev/null 2>&1; then
           echo "❌ ОШИБКА: appsscript.json не является валидным JSON!"
           exit 1
         fi
