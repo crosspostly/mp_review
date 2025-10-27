@@ -717,12 +717,13 @@ function clearAllStoreCaches(storeIds = null) {
     
     // Дополнительно очищаем связанные ключи API статистики
     try {
-      var apiKeysToRemove = allKeys.filter(function(key) { return key.startsWith('API_REQUESTS_'; }) || 
-        key.startsWith('API_ERRORS_') || 
-        key.startsWith('API_AVG_TIME_') ||
-        key.startsWith('API_TIME_COUNT_') ||
-        key.startsWith('API_TOTAL_TIME_')
-      );
+      var apiKeysToRemove = allKeys.filter(function(key) { 
+        return key.startsWith('API_REQUESTS_') || 
+               key.startsWith('API_ERRORS_') || 
+               key.startsWith('API_AVG_TIME_') ||
+               key.startsWith('API_TIME_COUNT_') ||
+               key.startsWith('API_TOTAL_TIME_');
+      });
       
       for (var i = 0; i < apiKeysToRemove.length; i++) {
       var key = apiKeysToRemove[i];
