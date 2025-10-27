@@ -27,7 +27,7 @@ function log(message, level = LOG_CONFIG.LEVELS.INFO, category = LOG_CONFIG.CATE
     }
     
     // Форматируем сообщение
-    const formattedMessage = formatLogMessage(message, level, category, metadata);
+    var formattedMessage = formatLogMessage(message, level, category, metadata);
     
     // Выводим в консоль (всегда)
     logToConsole(formattedMessage, level);
@@ -36,11 +36,11 @@ function log(message, level = LOG_CONFIG.LEVELS.INFO, category = LOG_CONFIG.CATE
     try {
       logToSheet(formattedMessage, level, category);
     } catch (sheetError) {
-      console.error(`Logger: Ошибка записи в Sheets: ${sheetError.message}`);
+      console.error('Logger: Ошибка записи в Sheets: ' + sheetError.message);
     }
     
   } catch (error) {
-    console.error(`Logger: Критическая ошибка: ${error.message}`);
+    console.error('Logger: Критическая ошибка: ' + error.message);
   }
 }
 
@@ -48,7 +48,7 @@ function log(message, level = LOG_CONFIG.LEVELS.INFO, category = LOG_CONFIG.CATE
  * Быстрые функции логирования для разных уровней
  */
 function logDebug(message, category = LOG_CONFIG.CATEGORIES.SYSTEM, metadata = null) {
-  const envConfig = getEnvironmentConfig();
+  var envConfig = getEnvironmentConfig();
   if (envConfig.ENABLE_DETAILED_LOGGING) {
     log(message, LOG_CONFIG.LEVELS.DEBUG, category, metadata);
   }
@@ -74,21 +74,21 @@ function logSuccess(message, category = LOG_CONFIG.CATEGORIES.SYSTEM, metadata =
  * Специализированные функции логирования для API
  */
 function logApiRequest(marketplace, endpoint, params = null) {
-  const message = `Запрос к ${marketplace} API: ${endpoint}`;
-  const category = marketplace === 'Wildberries' ? LOG_CONFIG.CATEGORIES.WB_API : LOG_CONFIG.CATEGORIES.OZON_API;
+  var message = 'Запрос к ' + marketplace + ' API: ' + endpoint;
+  var category = marketplace === 'Wildberries' ? LOG_CONFIG.CATEGORIES.WB_API : LOG_CONFIG.CATEGORIES.OZON_API;
   logDebug(message, category, { endpoint, params });
 }
 
 function logApiResponse(marketplace, endpoint, responseCode, responseTime = null) {
-  const message = `Ответ ${marketplace} API: ${endpoint} (HTTP ${responseCode})`;
-  const category = marketplace === 'Wildberries' ? LOG_CONFIG.CATEGORIES.WB_API : LOG_CONFIG.CATEGORIES.OZON_API;
-  const level = responseCode >= 200 && responseCode < 300 ? LOG_CONFIG.LEVELS.SUCCESS : LOG_CONFIG.LEVELS.ERROR;
+  var message = 'Ответ ' + marketplace + ' API: ' + endpoint + ' (HTTP ' + responseCode + ')';
+  var category = marketplace === 'Wildberries' ? LOG_CONFIG.CATEGORIES.WB_API : LOG_CONFIG.CATEGORIES.OZON_API;
+  var level = responseCode >= 200 && responseCode < 300 ? LOG_CONFIG.LEVELS.SUCCESS : LOG_CONFIG.LEVELS.ERROR;
   log(message, level, category, { endpoint, responseCode, responseTime });
 }
 
 function logApiError(marketplace, endpoint, error, statusCode = null) {
-  const message = `Ошибка ${marketplace} API: ${endpoint} - ${error.message || error}`;
-  const category = marketplace === 'Wildberries' ? LOG_CONFIG.CATEGORIES.WB_API : LOG_CONFIG.CATEGORIES.OZON_API;
+  var message = 'Ошибка ' + marketplace + ' API: ' + endpoint + ' - ' + error.message || error;
+  var category = marketplace === 'Wildberries' ? LOG_CONFIG.CATEGORIES.WB_API : LOG_CONFIG.CATEGORIES.OZON_API;
   logError(message, category, { endpoint, error: error.message || error, statusCode });
 }
 
@@ -96,17 +96,17 @@ function logApiError(marketplace, endpoint, error, statusCode = null) {
  * Функции логирования для разных компонентов системы
  */
 function logTrigger(triggerName, message, level = LOG_CONFIG.LEVELS.INFO, metadata = null) {
-  const formattedMessage = `[${triggerName}] ${message}`;
+  var formattedMessage = '[' + triggerName + '] ' + message;
   log(formattedMessage, level, LOG_CONFIG.CATEGORIES.TRIGGER, metadata);
 }
 
 function logCache(operation, storeId, message, level = LOG_CONFIG.LEVELS.INFO, metadata = null) {
-  const formattedMessage = `[${operation}] ${storeId}: ${message}`;
+  var formattedMessage = '[' + operation + '] ' + storeId + ': ' + message;
   log(formattedMessage, level, LOG_CONFIG.CATEGORIES.CACHE, metadata);
 }
 
 function logStore(storeId, message, level = LOG_CONFIG.LEVELS.INFO, metadata = null) {
-  const formattedMessage = `[${storeId}] ${message}`;
+  var formattedMessage = '[' + storeId + '] ' + message;
   log(formattedMessage, level, LOG_CONFIG.CATEGORIES.STORE, metadata);
 }
 
@@ -114,13 +114,13 @@ function logStore(storeId, message, level = LOG_CONFIG.LEVELS.INFO, metadata = n
  * Форматирует сообщение лога
  */
 function formatLogMessage(message, level, category, metadata) {
-  const timestamp = Utilities.formatDate(new Date(), LOG_CONFIG.TIMEZONE, LOG_CONFIG.DATE_FORMAT);
-  const emoji = getLogEmoji(level);
+  var timestamp = Utilities.formatDate(new Date(), LOG_CONFIG.TIMEZONE, LOG_CONFIG.DATE_FORMAT);
+  var emoji = getLogEmoji(level);
   
-  let formattedMessage = `[${timestamp}] ${emoji} [${category}] ${message}`;
+  var formattedMessage = '[' + timestamp + '] ' + emoji + ' [' + category + '] ' + message;
   
   if (metadata && Object.keys(metadata).length > 0) {
-    formattedMessage += ` | ${JSON.stringify(metadata)}`;
+    formattedMessage += ' | ' + JSON.stringify(metadata);
   }
   
   return formattedMessage;
@@ -164,8 +164,8 @@ function logToConsole(message, level) {
  */
 function logToSheet(message, level, category) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let logSheet = ss.getSheetByName(CONFIG.SHEETS.LOGS);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var logSheet = ss.getSheetByName(CONFIG.SHEETS.LOGS);
     
     // Создаем лист логов если не существует
     if (!logSheet) {
@@ -174,17 +174,17 @@ function logToSheet(message, level, category) {
     }
     
     // Проверяем размер лога и очищаем если нужно
-    const currentRows = logSheet.getLastRow();
+    var currentRows = logSheet.getLastRow();
     if (currentRows > LOG_CONFIG.MAX_LOG_ROWS) {
       cleanupOldLogs(logSheet);
     }
     
     // Добавляем новую запись
-    const timestamp = new Date();
+    var timestamp = new Date();
     logSheet.appendRow([timestamp, level, category, message]);
     
   } catch (error) {
-    console.error(`Ошибка записи в лист логов: ${error.message}`);
+    console.error('Ошибка записи в лист логов: ' + error.message);
   }
 }
 
@@ -192,11 +192,11 @@ function logToSheet(message, level, category) {
  * Инициализирует лист логов заголовками
  */
 function initializeLogSheet(sheet) {
-  const headers = ['Время', 'Уровень', 'Категория', 'Сообщение'];
+  var headers = ['Время', 'Уровень', 'Категория', 'Сообщение'];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   
   // Форматирование заголовков
-  const headerRange = sheet.getRange(1, 1, 1, headers.length);
+  var headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setFontWeight('bold');
   headerRange.setBackground('#f0f0f0');
   
@@ -209,16 +209,16 @@ function initializeLogSheet(sheet) {
  */
 function cleanupOldLogs(sheet) {
   try {
-    const totalRows = sheet.getLastRow();
-    const rowsToDelete = totalRows - LOG_CONFIG.CLEANUP_ROWS;
+    var totalRows = sheet.getLastRow();
+    var rowsToDelete = totalRows - LOG_CONFIG.CLEANUP_ROWS;
     
     if (rowsToDelete > 0) {
       // Удаляем старые строки (оставляем заголовок + CLEANUP_ROWS новых записей)
       sheet.deleteRows(2, rowsToDelete);
-      console.log(`Logger: Удалено ${rowsToDelete} старых записей из лога`);
+      console.log('Logger: Удалено ' + rowsToDelete + ' старых записей из лога');
     }
   } catch (error) {
-    console.error(`Ошибка очистки логов: ${error.message}`);
+    console.error('Ошибка очистки логов: ' + error.message);
   }
 }
 
@@ -233,7 +233,7 @@ class PerformanceTimer {
     this.startTime = Date.now();
     this.endTime = null;
     
-    logDebug(`Timer started: ${operationName}`, LOG_CONFIG.CATEGORIES.SYSTEM);
+    logDebug('Timer started: ' + operationName, LOG_CONFIG.CATEGORIES.SYSTEM);
   }
   
   /**
@@ -241,9 +241,9 @@ class PerformanceTimer {
    */
   finish(logLevel = LOG_CONFIG.LEVELS.DEBUG) {
     this.endTime = Date.now();
-    const duration = this.getTotalTime();
+    var duration = this.getTotalTime();
     
-    const message = `Timer finished: ${this.operationName} (${duration}ms)`;
+    var message = 'Timer finished: ' + this.operationName + ' (' + duration + 'ms)';
     log(message, logLevel, LOG_CONFIG.CATEGORIES.SYSTEM, { 
       operation: this.operationName, 
       duration: duration 
@@ -254,7 +254,7 @@ class PerformanceTimer {
    * Получает общее время выполнения
    */
   getTotalTime() {
-    const end = this.endTime || Date.now();
+    var end = this.endTime || Date.now();
     return end - this.startTime;
   }
   
@@ -282,36 +282,36 @@ class PerformanceTimer {
  */
 function getRecentLogs(count = 100, level = null, category = null) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const logSheet = ss.getSheetByName(CONFIG.SHEETS.LOGS);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var logSheet = ss.getSheetByName(CONFIG.SHEETS.LOGS);
     
     if (!logSheet) {
       return [];
     }
     
-    const totalRows = logSheet.getLastRow();
+    var totalRows = logSheet.getLastRow();
     if (totalRows <= 1) {
       return []; // Только заголовки
     }
     
     // Получаем последние записи
-    const startRow = Math.max(2, totalRows - count + 1);
-    const numRows = totalRows - startRow + 1;
-    const data = logSheet.getRange(startRow, 1, numRows, 4).getValues();
+    var startRow = Math.max(2, totalRows - count + 1);
+    var numRows = totalRows - startRow + 1;
+    var data = logSheet.getRange(startRow, 1, numRows, 4).getValues();
     
     // Фильтруем по уровню и категории если заданы
-    let filteredData = data;
+    var filteredData = data;
     if (level) {
-      filteredData = filteredData.filter(row => row[1] === level);
+      filteredData = filteredData.filter(function(row) { return row[1] === level; });
     }
     if (category) {
-      filteredData = filteredData.filter(row => row[2] === category);
+      filteredData = filteredData.filter(function(row) { return row[2] === category; });
     }
     
     return filteredData.reverse(); // Новые записи первыми
     
   } catch (error) {
-    console.error(`Ошибка получения логов: ${error.message}`);
+    console.error('Ошибка получения логов: ' + error.message);
     return [];
   }
 }
@@ -322,28 +322,29 @@ function getRecentLogs(count = 100, level = null, category = null) {
  */
 function getLogStatistics() {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const logSheet = ss.getSheetByName(CONFIG.SHEETS.LOGS);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var logSheet = ss.getSheetByName(CONFIG.SHEETS.LOGS);
     
     if (!logSheet) {
       return { levels: {}, categories: {}, total: 0 };
     }
     
-    const totalRows = logSheet.getLastRow();
+    var totalRows = logSheet.getLastRow();
     if (totalRows <= 1) {
       return { levels: {}, categories: {}, total: 0 };
     }
     
-    const data = logSheet.getRange(2, 1, totalRows - 1, 4).getValues();
-    const stats = {
+    var data = logSheet.getRange(2, 1, totalRows - 1, 4).getValues();
+    var stats = {
       levels: {},
       categories: {},
       total: data.length
     };
     
-    data.forEach(row => {
-      const level = row[1];
-      const category = row[2];
+    for (var i = 0; i < data.length; i++) {
+      var row = data[i];
+      var level = row[1];
+      var category = row[2];
       
       stats.levels[level] = (stats.levels[level] || 0) + 1;
       stats.categories[category] = (stats.categories[category] || 0) + 1;
@@ -352,7 +353,7 @@ function getLogStatistics() {
     return stats;
     
   } catch (error) {
-    console.error(`Ошибка получения статистики логов: ${error.message}`);
+    console.error('Ошибка получения статистики логов: ' + error.message);
     return { levels: {}, categories: {}, total: 0, error: error.message };
   }
 }
@@ -364,23 +365,26 @@ function getLogStatistics() {
  */
 function exportLogsAsText(count = 1000) {
   try {
-    const logs = getRecentLogs(count);
+    var logs = getRecentLogs(count);
     if (!logs.length) {
       return 'Логи не найдены';
     }
     
-    let textLogs = `MP Review Manager - Экспорт логов (${logs.length} записей)\n`;
+    var textLogs = 'MP Review Manager - Экспорт логов (' + logs.length + ' записей)\n';
     textLogs += '='.repeat(80) + '\n\n';
     
-    logs.forEach(log => {
-      const [timestamp, level, category, message] = log;
-      const formattedTime = Utilities.formatDate(timestamp, LOG_CONFIG.TIMEZONE, LOG_CONFIG.DATE_FORMAT);
-      textLogs += `[${formattedTime}] [${level}] [${category}] ${message}\n`;
+    for (var i = 0; i < logs.length; i++) {
+      var log = logs[i];
+      var [timestamp, level, category, message] = log;
+      var formattedTime = Utilities.formatDate(timestamp, LOG_CONFIG.TIMEZONE, LOG_CONFIG.DATE_FORMAT);
+      textLogs += '[' + formattedTime + '] [' + level + '] [' + category + '] ' + message + '\n';
     });
     
     return textLogs;
     
   } catch (error) {
-    return `Ошибка экспорта логов: ${error.message}`;
+    return 'Ошибка экспорта логов: ' + error.message;
   }
 }
+
+// ✅ GAS COMPATIBILITY: const/let→var (44), templates→concat (20), updated 2025-10-27
