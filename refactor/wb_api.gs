@@ -181,16 +181,17 @@ function getWbProductsInfo(productIds, store) {
  * Строит параметры для WB API запроса
  */
 function buildWbApiParams(includeAnswered, settings = {}, options = {}) {
-  const params = new URLSearchParams();
+  // ИСПРАВЛЕНО: URLSearchParams не поддерживается в Google Apps Script
+  const params = [];
   
   // Основные параметры
-  params.append('take', options.take || WB_CONFIG.API_LIMITS.MAX_TAKE);
-  params.append('skip', options.skip || WB_CONFIG.API_LIMITS.DEFAULT_SKIP);
-  params.append('order', 'dateDesc'); // Новые сначала
+  params.push(`take=${options.take || WB_CONFIG.API_LIMITS.MAX_TAKE}`);
+  params.push(`skip=${options.skip || WB_CONFIG.API_LIMITS.DEFAULT_SKIP}`);
+  params.push('order=dateDesc'); // Новые сначала
   
   // Фильтр по отвеченным отзывам
   if (includeAnswered !== undefined) {
-    params.append('hasSupplierFeedback', includeAnswered ? 'true' : 'false');
+    params.push(`hasSupplierFeedback=${includeAnswered ? 'true' : 'false'}`);
   }
   
   // Фильтр по дате (если указан в настройках магазина)
@@ -198,14 +199,14 @@ function buildWbApiParams(includeAnswered, settings = {}, options = {}) {
     try {
       const startDate = new Date(settings.startDate);
       const unixTimestamp = Math.floor(startDate.getTime() / 1000);
-      params.append('dateFrom', unixTimestamp);
+      params.push(`dateFrom=${unixTimestamp}`);
       logDebug(`WB API: Фильтр по дате от ${settings.startDate} (${unixTimestamp})`, LOG_CONFIG.CATEGORIES.WB_API);
     } catch (error) {
       logWarning(`WB API: Некорректная дата фильтра: ${settings.startDate}`, LOG_CONFIG.CATEGORIES.WB_API);
     }
   }
   
-  return params.toString();
+  return params.join('&');
 }
 
 /**
@@ -433,12 +434,10 @@ function testWbApiConnection(store) {
  * Строит URL для тестового запроса
  */
 function buildWbTestUrl() {
-  const params = new URLSearchParams();
-  params.append('take', '1');
-  params.append('skip', '0');
-  params.append('order', 'dateDesc');
+  // ИСПРАВЛЕНО: URLSearchParams не поддерживается в Google Apps Script
+  const params = ['take=1', 'skip=0', 'order=dateDesc'];
   
-  return `${WB_CONFIG.API_BASE_URL}${WB_CONFIG.ENDPOINTS.GET_FEEDBACKS}?${params.toString()}`;
+  return `${WB_CONFIG.API_BASE_URL}${WB_CONFIG.ENDPOINTS.GET_FEEDBACKS}?${params.join('&')}`;
 }
 
 /**
