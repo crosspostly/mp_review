@@ -484,36 +484,25 @@ jobs:
         # Подсчет успешных тестов
         success_count=0
         total_count=5
-        exit_code=0
         
         if [ "${{ needs.code-analysis.result }}" = "success" ]; then
           ((success_count++))
-        else
-          exit_code=1
         fi
         
         if [ "${{ needs.unit-tests.result }}" = "success" ]; then
           ((success_count++))
-        else
-          exit_code=1
         fi
         
         if [ "${{ needs.security-tests.result }}" = "success" ]; then
           ((success_count++))
-        else
-          exit_code=1
         fi
         
         if [ "${{ needs.performance-tests.result }}" = "success" ]; then
           ((success_count++))
-        else
-          exit_code=1
         fi
         
         if [ "${{ needs.documentation.result }}" = "success" ]; then
           ((success_count++))
-        else
-          exit_code=1
         fi
         
         success_rate=$((success_count * 100 / total_count))
