@@ -24,7 +24,7 @@ function getStores() {
       return [];
     }
     
-    return stores.filter(function(store) { return store && store.id; }).map(store => {
+    return stores.filter(function(store) { return store && store.id; }).map(function(store) {
         if (typeof store.isActive === 'undefined') store.isActive = true;
         // Ensure settings object exists for backward compatibility
         if (!store.settings) store.settings = {};
@@ -75,7 +75,7 @@ function getStoreById(storeId) {
     }
     
     var stores = getStores();
-    var store = stores.find(s => s.id === storeId);
+    var store = stores.find(function(s) { return s.id === storeId; });
     
     if (!store) {
       logWarning('Магазин с ID ' + storeId + ' не найден', LOG_CONFIG.CATEGORIES.STORE);
@@ -99,7 +99,7 @@ function getStoreById(storeId) {
 function saveStore(store) {
   log('Сохранение магазина: ' + store.name + '' + store.settings && store.settings.startDate ? ' (дата начала: ' + store.settings.startDate + ')' : '');
   var stores = getStores();
-  var storeIndex = stores.findIndex(s => s.id === store.id);
+  var storeIndex = stores.findIndex(function(s) { return s.id === store.id; });
   
   if (typeof store.isActive === 'undefined') store.isActive = true;
   // Ensure settings object exists
@@ -183,7 +183,7 @@ function deleteStore(storeId) {
     }
     
     var stores = getStores();
-    var storeIndex = stores.findIndex(s => s.id === storeId);
+    var storeIndex = stores.findIndex(function(s) { return s.id === storeId; });
     
     if (storeIndex === -1) {
       logWarning('Магазин для удаления не найден: ' + storeId, LOG_CONFIG.CATEGORIES.STORE);
@@ -494,15 +494,15 @@ function exportStoreConfigs() {
     var stores = getStores();
     
     // Убираем чувствительные данные для экспорта
-    var safeStores = stores.map(store => ({
+    var safeStores = stores.map(function(store) { return {
       id: store.id,
       name: store.name,
       marketplace: store.marketplace,
       isActive: store.isActive,
       settings: store.settings,
       // credentials скрыты для безопасности
-      hasCredentials: !!(store.credentials?.apiKey)
-    }));
+      hasCredentials: !!(store.credentials && store.credentials.apiKey)
+    }; });
     
     log('Экспорт конфигурации ' + safeStores.length + ' магазинов');
     
@@ -561,5 +561,3 @@ function resetStoreProgress(storeId) {
     return false;
   }
 }
-
-// ✅ GAS COMPATIBILITY: const/let→var (55), templates→concat (41), updated 2025-10-27
