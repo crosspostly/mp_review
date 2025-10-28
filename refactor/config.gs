@@ -493,5 +493,5 @@ function getApiStatsTracker() {
     }
   };
 }
-# Test autodeploy
-# Final test
+// Test autodeploy - Apps Script compatible
+// Final test
