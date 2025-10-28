@@ -803,7 +803,7 @@ function getOzonProductsInfo(productIds, store) {
             category: item.category_name || '',
             url: 'https://www.ozon.ru/product/' + (item.product_id || '')
           };
-        });
+        }
       }
       
       // Rate limiting между батчами
