@@ -147,15 +147,16 @@ function getWbProductsInfo(productIds, store) {
       var response = makeWbApiRequest(url, store.credentials.apiKey, 'POST', payload);
       
       if (response.success && response.data?.result?.cards) {
-        response.data.result.for (var i = 0; i < cards.length; i++) {
-      var card = cards[i];
+        var cards = response.data.result.cards;
+        for (var j = 0; j < cards.length; j++) {
+          var card = cards[j];
           productInfo[card.nmID] = {
             name: card.title || 'Без названия',
             brand: card.brand || '',
             article: card.vendorCode || '',
             url: 'https://www.wildberries.ru/catalog/' + card.nmID + '/detail.aspx'
           };
-        });
+        }
       }
       
       // Rate limiting между батчами
@@ -263,7 +264,7 @@ function makeWbApiRequest(url, apiKey, method = 'GET', payload = null, maxRetrie
         return {
           success: false,
           error: 'HTTP ' + responseCode + ': ' + responseText,
-          responseCode
+          responseCode: responseCode
         };
       }
     } catch (error) {
