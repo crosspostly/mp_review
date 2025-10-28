@@ -695,14 +695,14 @@ function createMockWbApi() {
           if (url.includes('/api/v1/feedbacks')) {
             return JSON.stringify({
               data: {
-                feedbacks: MOCK_REVIEWS_V2.map(review => ({
+                feedbacks: MOCK_REVIEWS_V2.map(function(review) { return {
                   id: review.id,
                   text: review.text,
                   productValuation: review.rating,
                   createdDate: review.createdDate.toISOString(),
                   isAnswered: review.isAnswered,
                   productDetails: review.product
-                }))
+                }; }))
               }
             });
           } else if (url.includes('/api/v1/feedbacks') && options.method === 'PATCH') {
@@ -732,14 +732,14 @@ function createMockOzonApi() {
           if (url.includes('/v1/product/review/list')) {
             return JSON.stringify({
               result: {
-                reviews: MOCK_REVIEWS_V2.map(review => ({
+                reviews: MOCK_REVIEWS_V2.map(function(review) { return {
                   id: review.id,
                   text: review.text,
                   rating: review.rating,
                   created_at: review.createdDate.toISOString(),
                   is_answered: review.isAnswered,
                   product: review.product
-                }))
+                }; }))
               }
             });
           } else if (url.includes('/v1/product/review/reply')) {
@@ -940,14 +940,14 @@ function showTestResults(results) {
     var message = '🧪 РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ MP REVIEW MANAGER v2.0\n\n';
     
     if (results.unitTests) {
-      message += `📦 UNIT ТЕСТЫ:\n`;
+      message += ' + 📦 UNIT ТЕСТЫ:\n + ';
       message += '   ✅ Пройдено: ' + results.unitTests.passed + '\n';
       message += '   ❌ Провалено: ' + results.unitTests.failed + '\n';
       message += '   📊 Всего: ' + results.unitTests.total + '\n\n';
     }
     
     if (results.integrationTests) {
-      message += `🔗 ИНТЕГРАЦИОННЫЕ ТЕСТЫ:\n`;
+      message += ' + 🔗 ИНТЕГРАЦИОННЫЕ ТЕСТЫ:\n + ';
       message += '   ✅ Пройдено: ' + results.integrationTests.passed + '\n';
       message += '   ❌ Провалено: ' + results.integrationTests.failed + '\n';
       message += '   📊 Всего: ' + results.integrationTests.total + '\n\n';
@@ -1022,5 +1022,3 @@ function runQuickTestsV2() {
 function runFullTestsV2() {
   return runCompleteTestSuiteV2();
 }
-
-// ✅ GAS COMPATIBILITY: const/let→var (97), templates→concat (65), updated 2025-10-27
