@@ -77,7 +77,7 @@ function onOpen() {
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     
   } catch (error) {
-    logError('Ошибка создания меню: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logError('Ошибка создания меню: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
     timer.finish(LOG_CONFIG.LEVELS.ERROR);
   }
 }
@@ -87,9 +87,9 @@ function onOpen() {
  */
 function showDashboard() {
   try {
-    var timer = new PerformanceTimer(\\'showDashboard\\');
+    var timer = new PerformanceTimer('showDashboard');
     
-    logInfo(\\'Открытие панели управления\\', LOG_CONFIG.CATEGORIES.UI);
+    logInfo('Открытие панели управления', LOG_CONFIG.CATEGORIES.UI);
     
     // Собираем статистику
     var stats = {
@@ -105,16 +105,16 @@ function showDashboard() {
     var htmlOutput = HtmlService.createHtmlOutput(html)
       .setWidth(800)
       .setHeight(600)
-      .setTitle(\\'MP Review Manager - Панель управления\\');
+      .setTitle('MP Review Manager - Панель управления');
     
-    SpreadsheetApp.getUi().showModalDialog(htmlOutput, \\'Панель управления\\');
+    SpreadsheetApp.getUi().showModalDialog(htmlOutput, 'Панель управления');
     
-    logSuccess(\\'Панель управления отображена\\', LOG_CONFIG.CATEGORIES.UI);
+    logSuccess('Панель управления отображена', LOG_CONFIG.CATEGORIES.UI);
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     
   } catch (error) {
-    logError(\'Ошибка отображения панели управления: ' + error.message + '\', LOG_CONFIG.CATEGORIES.UI);
-    showErrorDialog(\\'Ошибка панели управления\\', error.message);
+    logError('Ошибка отображения панели управления: ' + error.message + '', LOG_CONFIG.CATEGORIES.UI);
+    showErrorDialog('Ошибка панели управления', error.message);
   }
 }
 
@@ -125,24 +125,24 @@ function showDashboard() {
  */
 function showStoreManagerSidebar() {
   try {
-    logInfo(\\'Открытие панели управления магазинами\\', LOG_CONFIG.CATEGORIES.UI);
+    logInfo('Открытие панели управления магазинами', LOG_CONFIG.CATEGORIES.UI);
     
-    var html = HtmlService.createTemplateFromFile(\\'StoreManagerSidebar\\');
+    var html = HtmlService.createTemplateFromFile('refactor/StoreManagerSidebar');
     var htmlOutput = html.evaluate()
-      .setTitle(\\'🏪 Управление магазинами\\')
+      .setTitle('🏪 Управление магазинами')
       .setWidth(400);
     
     SpreadsheetApp.getUi().showSidebar(htmlOutput);
     
-    logSuccess(\\'Панель управления магазинами открыта\\', LOG_CONFIG.CATEGORIES.UI);
+    logSuccess('Панель управления магазинами открыта', LOG_CONFIG.CATEGORIES.UI);
     
   } catch (error) {
-    logError(\'Ошибка открытия панели управления: ' + error.message + '\', LOG_CONFIG.CATEGORIES.UI);
+    logError('Ошибка открытия панели управления: ' + error.message + '', LOG_CONFIG.CATEGORIES.UI);
     
     // Fallback - показываем простое диалоговое окно
     var ui = SpreadsheetApp.getUi();
-    ui.alert(\\'Ошибка\\', 
-      \'Не удалось открыть панель управления магазинами: ' + error.message + '\', 
+    ui.alert('Ошибка', 
+      'Не удалось открыть панель управления магазинами: ' + error.message + '', 
       ui.ButtonSet.OK);
   }
 }
@@ -159,54 +159,54 @@ function showStoreManagerDialog() {
  */
 function testStoreConnection(credentials, marketplace) {
   try {
-    logInfo(\'Тестирование подключения к ' + marketplace + '\', LOG_CONFIG.CATEGORIES.UI);
+    logInfo('Тестирование подключения к ' + marketplace + '', LOG_CONFIG.CATEGORIES.UI);
     
-    if (marketplace === \\'Wildberries\\') {
+    if (marketplace === 'Wildberries') {
       if (!credentials.apiKey) {
-        return { success: false, message: \\'API ключ не указан\\' };
+        return { success: false, message: 'API ключ не указан' };
       }
       
       // Простой тест WB API - ИСПРАВЛЕНО: добавлен обязательный параметр isAnswered
-      var url = \'' + WB_CONFIG.API_BASE_URL + '' + WB_CONFIG.ENDPOINTS.GET_FEEDBACKS + '?isAnswered=false&take=1&skip=0\';
+      var url = '' + WB_CONFIG.API_BASE_URL + '' + WB_CONFIG.ENDPOINTS.GET_FEEDBACKS + '?isAnswered=false&take=1&skip=0';
       
       var response = UrlFetchApp.fetch(url, {
-        method: \\'GET\\',
-        headers: { \\'Authorization\\': credentials.apiKey },
+        method: 'GET',
+        headers: { 'Authorization': credentials.apiKey },
         muteHttpExceptions: true
       });
       
       var code = response.getResponseCode();
       var responseBody = response.getContentText();
       
-      logInfo(\'[WB Test] Статус: ' + code + ', Ответ: ' + responseBody.substring(0, 200) + '...\', LOG_CONFIG.CATEGORIES.WB_API);
+      logInfo('[WB Test] Статус: ' + code + ', Ответ: ' + responseBody.substring(0, 200) + '...', LOG_CONFIG.CATEGORIES.WB_API);
       
       if (code === 200) {
-        return { success: true, message: \\'✅ Подключение к WB API успешно! Ключ имеет доступ к отзывам.\\' };
+        return { success: true, message: '✅ Подключение к WB API успешно! Ключ имеет доступ к отзывам.' };
       } else if (code === 401) {
-        return { success: false, message: \\'❌ Ошибка 401: Неверный API ключ WB\\' };
+        return { success: false, message: '❌ Ошибка 401: Неверный API ключ WB' };
       } else if (code === 403) {
-        return { success: false, message: \\'❌ Ошибка 403: API ключ не имеет необходимых разрешений\\' };
+        return { success: false, message: '❌ Ошибка 403: API ключ не имеет необходимых разрешений' };
       } else if (code === 429) {
-        return { success: false, message: \\'❌ Ошибка 429: Превышен лимит запросов WB API\\' };
+        return { success: false, message: '❌ Ошибка 429: Превышен лимит запросов WB API' };
       } else {
-        return { success: false, message: \'❌ Ошибка WB API: ' + code + '. ' + responseBody.substring(0, 100) + '\' };
+        return { success: false, message: '❌ Ошибка WB API: ' + code + '. ' + responseBody.substring(0, 100) + '' };
       }
       
-    } else if (marketplace === \\'Ozon\\') {
+    } else if (marketplace === 'Ozon') {
       if (!credentials.clientId || !credentials.apiKey) {
-        return { success: false, message: \\'Client ID или API ключ не указаны\\' };
+        return { success: false, message: 'Client ID или API ключ не указаны' };
       }
       
       // Простой тест Ozon API
-      var url = \'' + OZON_CONFIG.API_BASE_URL + '' + OZON_CONFIG.ENDPOINTS.GET_FEEDBACKS + '\';
+      var url = '' + OZON_CONFIG.API_BASE_URL + '' + OZON_CONFIG.ENDPOINTS.GET_FEEDBACKS + '';
       
       var response = UrlFetchApp.fetch(url, {
-        method: \\'POST\\',
+        method: 'POST',
         headers: {
-          \\'Client-Id\\': credentials.clientId,
-          \\'Api-Key\\': credentials.apiKey
+          'Client-Id': credentials.clientId,
+          'Api-Key': credentials.apiKey
         },
-        contentType: \\'application/json\\',
+        contentType: 'application/json',
         payload: JSON.stringify({ limit: 1 }),
         muteHttpExceptions: true
       });
@@ -214,28 +214,28 @@ function testStoreConnection(credentials, marketplace) {
       var code = response.getResponseCode();
       var responseBody = response.getContentText();
       
-      logInfo(\'[Ozon Test] Статус: ' + code + ', Ответ: ' + responseBody.substring(0, 200) + '...\', LOG_CONFIG.CATEGORIES.OZON_API);
+      logInfo('[Ozon Test] Статус: ' + code + ', Ответ: ' + responseBody.substring(0, 200) + '...', LOG_CONFIG.CATEGORIES.OZON_API);
       
       if (code === 200) {
-        return { success: true, message: \\'✅ Подключение к Ozon API успешно! Доступ к отзывам подтвержден.\\' };
+        return { success: true, message: '✅ Подключение к Ozon API успешно! Доступ к отзывам подтвержден.' };
       } else if (code === 401) {
-        return { success: false, message: \\'❌ Ошибка 401: Неверные Client ID или API Key для Ozon\\' };
+        return { success: false, message: '❌ Ошибка 401: Неверные Client ID или API Key для Ozon' };
       } else if (code === 403) {
-        return { success: false, message: \\'❌ Ошибка 403: Недостаточно прав доступа для Ozon API\\' };
+        return { success: false, message: '❌ Ошибка 403: Недостаточно прав доступа для Ozon API' };
       } else if (code === 404) {
-        return { success: false, message: \\'❌ Ошибка 404: API endpoint не найден. Проверьте URL Ozon API\\' };
+        return { success: false, message: '❌ Ошибка 404: API endpoint не найден. Проверьте URL Ozon API' };
       } else if (code === 429) {
-        return { success: false, message: \\'❌ Ошибка 429: Превышен лимит запросов Ozon API\\' };
+        return { success: false, message: '❌ Ошибка 429: Превышен лимит запросов Ozon API' };
       } else {
-        return { success: false, message: \'❌ Ошибка Ozon API: ' + code + '. ' + responseBody.substring(0, 100) + '\' };
+        return { success: false, message: '❌ Ошибка Ozon API: ' + code + '. ' + responseBody.substring(0, 100) + '' };
       }
     }
     
-    return { success: false, message: \\'Неподдерживаемый маркетплейс\\' };
+    return { success: false, message: 'Неподдерживаемый маркетплейс' };
     
   } catch (error) {
-    logError(\'Ошибка тестирования подключения: ' + error.message + '\', LOG_CONFIG.CATEGORIES.UI);
-    return { success: false, message: \'❌ Ошибка: ' + error.message + '\' };
+    logError('Ошибка тестирования подключения: ' + error.message + '', LOG_CONFIG.CATEGORIES.UI);
+    return { success: false, message: '❌ Ошибка: ' + error.message + '' };
   }
 }
 
@@ -244,16 +244,16 @@ function testStoreConnection(credentials, marketplace) {
  */
 function showAddStoreDialog() {
   try {
-    var html = HtmlService.createHtmlOutputFromFile(\\'addStoreDialog\\')
+    var html = HtmlService.createHtmlOutputFromFile('addStoreDialog')
       .setWidth(500)
       .setHeight(400)
-      .setTitle(\\'Добавить новый магазин\\');
+      .setTitle('Добавить новый магазин');
     
-    SpreadsheetApp.getUi().showModalDialog(html, \\'Добавить магазин\\');
+    SpreadsheetApp.getUi().showModalDialog(html, 'Добавить магазин');
     
   } catch (error) {
-    logError(\'Ошибка диалога добавления магазина: ' + error.message + '\', LOG_CONFIG.CATEGORIES.UI);
-    showErrorDialog(\\'Ошибка\\', \\'Не удалось открыть диалог добавления магазина\\');
+    logError('Ошибка диалога добавления магазина: ' + error.message + '', LOG_CONFIG.CATEGORIES.UI);
+    showErrorDialog('Ошибка', 'Не удалось открыть диалог добавления магазина');
   }
 }
 
@@ -262,16 +262,16 @@ function showAddStoreDialog() {
  */
 function addNewStore(storeData) {
   try {
-    var timer = new PerformanceTimer(\\'addNewStore\\');
+    var timer = new PerformanceTimer('addNewStore');
     
-    logInfo(\'Добавление нового магазина: ' + storeData.name + '\', LOG_CONFIG.CATEGORIES.STORE);
+    logInfo('Добавление нового магазина: ' + storeData.name + '', LOG_CONFIG.CATEGORIES.STORE);
     
     // Валидация данных
     var validationResult = validateStoreData(storeData);
     if (!validationResult.valid) {
       return {
         success: false,
-        error: validationResult.errors.join(\\', \\')
+        error: validationResult.errors.join(', ')
       };
     }
     
@@ -285,12 +285,12 @@ function addNewStore(storeData) {
       // Инициализируем кеш
       initializeCacheForStore(result.store.id);
       
-      logSuccess(\'Магазин ' + storeData.name + ' успешно добавлен\', LOG_CONFIG.CATEGORIES.STORE);
+      logSuccess('Магазин ' + storeData.name + ' успешно добавлен', LOG_CONFIG.CATEGORIES.STORE);
       timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
       
       return {
         success: true,
-        message: \\'Магазин успешно добавлен\\',
+        message: 'Магазин успешно добавлен',
         storeId: result.store.id
       };
       
@@ -300,7 +300,7 @@ function addNewStore(storeData) {
     }
     
   } catch (error) {
-    logError(\'Ошибка добавления магазина: ' + error.message + '\', LOG_CONFIG.CATEGORIES.STORE);
+    logError('Ошибка добавления магазина: ' + error.message + '', LOG_CONFIG.CATEGORIES.STORE);
     
     return {
       success: false,
@@ -317,31 +317,31 @@ function showActiveStores() {
     var activeStores = getActiveStores();
     
     if (activeStores.length === 0) {
-      showInfoDialog(\\'Активные магазины\\', \\'У вас пока нет активных магазинов.\n\nДобавьте магазин через меню "Магазины" → "Добавить магазин"\\');
+      showInfoDialog('Активные магазины', 'У вас пока нет активных магазинов.\n\nДобавьте магазин через меню "Магазины" → "Добавить магазин"');
       return;
     }
     
-    var message = \'Активные магазины (' + activeStores.length + '):\n\n\';
+    var message = 'Активные магазины (' + activeStores.length + '):\n\n';
     
     // ЗАЩИТА forEach ERROR: Дополнительная проверка что activeStores это массив
     if (Array.isArray(activeStores)) {
       for (var index = 0; index < activeStores.length; index++) {
       var store = activeStores[index];
-        message += \'' + index + 1 + '. ' + store.name + '\n\';
-        message += \'   Маркетплейс: ' + store.marketplace + '\n\';
-        message += \'   Статус: ' + store.isActive ? '✅ Активен' : '❌ Неактивен' + '\n\';
-        message += \'   Добавлен: ' + new Date(store.createdDate).toLocaleDateString('ru-RU') + '\n\n\';
+        message += '' + index + 1 + '. ' + store.name + '\n';
+        message += '   Маркетплейс: ' + store.marketplace + '\n';
+        message += '   Статус: ' + store.isActive ? '✅ Активен' : '❌ Неактивен' + '\n';
+        message += '   Добавлен: ' + new Date(store.createdDate).toLocaleDateString('ru-RU') + '\n\n';
       });
     } else {
-      logError(\'showActiveStores: activeStores не массив, получено: ' + typeof activeStores + '\', LOG_CONFIG.CATEGORIES.UI);
-      message += \'⚠️ Ошибка загрузки списка магазинов\';
+      logError('showActiveStores: activeStores не массив, получено: ' + typeof activeStores + '', LOG_CONFIG.CATEGORIES.UI);
+      message += '⚠️ Ошибка загрузки списка магазинов';
     }
     
-    showInfoDialog(\\'Активные магазины\\', message);
+    showInfoDialog('Активные магазины', message);
     
   } catch (error) {
-    logError(\'Ошибка отображения активных магазинов: ' + error.message + '\', LOG_CONFIG.CATEGORIES.UI);
-    showErrorDialog(\\'Ошибка\\', \\'Не удалось загрузить список активных магазинов\\');
+    logError('Ошибка отображения активных магазинов: ' + error.message + '', LOG_CONFIG.CATEGORIES.UI);
+    showErrorDialog('Ошибка', 'Не удалось загрузить список активных магазинов');
   }
 }
 
@@ -350,14 +350,14 @@ function showActiveStores() {
  */
 function syncAllStores() {
   try {
-    var timer = new PerformanceTimer(\\'syncAllStores\\');
+    var timer = new PerformanceTimer('syncAllStores');
     
-    showProgressDialog(\\'Синхронизация магазинов\\', \\'Синхронизация данных со всеми активными магазинами...\\');
+    showProgressDialog('Синхронизация магазинов', 'Синхронизация данных со всеми активными магазинами...');
     
     var activeStores = getActiveStores();
     if (activeStores.length === 0) {
       closeProgressDialog();
-      showInfoDialog(\\'Синхронизация\\', \\'Нет активных магазинов для синхронизации\\');
+      showInfoDialog('Синхронизация', 'Нет активных магазинов для синхронизации');
       return;
     }
     
@@ -371,39 +371,39 @@ function syncAllStores() {
     for (var __i = 0; __i < activeStores.length; __i++) {
       var store = activeStores[__i];
       try {
-        logInfo(\'Синхронизация магазина: ' + store.name + '\', LOG_CONFIG.CATEGORIES.STORE);
+        logInfo('Синхронизация магазина: ' + store.name + '', LOG_CONFIG.CATEGORIES.STORE);
         
         // Сбор отзывов
         var reviewsResult = collectReviewsForStore(store);
         
         results.successful++;
-        logSuccess(\'' + store.name + ': синхронизация завершена\', LOG_CONFIG.CATEGORIES.STORE);
+        logSuccess('' + store.name + ': синхронизация завершена', LOG_CONFIG.CATEGORIES.STORE);
         
       } catch (error) {
         results.failed++;
-        results.errors.push(\'' + store.name + ': ' + error.message + '\');
-        logError(\'Ошибка синхронизации ' + store.name + ': ' + error.message + '\', LOG_CONFIG.CATEGORIES.STORE);
+        results.errors.push('' + store.name + ': ' + error.message + '');
+        logError('Ошибка синхронизации ' + store.name + ': ' + error.message + '', LOG_CONFIG.CATEGORIES.STORE);
       }
     }
     
     closeProgressDialog();
     
-    var message = \'Синхронизация завершена:\n\n\';
-    message += \'✅ Успешно: ' + results.successful + '\n\';
-    message += \'❌ Ошибки: ' + results.failed + '\n\';
+    var message = 'Синхронизация завершена:\n\n';
+    message += '✅ Успешно: ' + results.successful + '\n';
+    message += '❌ Ошибки: ' + results.failed + '\n';
     
     if (results.errors.length > 0) {
-      message += \'\nОшибки:\n' + results.errors.join('\n') + '\';
+      message += '\nОшибки:\n' + results.errors.join('\n') + '';
     }
     
-    showInfoDialog(\\'Результаты синхронизации\\', message);
+    showInfoDialog('Результаты синхронизации', message);
     
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     
   } catch (error) {
     closeProgressDialog();
-    logError(\'Ошибка синхронизации магазинов: ' + error.message + '\', LOG_CONFIG.CATEGORIES.STORE);
-    showErrorDialog(\\'Ошибка синхронизации\\', error.message);
+    logError('Ошибка синхронизации магазинов: ' + error.message + '', LOG_CONFIG.CATEGORIES.STORE);
+    showErrorDialog('Ошибка синхронизации', error.message);
   }
 }
 
@@ -414,9 +414,9 @@ function syncAllStores() {
  */
 function collectAllReviews() {
   try {
-    logInfo(\\'Запуск сбора всех отзывов через UI\\', LOG_CONFIG.CATEGORIES.UI);
+    logInfo('Запуск сбора всех отзывов через UI', LOG_CONFIG.CATEGORIES.UI);
     
-    showProgressDialog(\\'Сбор отзывов\\', \\'Получение новых отзывов со всех активных магазинов...\\');
+    showProgressDialog('Сбор отзывов', 'Получение новых отзывов со всех активных магазинов...');
     
     // Используем триггерную функцию
     var result = hourlyReviewCollector();
@@ -424,22 +424,22 @@ function collectAllReviews() {
     closeProgressDialog();
     
     if (result) {
-      var message = \'Сбор отзывов завершен:\n\n\';
-      message += \'📊 Магазинов обработано: ' + result.processedStores + '/' + result.totalStores + '\n\';
-      message += \'📥 Всего отзывов получено: ' + result.totalReviews + '\n\';
-      message += \'🆕 Новых отзывов: ' + result.newReviews + '\n\';
+      var message = 'Сбор отзывов завершен:\n\n';
+      message += '📊 Магазинов обработано: ' + result.processedStores + '/' + result.totalStores + '\n';
+      message += '📥 Всего отзывов получено: ' + result.totalReviews + '\n';
+      message += '🆕 Новых отзывов: ' + result.newReviews + '\n';
       
       if (result.errors && result.errors.length > 0) {
-        message += \'\n❌ Ошибки:\n' + result.errors.join('\n') + '\';
+        message += '\n❌ Ошибки:\n' + result.errors.join('\n') + '';
       }
       
-      showInfoDialog(\\'Результаты сбора отзывов\\', message);
+      showInfoDialog('Результаты сбора отзывов', message);
     }
     
   } catch (error) {
     closeProgressDialog();
-    logError(\'Ошибка сбора отзывов: ' + error.message + '\', LOG_CONFIG.CATEGORIES.UI);
-    showErrorDialog(\\'Ошибка сбора отзывов\\', error.message);
+    logError('Ошибка сбора отзывов: ' + error.message + '', LOG_CONFIG.CATEGORIES.UI);
+    showErrorDialog('Ошибка сбора отзывов', error.message);
   }
 }
 
@@ -448,9 +448,9 @@ function collectAllReviews() {
  */
 function prepareAllAnswers() {
   try {
-    logInfo(\\'Запуск подготовки ответов через UI\\', LOG_CONFIG.CATEGORIES.UI);
+    logInfo('Запуск подготовки ответов через UI', LOG_CONFIG.CATEGORIES.UI);
     
-    showProgressDialog(\\'Подготовка ответов\\', \\'Подбор ответов для новых отзывов...\\');
+    showProgressDialog('Подготовка ответов', 'Подбор ответов для новых отзывов...');
     
     // Используем триггерную функцию
     var result = selectReviewAnswers();
@@ -458,22 +458,22 @@ function prepareAllAnswers() {
     closeProgressDialog();
     
     if (result) {
-      var message = \'Подготовка ответов завершена:\n\n\';
-      message += \'📊 Магазинов обработано: ' + result.processedStores + '/' + result.totalStores + '\n\';
-      message += \'📝 Отзывов обработано: ' + result.totalReviews + '\n\';
-      message += \'✅ Ответов подготовлено: ' + result.preparedAnswers + '\n\';
+      var message = 'Подготовка ответов завершена:\n\n';
+      message += '📊 Магазинов обработано: ' + result.processedStores + '/' + result.totalStores + '\n';
+      message += '📝 Отзывов обработано: ' + result.totalReviews + '\n';
+      message += '✅ Ответов подготовлено: ' + result.preparedAnswers + '\n';
       
       if (result.errors && result.errors.length > 0) {
-        message += \'\n❌ Ошибки:\n' + result.errors.join('\n') + '\';
+        message += '\n❌ Ошибки:\n' + result.errors.join('\n') + '';
       }
       
-      showInfoDialog(\\'Результаты подготовки ответов\\', message);
+      showInfoDialog('Результаты подготовки ответов', message);
     }
     
   } catch (error) {
     closeProgressDialog();
-    logError(\'Ошибка подготовки ответов: ' + error.message + '\', LOG_CONFIG.CATEGORIES.UI);
-    showErrorDialog(\\'Ошибка подготовки ответов\\', error.message);
+    logError('Ошибка подготовки ответов: ' + error.message + '', LOG_CONFIG.CATEGORIES.UI);
+    showErrorDialog('Ошибка подготовки ответов', error.message);
   }
 }
 
@@ -482,9 +482,9 @@ function prepareAllAnswers() {
  */
 function sendAllAnswers() {
   try {
-    logInfo(\\'Запуск отправки ответов через UI\\', LOG_CONFIG.CATEGORIES.UI);
+    logInfo('Запуск отправки ответов через UI', LOG_CONFIG.CATEGORIES.UI);
     
-    showProgressDialog(\\'Отправка ответов\\', \\'Отправка подготовленных ответов на маркетплейсы...\\');
+    showProgressDialog('Отправка ответов', 'Отправка подготовленных ответов на маркетплейсы...');
     
     // Используем триггерную функцию
     var result = sendReviewAnswers();
@@ -492,22 +492,22 @@ function sendAllAnswers() {
     closeProgressDialog();
     
     if (result) {
-      var message = \'Отправка ответов завершена:\n\n\';
-      message += \'📊 Магазинов обработано: ' + result.processedStores + '/' + result.totalStores + '\n\';
-      message += \'📤 К отправке было: ' + result.totalPending + '\n\';
-      message += \'✅ Успешно отправлено: ' + result.sentAnswers + '\n\';
+      var message = 'Отправка ответов завершена:\n\n';
+      message += '📊 Магазинов обработано: ' + result.processedStores + '/' + result.totalStores + '\n';
+      message += '📤 К отправке было: ' + result.totalPending + '\n';
+      message += '✅ Успешно отправлено: ' + result.sentAnswers + '\n';
       
       if (result.errors && result.errors.length > 0) {
-        message += \'\n❌ Ошибки:\n' + result.errors.join('\n') + '\';
+        message += '\n❌ Ошибки:\n' + result.errors.join('\n') + '';
       }
       
-      showInfoDialog(\\'Результаты отправки ответов\\', message);
+      showInfoDialog('Результаты отправки ответов', message);
     }
     
   } catch (error) {
     closeProgressDialog();
-    logError(\'Ошибка отправки ответов: ' + error.message + '\', LOG_CONFIG.CATEGORIES.UI);
-    showErrorDialog(\\'Ошибка отправки ответов\\', error.message);
+    logError('Ошибка отправки ответов: ' + error.message + '', LOG_CONFIG.CATEGORIES.UI);
+    showErrorDialog('Ошибка отправки ответов', error.message);
   }
 }
 
@@ -516,11 +516,11 @@ function sendAllAnswers() {
  */
 function showReviewsStats() {
   try {
-    var timer = new PerformanceTimer(\\'showReviewsStats\\');
+    var timer = new PerformanceTimer('showReviewsStats');
     
     var activeStores = getActiveStores();
     if (activeStores.length === 0) {
-      showInfoDialog(\\'Статистика отзывов\\', \\'Нет активных магазинов для анализа статистики\\');
+      showInfoDialog('Статистика отзывов', 'Нет активных магазинов для анализа статистики');
       return;
     }
     
@@ -546,26 +546,26 @@ function showReviewsStats() {
         stats.errorReviews += storeStats.error;
         
       } catch (error) {
-        logWarning(\'Ошибка получения статистики для ' + store.name + ': ' + error.message + '\', LOG_CONFIG.CATEGORIES.STORE);
+        logWarning('Ошибка получения статистики для ' + store.name + ': ' + error.message + '', LOG_CONFIG.CATEGORIES.STORE);
       }
     }
     
-    var message = \'📊 СТАТИСТИКА ОТЗЫВОВ\n\n\';
-    message += \'🏪 Активных магазинов: ' + stats.stores + '\n\';
-    message += \'📝 Всего отзывов: ' + stats.totalReviews + '\n\n\';
-    message += \'📊 По статусам:\n\';
-    message += \'🆕 Новые: ' + stats.newReviews + '\n\';
-    message += \'⏳ Готовы к отправке: ' + stats.pendingReviews + '\n\';
-    message += \'✅ Отправлены: ' + stats.sentReviews + '\n\';
-    message += \'❌ Ошибки: ' + stats.errorReviews + '\n\';
+    var message = '📊 СТАТИСТИКА ОТЗЫВОВ\n\n';
+    message += '🏪 Активных магазинов: ' + stats.stores + '\n';
+    message += '📝 Всего отзывов: ' + stats.totalReviews + '\n\n';
+    message += '📊 По статусам:\n';
+    message += '🆕 Новые: ' + stats.newReviews + '\n';
+    message += '⏳ Готовы к отправке: ' + stats.pendingReviews + '\n';
+    message += '✅ Отправлены: ' + stats.sentReviews + '\n';
+    message += '❌ Ошибки: ' + stats.errorReviews + '\n';
     
-    showInfoDialog(\\'Статистика отзывов\\', message);
+    showInfoDialog('Статистика отзывов', message);
     
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     
   } catch (error) {
-    logError(\'Ошибка получения статистики отзывов: ' + error.message + '\', LOG_CONFIG.CATEGORIES.UI);
-    showErrorDialog(\\'Ошибка статистики\\', error.message);
+    logError('Ошибка получения статистики отзывов: ' + error.message + '', LOG_CONFIG.CATEGORIES.UI);
+    showErrorDialog('Ошибка статистики', error.message);
   }
 }
 
@@ -579,37 +579,37 @@ function showTriggersStatus() {
     var triggersInfo = getSystemTriggersInfo();
     var savedInfo = getTriggerSystemInfo();
     
-    var message = \'⚡ СТАТУС СИСТЕМЫ ТРИГГЕРОВ\n\n\';
+    var message = '⚡ СТАТУС СИСТЕМЫ ТРИГГЕРОВ\n\n';
     
     if (triggersInfo.isComplete) {
-      message += \'✅ Система работает корректно\n\';
-      message += \'📊 Активных триггеров: ' + triggersInfo.total + '/' + triggersInfo.expected + '\n\n\';
+      message += '✅ Система работает корректно\n';
+      message += '📊 Активных триггеров: ' + triggersInfo.total + '/' + triggersInfo.expected + '\n\n';
       
-      triggersInfo.for (var index = 0; index < triggers.length; index++) {
-      var trigger = triggers[index];
-        message += \'' + index + 1 + '. ' + trigger.functionName + '\n\';
-        message += \'   ID: ' + trigger.id + '\n\';
-        message += \'   Тип: ' + trigger.isTimeBased ? 'По времени' : 'Другой' + '\n\n\';
+      for (var index = 0; index < triggersInfo.triggers.length; index++) {
+      var trigger = triggersInfo.triggers[index];
+        message += '' + index + 1 + '. ' + trigger.functionName + '\n';
+        message += '   ID: ' + trigger.id + '\n';
+        message += '   Тип: ' + trigger.isTimeBased ? 'По времени' : 'Другой' + '\n\n';
       });
       
       if (savedInfo) {
-        message += \'📅 Настроены: ' + new Date(savedInfo.setupDate).toLocaleString('ru-RU') + '\n\';
-        message += \'⏰ Интервал: ' + savedInfo.intervalMinutes + ' минут\n\';
-        message += \'🏪 Магазинов: ' + savedInfo.activeStores + '\n\';
+        message += '📅 Настроены: ' + new Date(savedInfo.setupDate).toLocaleString('ru-RU') + '\n';
+        message += '⏰ Интервал: ' + savedInfo.intervalMinutes + ' минут\n';
+        message += '🏪 Магазинов: ' + savedInfo.activeStores + '\n';
       }
       
     } else {
-      message += \'❌ Система триггеров не настроена\n\';
-      message += \'📊 Найдено триггеров: ' + triggersInfo.total + '/' + triggersInfo.expected + '\n\n\';
-      message += \'💡 Для настройки используйте:\n\';
-      message += \'   Меню → Автоматизация → Настроить триггеры\n\';
+      message += '❌ Система триггеров не настроена\n';
+      message += '📊 Найдено триггеров: ' + triggersInfo.total + '/' + triggersInfo.expected + '\n\n';
+      message += '💡 Для настройки используйте:\n';
+      message += '   Меню → Автоматизация → Настроить триггеры\n';
     }
     
-    showInfoDialog(\\'Статус триггеров\\', message);
+    showInfoDialog('Статус триггеров', message);
     
   } catch (error) {
-    logError(\'Ошибка получения статуса триггеров: ' + error.message + '\', LOG_CONFIG.CATEGORIES.UI);
-    showErrorDialog(\\'Ошибка статуса триггеров\\', error.message);
+    logError('Ошибка получения статуса триггеров: ' + error.message + '', LOG_CONFIG.CATEGORIES.UI);
+    showErrorDialog('Ошибка статуса триггеров', error.message);
   }
 }
 
@@ -620,9 +620,9 @@ function showTriggersStatus() {
  */
 function runSystemDiagnostics() {
   try {
-    var timer = new PerformanceTimer(\\'runSystemDiagnostics\\');
+    var timer = new PerformanceTimer('runSystemDiagnostics');
     
-    showProgressDialog(\\'Системная диагностика\\', \\'Проверка состояния системы...\\');
+    showProgressDialog('Системная диагностика', 'Проверка состояния системы...');
     
     var diagnostics = {
       timestamp: new Date(),
@@ -637,7 +637,7 @@ function runSystemDiagnostics() {
         apiCalls: 0
       },
       system: {
-        memoryUsage: \\'N/A\\',
+        memoryUsage: 'N/A',
         executionTime: 0
       }
     };
@@ -656,38 +656,38 @@ function runSystemDiagnostics() {
     
     closeProgressDialog();
     
-    var message = \'🔍 СИСТЕМНАЯ ДИАГНОСТИКА\n\n\';
-    message += \'📅 Дата: ' + diagnostics.timestamp.toLocaleString('ru-RU') + '\n\n\';
+    var message = '🔍 СИСТЕМНАЯ ДИАГНОСТИКА\n\n';
+    message += '📅 Дата: ' + diagnostics.timestamp.toLocaleString('ru-RU') + '\n\n';
     
-    message += \'🏪 МАГАЗИНЫ:\n\';
-    message += \'   Всего: ' + diagnostics.stores.total + '\n\';
-    message += \'   Активные: ' + diagnostics.stores.active + '\n\';
-    message += \'   С ошибками: ' + diagnostics.stores.withErrors + '\n\n\';
+    message += '🏪 МАГАЗИНЫ:\n';
+    message += '   Всего: ' + diagnostics.stores.total + '\n';
+    message += '   Активные: ' + diagnostics.stores.active + '\n';
+    message += '   С ошибками: ' + diagnostics.stores.withErrors + '\n\n';
     
-    message += \'⚡ ТРИГГЕРЫ:\n\';
-    message += \'   Статус: ' + diagnostics.triggers.isComplete ? '✅ Работают' : '❌ Проблемы' + '\n\';
-    message += \'   Активные: ' + diagnostics.triggers.total + '/' + diagnostics.triggers.expected + '\n\n\';
+    message += '⚡ ТРИГГЕРЫ:\n';
+    message += '   Статус: ' + diagnostics.triggers.isComplete ? '✅ Работают' : '❌ Проблемы' + '\n';
+    message += '   Активные: ' + diagnostics.triggers.total + '/' + diagnostics.triggers.expected + '\n\n';
     
     if (diagnostics.stores.withErrors > 0 || !diagnostics.triggers.isComplete) {
-      message += \'⚠️ ОБНАРУЖЕНЫ ПРОБЛЕМЫ:\n\';
+      message += '⚠️ ОБНАРУЖЕНЫ ПРОБЛЕМЫ:\n';
       if (diagnostics.stores.withErrors > 0) {
-        message += \'- Ошибки в конфигурации магазинов\n\';
+        message += '- Ошибки в конфигурации магазинов\n';
       }
       if (!diagnostics.triggers.isComplete) {
-        message += \'- Неполная настройка триггеров\n\';
+        message += '- Неполная настройка триггеров\n';
       }
     } else {
-      message += \'✅ Система работает корректно\';
+      message += '✅ Система работает корректно';
     }
     
-    showInfoDialog(\\'Системная диагностика\\', message);
+    showInfoDialog('Системная диагностика', message);
     
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     
   } catch (error) {
     closeProgressDialog();
-    logError(\'Ошибка системной диагностики: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
-    showErrorDialog(\\'Ошибка диагностики\\', error.message);
+    logError('Ошибка системной диагностики: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
+    showErrorDialog('Ошибка диагностики', error.message);
   }
 }
 
@@ -702,7 +702,7 @@ function runQuickHealthCheck() {
       sheets: SpreadsheetApp.getActiveSpreadsheet() !== null
     };
   } catch (error) {
-    logError(\'Ошибка быстрой проверки: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logError('Ошибка быстрой проверки: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
     return {
       stores: false,
       triggers: false,
@@ -716,14 +716,14 @@ function runQuickHealthCheck() {
  */
 function runApiTests() {
   try {
-    var timer = new PerformanceTimer(\\'runApiTests\\');
+    var timer = new PerformanceTimer('runApiTests');
     
-    showProgressDialog(\\'Тестирование API\\', \\'Проверка подключений к маркетплейсам...\\');
+    showProgressDialog('Тестирование API', 'Проверка подключений к маркетплейсам...');
     
     var activeStores = getActiveStores();
     if (activeStores.length === 0) {
       closeProgressDialog();
-      showInfoDialog(\\'Тестирование API\\', \\'Нет активных магазинов для тестирования API\\');
+      showInfoDialog('Тестирование API', 'Нет активных магазинов для тестирования API');
       return;
     }
     
@@ -734,10 +734,10 @@ function runApiTests() {
       try {
         var testResult = null;
         
-        if (store.marketplace === \\'Wildberries\\') {
+        if (store.marketplace === 'Wildberries') {
           // Тест WB API
           testResult = testWbConnection(store);
-        } else if (store.marketplace === \\'Ozon\\') {
+        } else if (store.marketplace === 'Ozon') {
           // Тест Ozon API
           testResult = testOzonConnection(store);
         }
@@ -745,15 +745,15 @@ function runApiTests() {
         results.push({
           store: store.name,
           marketplace: store.marketplace,
-          status: testResult?.success ? \\'OK\\' : \\'ERROR\\',
-          message: testResult?.message || \\'Тест не выполнен\\'
+          status: testResult?.success ? 'OK' : 'ERROR',
+          message: testResult?.message || 'Тест не выполнен'
         });
         
       } catch (error) {
         results.push({
           store: store.name,
           marketplace: store.marketplace,
-          status: \\'ERROR\\',
+          status: 'ERROR',
           message: error.message
         });
       }
@@ -761,24 +761,24 @@ function runApiTests() {
     
     closeProgressDialog();
     
-    var message = \'🧪 РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ API\n\n\';
+    var message = '🧪 РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ API\n\n';
     
     for (var index = 0; index < results.length; index++) {
       var result = results[index];
-      var status = result.status === \\'OK\\' ? \\'✅\\' : \\'❌\\';
-      message += \'' + index + 1 + '. ' + result.store + ' (' + result.marketplace + ')\n\';
-      message += \'   Статус: ' + status + ' ' + result.status + '\n\';
-      message += \'   ' + result.message + '\n\n\';
+      var status = result.status === 'OK' ? '✅' : '❌';
+      message += '' + index + 1 + '. ' + result.store + ' (' + result.marketplace + ')\n';
+      message += '   Статус: ' + status + ' ' + result.status + '\n';
+      message += '   ' + result.message + '\n\n';
     });
     
-    showInfoDialog(\\'Результаты тестирования API\\', message);
+    showInfoDialog('Результаты тестирования API', message);
     
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     
   } catch (error) {
     closeProgressDialog();
-    logError(\'Ошибка тестирования API: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
-    showErrorDialog(\\'Ошибка тестирования\\', error.message);
+    logError('Ошибка тестирования API: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
+    showErrorDialog('Ошибка тестирования', error.message);
   }
 }
 
@@ -792,7 +792,7 @@ function showInfoDialog(title, message) {
     var ui = SpreadsheetApp.getUi();
     ui.alert(title, message, ui.ButtonSet.OK);
   } catch (error) {
-    logError(\'Ошибка показа информационного диалога: ' + error.message + '\', LOG_CONFIG.CATEGORIES.UI);
+    logError('Ошибка показа информационного диалога: ' + error.message + '', LOG_CONFIG.CATEGORIES.UI);
   }
 }
 
@@ -802,13 +802,13 @@ function showInfoDialog(title, message) {
 function showErrorDialog(title, message) {
   try {
     var ui = SpreadsheetApp.getUi();
-    ui.alert(\'❌ ' + title + '\', message, ui.ButtonSet.OK);
+    ui.alert('❌ ' + title + '', message, ui.ButtonSet.OK);
     
     // Дублируем в лог
-    logError(\'UI Error - ' + title + ': ' + message + '\', LOG_CONFIG.CATEGORIES.UI);
+    logError('UI Error - ' + title + ': ' + message + '', LOG_CONFIG.CATEGORIES.UI);
     
   } catch (error) {
-    console.error(\'Критическая ошибка UI: ' + error.message + '\');
+    console.error('Критическая ошибка UI: ' + error.message + '');
   }
 }
 
@@ -822,7 +822,7 @@ function showProgressDialog(title, message) {
     SpreadsheetApp.getActiveSpreadsheet().toast(message, title, 10);
     
   } catch (error) {
-    logError(\'Ошибка показа диалога прогресса: ' + error.message + '\', LOG_CONFIG.CATEGORIES.UI);
+    logError('Ошибка показа диалога прогресса: ' + error.message + '', LOG_CONFIG.CATEGORIES.UI);
   }
 }
 
@@ -831,7 +831,7 @@ function showProgressDialog(title, message) {
  */
 function closeProgressDialog() {
   try {
-    SpreadsheetApp.getActiveSpreadsheet().toast(\\'\\', \\'\\', 1);
+    SpreadsheetApp.getActiveSpreadsheet().toast('', '', 1);
   } catch (error) {
     // Игнорируем ошибки закрытия
   }
@@ -844,7 +844,7 @@ function generateDashboardHTML(stats) {
   var healthStatus = stats.systemHealth;
   var triggersStatus = stats.triggersStatus;
   
-  var html = \'
+  var html = '
     <!DOCTYPE html>
     <html>
     <head>
@@ -919,7 +919,7 @@ function generateDashboardHTML(stats) {
       </div>
     </body>
     </html>
-  \';
+  ';
   
   return html;
 }
@@ -931,14 +931,14 @@ function generateDashboardHTML(stats) {
  */
 function exportAllData() {
   try {
-    var timer = new PerformanceTimer(\\'exportAllData\\');
+    var timer = new PerformanceTimer('exportAllData');
     
-    showProgressDialog(\\'Экспорт данных\\', \\'Подготовка данных для экспорта...\\');
+    showProgressDialog('Экспорт данных', 'Подготовка данных для экспорта...');
     
     var exportData = {
       metadata: {
         exportDate: new Date(),
-        version: \\'2.0\\',
+        version: '2.0',
         systemInfo: runQuickHealthCheck()
       },
       stores: getAllStores(),
@@ -949,7 +949,7 @@ function exportAllData() {
     
     // Создаем новый лист для экспорта
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var exportSheetName = \'Export_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss') + '\';
+    var exportSheetName = 'Export_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss') + '';
     
     var exportSheet = ss.getSheetByName(exportSheetName);
     if (exportSheet) {
@@ -959,19 +959,19 @@ function exportAllData() {
     exportSheet = ss.insertSheet(exportSheetName);
     
     // Записываем данные экспорта
-    exportSheet.getRange(1, 1).setValue(\\'MP Review Manager - Экспорт данных\\');
+    exportSheet.getRange(1, 1).setValue('MP Review Manager - Экспорт данных');
     exportSheet.getRange(2, 1).setValue(JSON.stringify(exportData, null, 2));
     
     closeProgressDialog();
     
-    showInfoDialog(\\'Экспорт завершен\\', \'Данные экспортированы в лист: ' + exportSheetName + '\');
+    showInfoDialog('Экспорт завершен', 'Данные экспортированы в лист: ' + exportSheetName + '');
     
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     
   } catch (error) {
     closeProgressDialog();
-    logError(\'Ошибка экспорта данных: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
-    showErrorDialog(\\'Ошибка экспорта\\', error.message);
+    logError('Ошибка экспорта данных: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
+    showErrorDialog('Ошибка экспорта', error.message);
   }
 }
 
@@ -980,25 +980,25 @@ function exportAllData() {
  */
 function clearAllCaches() {
   try {
-    var timer = new PerformanceTimer(\\'clearAllCaches\\');
+    var timer = new PerformanceTimer('clearAllCaches');
     
     var result = clearAllStoreCaches();
     
-    var message = \'🧹 Очистка кешей завершена\n\n\';
-    message += \'📊 Очищено кешей: ' + result.clearedCaches + '\n\';
-    message += \'❌ Ошибок: ' + result.errors + '\n\';
+    var message = '🧹 Очистка кешей завершена\n\n';
+    message += '📊 Очищено кешей: ' + result.clearedCaches + '\n';
+    message += '❌ Ошибок: ' + result.errors + '\n';
     
     if (result.errorMessages.length > 0) {
-      message += \'\nДетали ошибок:\n' + result.errorMessages.join('\n') + '\';
+      message += '\nДетали ошибок:\n' + result.errorMessages.join('\n') + '';
     }
     
-    showInfoDialog(\\'Очистка кешей\\', message);
+    showInfoDialog('Очистка кешей', message);
     
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     
   } catch (error) {
-    logError(\'Ошибка очистки кешей: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
-    showErrorDialog(\\'Ошибка очистки кешей\\', error.message);
+    logError('Ошибка очистки кешей: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
+    showErrorDialog('Ошибка очистки кешей', error.message);
   }
 }
 
@@ -1006,7 +1006,7 @@ function clearAllCaches() {
  * Показывает справочную информацию
  */
 function showHelp() {
-  var helpMessage = \'
+  var helpMessage = '
 📖 MP REVIEW MANAGER v2.0 - СПРАВКА
 
 🏪 УПРАВЛЕНИЕ МАГАЗИНАМИ:
@@ -1035,9 +1035,9 @@ function showHelp() {
 • При ошибках используйте "Сброс кешей"
 
 Версия: 2.0 | Архитектура: Модульная
-  \';
+  ';
   
-  showInfoDialog(\\'Справка по системе\\', helpMessage.trim());
+  showInfoDialog('Справка по системе', helpMessage.trim());
 }
 
 // ============ СЛУЖЕБНЫЕ ФУНКЦИИ ============
@@ -1049,28 +1049,28 @@ function validateStoreData(storeData) {
   var errors = [];
   
   if (!storeData.name || storeData.name.trim().length === 0) {
-    errors.push(\\'Название магазина не может быть пустым\\');
+    errors.push('Название магазина не может быть пустым');
   }
   
-  if (!storeData.marketplace || ![\\'Wildberries\\', \\'Ozon\\'].includes(storeData.marketplace)) {
-    errors.push(\\'Выберите корректный маркетплейс\\');
+  if (!storeData.marketplace || !['Wildberries', 'Ozon'].includes(storeData.marketplace)) {
+    errors.push('Выберите корректный маркетплейс');
   }
   
   if (!storeData.apiKey || storeData.apiKey.trim().length === 0) {
-    errors.push(\\'API ключ не может быть пустым\\');
+    errors.push('API ключ не может быть пустым');
   }
   
   // Дополнительная валидация для Wildberries
-  if (storeData.marketplace === \\'Wildberries\\') {
+  if (storeData.marketplace === 'Wildberries') {
     if (!storeData.supplierId) {
-      errors.push(\\'Для Wildberries требуется Supplier ID\\');
+      errors.push('Для Wildberries требуется Supplier ID');
     }
   }
   
   // Дополнительная валидация для Ozon
-  if (storeData.marketplace === \\'Ozon\\') {
+  if (storeData.marketplace === 'Ozon') {
     if (!storeData.clientId) {
-      errors.push(\\'Для Ozon требуется Client ID\\');
+      errors.push('Для Ozon требуется Client ID');
     }
   }
   
@@ -1121,7 +1121,7 @@ function getStoreReviewsStats(store) {
     return stats;
     
   } catch (error) {
-    logError(\'Ошибка получения статистики для магазина ' + store.id + ': ' + error.message + '\', LOG_CONFIG.CATEGORIES.STORE);
+    logError('Ошибка получения статистики для магазина ' + store.id + ': ' + error.message + '', LOG_CONFIG.CATEGORIES.STORE);
     return { total: 0, new: 0, pending: 0, sent: 0, error: 0 };
   }
 }
@@ -1133,9 +1133,9 @@ function getStoreReviewsStats(store) {
  */
 function initializeSystem() {
   try {
-    var timer = new PerformanceTimer(\\'initializeSystem\\');
+    var timer = new PerformanceTimer('initializeSystem');
     
-    logInfo(\\'Инициализация системы MP Review Manager v2.0\\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logInfo('Инициализация системы MP Review Manager v2.0', LOG_CONFIG.CATEGORIES.SYSTEM);
     
     // Проверяем наличие основных листов
     ensureSystemSheetsExist();
@@ -1146,13 +1146,13 @@ function initializeSystem() {
     // Создаем первоначальную структуру
     setupInitialStructure();
     
-    logSuccess(\\'Система успешно инициализирована\\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logSuccess('Система успешно инициализирована', LOG_CONFIG.CATEGORIES.SYSTEM);
     timer.finish(LOG_CONFIG.LEVELS.SUCCESS);
     
     return true;
     
   } catch (error) {
-    logError(\'Ошибка инициализации системы: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logError('Ошибка инициализации системы: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
     return false;
   }
 }
@@ -1165,18 +1165,18 @@ function ensureSystemSheetsExist() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
     // Создаем основные системные листы если их нет
-    var requiredSheets = [\\'Магазины\\', \\'Настройки\\', \\'Логи\\'];
+    var requiredSheets = ['Магазины', 'Настройки', 'Логи'];
     
     for (var i = 0; i < requiredSheets.length; i++) {
       var sheetName = requiredSheets[i];
       if (!ss.getSheetByName(sheetName)) {
         ss.insertSheet(sheetName);
-        logInfo(\'Создан системный лист: ' + sheetName + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+        logInfo('Создан системный лист: ' + sheetName + '', LOG_CONFIG.CATEGORIES.SYSTEM);
       }
     });
     
   } catch (error) {
-    logError(\'Ошибка создания системных листов: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logError('Ошибка создания системных листов: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
     throw error;
   }
 }
@@ -1193,7 +1193,7 @@ function setupInitialStructure() {
     createBaseConfiguration();
     
   } catch (error) {
-    logError(\'Ошибка настройки начальной структуры: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logError('Ошибка настройки начальной структуры: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
     throw error;
   }
 }
@@ -1204,13 +1204,13 @@ function setupInitialStructure() {
 function setupStoresSheetHeaders() {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var storesSheet = ss.getSheetByName(\\'Магазины\\');
+    var storesSheet = ss.getSheetByName('Магазины');
     
-    var headers = [\\'ID\\', \\'Название\\', \\'Маркетплейс\\', \\'API Key\\', \\'Client ID\\', \\'Supplier ID\\', \\'Статус\\', \\'Дата создания\\'];
+    var headers = ['ID', 'Название', 'Маркетплейс', 'API Key', 'Client ID', 'Supplier ID', 'Статус', 'Дата создания'];
     storesSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     
   } catch (error) {
-    logError(\'Ошибка настройки заголовков листа магазинов: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logError('Ошибка настройки заголовков листа магазинов: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
   }
 }
 
@@ -1222,15 +1222,15 @@ function createBaseConfiguration() {
     var props = PropertiesService.getScriptProperties();
     
     // Устанавливаем базовые параметры если их нет
-    if (!props.getProperty(\\'SYSTEM_VERSION\\')) {
-      props.setProperty(\\'SYSTEM_VERSION\\', \\'2.0\\');
-      props.setProperty(\\'SYSTEM_INITIALIZED\\', \\'true\\');
-      props.setProperty(\\'INITIALIZATION_DATE\\', new Date().toISOString());
-      logSuccess(\\'Базовая конфигурация системы создана\\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    if (!props.getProperty('SYSTEM_VERSION')) {
+      props.setProperty('SYSTEM_VERSION', '2.0');
+      props.setProperty('SYSTEM_INITIALIZED', 'true');
+      props.setProperty('INITIALIZATION_DATE', new Date().toISOString());
+      logSuccess('Базовая конфигурация системы создана', LOG_CONFIG.CATEGORIES.SYSTEM);
     }
     
   } catch (error) {
-    logError(\'Ошибка создания базовой конфигурации: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logError('Ошибка создания базовой конфигурации: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
   }
 }
 
@@ -1238,7 +1238,7 @@ function createBaseConfiguration() {
  * ✅ ДОДЕЛАНО: Алиас для инициализации системной конфигурации
  */
 function initializeSystemConfiguration() {
-  logInfo(\\'Инициализация системной конфигурации\\', LOG_CONFIG.CATEGORIES.SYSTEM);
+  logInfo('Инициализация системной конфигурации', LOG_CONFIG.CATEGORIES.SYSTEM);
   createBaseConfiguration();
   
   // Дополнительная инициализация
@@ -1256,12 +1256,12 @@ function initializeSystemConfiguration() {
         initializeCacheForStore(store.id);
       });
     } else {
-      logError(\'setupSystem: activeStores не массив, получено: ' + typeof activeStores + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+      logError('setupSystem: activeStores не массив, получено: ' + typeof activeStores + '', LOG_CONFIG.CATEGORIES.SYSTEM);
     }
     
-    logSuccess(\\'Системная конфигурация полностью инициализирована\\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logSuccess('Системная конфигурация полностью инициализирована', LOG_CONFIG.CATEGORIES.SYSTEM);
   } catch (error) {
-    logError(\'Ошибка инициализации системной конфигурации: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logError('Ошибка инициализации системной конфигурации: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
   }
 }
 
@@ -1282,23 +1282,23 @@ function ensureSystemSheetsExist() {
         // Инициализируем заголовки для разных типов листов
         if (sheetName === CONFIG.SHEETS.STORES) {
           sheet.getRange(1, 1, 1, 6).setValues([
-            [\\'ID\\', \\'Название\\', \\'Маркетплейс\\', \\'API Key\\', \\'Client ID\\', \\'Активен\\']
+            ['ID', 'Название', 'Маркетплейс', 'API Key', 'Client ID', 'Активен']
           ]);
         } else if (sheetName === CONFIG.SHEETS.SETTINGS) {
           sheet.getRange(1, 1, 1, 3).setValues([
-            [\\'Параметр\\', \\'Значение\\', \\'Описание\\']
+            ['Параметр', 'Значение', 'Описание']
           ]);
         } else if (sheetName === CONFIG.SHEETS.LOGS) {
           sheet.getRange(1, 1, 1, 4).setValues([
-            [\\'Время\\', \\'Уровень\\', \\'Категория\\', \\'Сообщение\\']
+            ['Время', 'Уровень', 'Категория', 'Сообщение']
           ]);
         }
         
-        logInfo(\'Создан системный лист: ' + sheetName + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+        logInfo('Создан системный лист: ' + sheetName + '', LOG_CONFIG.CATEGORIES.SYSTEM);
       }
     });
   } catch (error) {
-    logError(\'Ошибка создания системных листов: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logError('Ошибка создания системных листов: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
   }
 }
 
@@ -1333,24 +1333,24 @@ function disableDevMode() {
 function setDevMode(enabled) {
   try {
     PropertiesService.getUserProperties().setProperty(CONFIG.DEV_MODE_KEY, enabled.toString());
-    var status = enabled ? \\'ВКЛЮЧЕН\\' : \\'ВЫКЛЮЧЕН\\';
+    var status = enabled ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН';
     
-    logInfo(\'Режим разработчика ' + status + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logInfo('Режим разработчика ' + status + '', LOG_CONFIG.CATEGORIES.SYSTEM);
     
-    SpreadsheetApp.getUi().alert(\'🛠️ Режим разработчика ' + status + '\', 
+    SpreadsheetApp.getUi().alert('🛠️ Режим разработчика ' + status + '', 
       enabled ? 
-        \\'Включен детальный режим логирования и отладки.
+        'Включен детальный режим логирования и отладки.
 
-Все операции будут записываться в лист "Логи".\\' :
-        \\'Логирование переведено в обычный режим.\\',
+Все операции будут записываться в лист "Логи".' :
+        'Логирование переведено в обычный режим.',
       SpreadsheetApp.getUi().ButtonSet.OK);
     
     // Обновляем индикатор статуса
     updateDevModeStatus();
     
   } catch (error) {
-    logError(\'Ошибка установки режима разработчика: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
-    SpreadsheetApp.getUi().alert(\\'Ошибка\\', \'Не удалось изменить режим разработчика: ' + error.message + '\', SpreadsheetApp.getUi().ButtonSet.OK);
+    logError('Ошибка установки режима разработчика: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
+    SpreadsheetApp.getUi().alert('Ошибка', 'Не удалось изменить режим разработчика: ' + error.message + '', SpreadsheetApp.getUi().ButtonSet.OK);
   }
 }
 
@@ -1359,9 +1359,9 @@ function setDevMode(enabled) {
  */
 function isDevMode() {
   try {
-    return PropertiesService.getUserProperties().getProperty(CONFIG.DEV_MODE_KEY) === \\'true\\';
+    return PropertiesService.getUserProperties().getProperty(CONFIG.DEV_MODE_KEY) === 'true';
   } catch (error) {
-    logError(\'Ошибка проверки режима разработчика: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logError('Ошибка проверки режима разработчика: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
     return false;
   }
 }
@@ -1376,20 +1376,20 @@ function updateDevModeStatus() {
     
     if (!settingsSheet) {
       settingsSheet = ss.insertSheet(CONFIG.SHEETS.SETTINGS);
-      settingsSheet.getRange(1, 1, 1, 3).setValues([[\\'Параметр\\', \\'Значение\\', \\'Описание\\']]);
+      settingsSheet.getRange(1, 1, 1, 3).setValues([['Параметр', 'Значение', 'Описание']]);
     }
     
     var devModeStatus = isDevMode() ? "🛠️ РЕЖИМ РАЗРАБОТЧИКА: ВКЛ" : "РЕЖИМ РАЗРАБОТЧИКА: ВЫКЛ";
     
     // Обновляем статус в листе настроек
-    settingsSheet.getRange(2, 1).setValue(\\'DEV_MODE\\');
+    settingsSheet.getRange(2, 1).setValue('DEV_MODE');
     settingsSheet.getRange(2, 2).setValue(devModeStatus);
-    settingsSheet.getRange(2, 3).setValue(\\'Включает подробное логирование для отладки\\');
+    settingsSheet.getRange(2, 3).setValue('Включает подробное логирование для отладки');
     
-    logDebug(\'Обновлен индикатор режима разработчика: ' + devModeStatus + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logDebug('Обновлен индикатор режима разработчика: ' + devModeStatus + '', LOG_CONFIG.CATEGORIES.SYSTEM);
     
   } catch (error) {
-    logError(\'Ошибка обновления индикатора режима разработчика: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
+    logError('Ошибка обновления индикатора режима разработчика: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
   }
 }
 
@@ -1399,45 +1399,45 @@ function updateDevModeStatus() {
 function showDevModeStatus() {
   try {
     var isEnabled = isDevMode();
-    var status = isEnabled ? \\'ВКЛЮЧЕН ✅\\' : \\'ВЫКЛЮЧЕН ❌\\';
+    var status = isEnabled ? 'ВКЛЮЧЕН ✅' : 'ВЫКЛЮЧЕН ❌';
     
-    var message = \'🛠️ РЕЖИМ РАЗРАБОТЧИКА: ' + status + '
+    var message = '🛠️ РЕЖИМ РАЗРАБОТЧИКА: ' + status + '
 
-\';
+';
     
     if (isEnabled) {
-      message += \'📊 АКТИВНЫЕ ВОЗМОЖНОСТИ:
-\';
-      message += \'• Подробное логирование всех операций
-\';
-      message += \'• Детальные сообщения об ошибках
-\';
-      message += \'• Расширенная диагностическая информация
-\';
-      message += \'• Логи записываются в лист "Логи"
+      message += '📊 АКТИВНЫЕ ВОЗМОЖНОСТИ:
+';
+      message += '• Подробное логирование всех операций
+';
+      message += '• Детальные сообщения об ошибках
+';
+      message += '• Расширенная диагностическая информация
+';
+      message += '• Логи записываются в лист "Логи"
 
-\';
-      message += \'💡 Для выключения используйте:
-\';
-      message += \'   Меню → Режим разработчика → Выключить\';
+';
+      message += '💡 Для выключения используйте:
+';
+      message += '   Меню → Режим разработчика → Выключить';
     } else {
-      message += \'📊 ТЕКУЩИЙ РЕЖИМ:
-\';
-      message += \'• Обычное логирование (только важные события)
-\';
-      message += \'• Минимальный объем отладочной информации
+      message += '📊 ТЕКУЩИЙ РЕЖИМ:
+';
+      message += '• Обычное логирование (только важные события)
+';
+      message += '• Минимальный объем отладочной информации
 
-\';
-      message += \'💡 Для включения используйте:
-\';
-      message += \'   Меню → Режим разработчика → Включить\';
+';
+      message += '💡 Для включения используйте:
+';
+      message += '   Меню → Режим разработчика → Включить';
     }
     
-    SpreadsheetApp.getUi().alert(\\'Статус режима разработчика\\', message, SpreadsheetApp.getUi().ButtonSet.OK);
+    SpreadsheetApp.getUi().alert('Статус режима разработчика', message, SpreadsheetApp.getUi().ButtonSet.OK);
     
   } catch (error) {
-    logError(\'Ошибка показа статуса режима разработчика: ' + error.message + '\', LOG_CONFIG.CATEGORIES.SYSTEM);
-    SpreadsheetApp.getUi().alert(\\'Ошибка\\', \\'Не удалось получить статус режима разработчика\\', SpreadsheetApp.getUi().ButtonSet.OK);
+    logError('Ошибка показа статуса режима разработчика: ' + error.message + '', LOG_CONFIG.CATEGORIES.SYSTEM);
+    SpreadsheetApp.getUi().alert('Ошибка', 'Не удалось получить статус режима разработчика', SpreadsheetApp.getUi().ButtonSet.OK);
   }
 }
 
@@ -1452,45 +1452,46 @@ function showLogsSheet() {
     if (!logsSheet) {
       // Создаем лист логов если его нет
       logsSheet = ss.insertSheet(CONFIG.SHEETS.LOGS);
-      logsSheet.getRange(1, 1, 1, 4).setValues([[\\'Время\\', \\'Уровень\\', \\'Категория\\', \\'Сообщение\\']]);
+      logsSheet.getRange(1, 1, 1, 4).setValues([['Время', 'Уровень', 'Категория', 'Сообщение']]);
       
-      logInfo(\\'Создан новый лист логов\\', LOG_CONFIG.CATEGORIES.SYSTEM);
+      logInfo('Создан новый лист логов', LOG_CONFIG.CATEGORIES.SYSTEM);
     }
     
     // Активируем лист логов
     ss.setActiveSheet(logsSheet);
     
     var rowCount = logsSheet.getLastRow();
-    var message = \'📝 ЛИСТ ЛОГОВ АКТИВИРОВАН
+    var message = '📝 ЛИСТ ЛОГОВ АКТИВИРОВАН
 
-\';
-    message += \'📊 Всего записей: ' + rowCount > 1 ? rowCount - 1 : 0 + '
-\';
+';
+    message += '📊 Всего записей: ' + rowCount > 1 ? rowCount - 1 : 0 + '
+';
     
     if (rowCount > 1) {
-      message += \'📅 Последняя запись: ' + logsSheet.getRange(rowCount, 1).getValue() + '
-\';
-      message += \'
-💡 Лист автоматически активирован - можете просмотреть все логи\';
+      message += '📅 Последняя запись: ' + logsSheet.getRange(rowCount, 1).getValue() + '
+';
+      message += '
+💡 Лист автоматически активирован - можете просмотреть все логи';
     } else {
-      message += \'
-💡 Лист логов пуст. Записи будут появляться по мере работы системы.\';
+      message += '
+💡 Лист логов пуст. Записи будут появляться по мере работы системы.';
     }
     
     // Если режим разработчика выключен, предлагаем включить
     if (!isDevMode()) {
-      message += \'
+      message += '
 
 ⚠️ Режим разработчика ВЫКЛЮЧЕН
-\';
-      message += \'Для подробного логирования включите режим разработчика\';
+';
+      message += 'Для подробного логирования включите режим разработчика';
     }
     
-    SpreadsheetApp.getUi().alert(\\'Лист логов\\', message, SpreadsheetApp.getUi().ButtonSet.OK);
+    SpreadsheetApp.getUi().alert('Лист логов', message, SpreadsheetApp.getUi().ButtonSet.OK);
     
-    logInfo(\\'Пользователь открыл лист логов\\', LOG_CONFIG.CATEGORIES.UI);
+    logInfo('Пользователь открыл лист логов', LOG_CONFIG.CATEGORIES.UI);
     
   } catch (error) {
-    logError(\'Ошибка открытия листа логов: ' + error.message, LOG_CONFIG.CATEGORIES.SYSTEM);
+    logError('Ошибка открытия листа логов: ' + error.message, LOG_CONFIG.CATEGORIES.SYSTEM);
     SpreadsheetApp.getUi().alert('Ошибка', 'Не удалось открыть лист логов', SpreadsheetApp.getUi().ButtonSet.OK);
   }
+}
