@@ -585,12 +585,13 @@ function showTriggersStatus() {
       message += \'✅ Система работает корректно\n\';
       message += \'📊 Активных триггеров: ' + triggersInfo.total + '/' + triggersInfo.expected + '\n\n\';
       
-      triggersInfo.for (var index = 0; index < triggers.length; index++) {
-      var trigger = triggers[index];
-        message += \'' + index + 1 + '. ' + trigger.functionName + '\n\';
+      var triggers = triggersInfo.triggers || [];
+      for (var index = 0; index < triggers.length; index++) {
+        var trigger = triggers[index];
+        message += \'' + (index + 1) + '. ' + trigger.functionName + '\n\';
         message += \'   ID: ' + trigger.id + '\n\';
-        message += \'   Тип: ' + trigger.isTimeBased ? 'По времени' : 'Другой' + '\n\n\';
-      });
+        message += \'   Тип: ' + (trigger.isTimeBased ? 'По времени' : 'Другой') + '\n\n\';
+      }
       
       if (savedInfo) {
         message += \'📅 Настроены: ' + new Date(savedInfo.setupDate).toLocaleString('ru-RU') + '\n\';
@@ -1494,3 +1495,4 @@ function showLogsSheet() {
     logError(\'Ошибка открытия листа логов: ' + error.message, LOG_CONFIG.CATEGORIES.SYSTEM);
     SpreadsheetApp.getUi().alert('Ошибка', 'Не удалось открыть лист логов', SpreadsheetApp.getUi().ButtonSet.OK);
   }
+}

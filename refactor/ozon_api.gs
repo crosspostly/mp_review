@@ -793,14 +793,15 @@ function getOzonProductsInfo(productIds, store) {
       );
       
       if (response.success && response.data?.result?.items) {
-        response.data.result.for (var i = 0; i < items.length; i++) {
-      var item = items[i];
+        var items = response.data.result.items;
+        for (var i = 0; i < items.length; i++) {
+          var item = items[i];
           productInfo[item.offer_id || item.product_id] = {
             name: item.name || 'Без названия',
             brand: item.brand || '',
             article: item.offer_id || item.sku || '',
             category: item.category_name || '',
-            url: 'https://www.ozon.ru/product/' + item.product_id || ''
+            url: 'https://www.ozon.ru/product/' + (item.product_id || '')
           };
         });
       }
