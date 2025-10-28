@@ -222,55 +222,72 @@ function cleanupOldLogs(sheet) {
   }
 }
 
-// ============ PERFORMANCE TIMER КЛАСС ============
+// ============ PERFORMANCE TIMER ФУНКЦИИ ============
 
 /**
- * Класс для измерения времени выполнения операций
+ * Создает объект для измерения времени выполнения операций
+ * @param {string} operationName - Название операции
+ * @returns {Object} Объект таймера
  */
-class PerformanceTimer {
-  constructor(operationName = 'operation') {
-    this.operationName = operationName;
-    this.startTime = Date.now();
-    this.endTime = null;
-    
-    logDebug('Timer started: ' + operationName, LOG_CONFIG.CATEGORIES.SYSTEM);
-  }
+function createPerformanceTimer(operationName) {
+  if (!operationName) operationName = 'operation';
   
-  /**
-   * Завершает измерение времени
-   */
-  finish(logLevel = LOG_CONFIG.LEVELS.DEBUG) {
-    this.endTime = Date.now();
-    var duration = this.getTotalTime();
-    
-    var message = 'Timer finished: ' + this.operationName + ' (' + duration + 'ms)';
-    log(message, logLevel, LOG_CONFIG.CATEGORIES.SYSTEM, { 
-      operation: this.operationName, 
-      duration: duration 
-    });
-  }
+  var timer = {
+    operationName: operationName,
+    startTime: Date.now(),
+    endTime: null
+  };
   
-  /**
-   * Получает общее время выполнения
-   */
-  getTotalTime() {
-    var end = this.endTime || Date.now();
-    return end - this.startTime;
-  }
+  logDebug('Timer started: ' + operationName, LOG_CONFIG.CATEGORIES.SYSTEM);
   
-  /**
-   * Получает промежуточное время
-   */
-  getElapsedTime() {
-    return Date.now() - this.startTime;
-  }
+  return timer;
+}
+
+/**
+ * Завершает измерение времени
+ * @param {Object} timer - Объект таймера
+ * @param {string} logLevel - Уровень лога
+ */
+function finishTimer(timer, logLevel) {
+  if (!logLevel) logLevel = LOG_CONFIG.LEVELS.DEBUG;
   
-  /**
-   * Проверяет не превышен ли таймаут
-   */
-  isTimeout(timeoutMs) {
-    return this.getElapsedTime() > timeoutMs;
-  }
+  timer.endTime = Date.now();
+  var duration = getTimerTotalTime(timer);
+  
+  var message = 'Timer finished: ' + timer.operationName + ' (' + duration + 'ms)';
+  log(message, logLevel, LOG_CONFIG.CATEGORIES.SYSTEM, { 
+    operation: timer.operationName, 
+    duration: duration 
+  });
+}
+
+/**
+ * Получает общее время выполнения
+ * @param {Object} timer - Объект таймера
+ * @returns {number} Время в миллисекундах
+ */
+function getTimerTotalTime(timer) {
+  var end = timer.endTime || Date.now();
+  return end - timer.startTime;
+}
+
+/**
+ * Получает промежуточное время
+ * @param {Object} timer - Объект таймера
+ * @returns {number} Время в миллисекундах
+ */
+function getTimerElapsedTime(timer) {
+  return Date.now() - timer.startTime;
+}
+
+/**
+ * Проверяет не превышен ли таймаут
+ * @param {Object} timer - Объект таймера
+ * @param {number} timeoutMs - Таймаут в миллисекундах
+ * @returns {boolean} Превышен ли таймаут
+ */
+function isTimerTimeout(timer, timeoutMs) {
+  return getTimerElapsedTime(timer) > timeoutMs;
 }
 
 /**
@@ -386,5 +403,3 @@ function exportLogsAsText(count = 1000) {
     return 'Ошибка экспорта логов: ' + error.message;
   }
 }
-
-// ✅ GAS COMPATIBILITY: const/let→var (44), templates→concat (20), updated 2025-10-27
