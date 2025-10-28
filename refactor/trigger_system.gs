@@ -337,7 +337,7 @@ function collectReviewsForStore(store) {
       saveReviewsToSheet(store, filteredReviews);
       
       // Обновляем кеш
-      var reviewIds = filteredReviews.map(r => r.id);
+      var reviewIds = filteredReviews.map(function(r) { return r.id; });
       addToReviewIdsCacheForStore(store.id, reviewIds);
     }
     
@@ -540,13 +540,13 @@ function getSystemTriggersInfo() {
     var systemFunctions = ['hourlyReviewCollector', 'selectReviewAnswers', 'sendReviewAnswers'];
     
     var systemTriggers = allTriggers
-      .filter(function(trigger) { return systemFunctions.includes(trigger.getHandlerFunction(; })))
-      .map(trigger => ({
+      .filter(function(trigger) { return systemFunctions.includes(trigger.getHandlerFunction()); })
+      .map(function(trigger) { return {
         id: trigger.getUniqueId(),
         functionName: trigger.getHandlerFunction(),
         triggerType: trigger.getTriggerSource().toString(),
         isTimeBased: trigger.getTriggerSource() === ScriptApp.TriggerSource.CLOCK
-      }));
+      }; });
     
     return {
       total: systemTriggers.length,
@@ -616,7 +616,7 @@ function saveReviewsToSheet(store, reviews) {
     }
     
     // Подготавливаем данные для вставки
-    var rows = reviews.map(review => [
+    var rows = reviews.map(function(review) { return [
       review.id,
       review.createdDate,
       review.rating,
@@ -784,4 +784,4 @@ function setupTriggers5Min() {
   return setupCompleteTriggersSystem(5);
 }
 
-// ✅ GAS COMPATIBILITY: const/let→var (76), templates→concat (44), updated 2025-10-27
+}
