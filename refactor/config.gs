@@ -467,15 +467,15 @@ function getApiStatsTracker() {
         
         if (marketplace === 'all') {
           // Очищаем статистику для всех маркетплейсов
-          var __temp_array = ['OZON', 'WILDBERRIES'];
-    for (var i = 0; i < __temp_array.length; i++) {
-      var mp = __temp_array[i];
+          var marketplaces = ['OZON', 'WILDBERRIES'];
+          for (var i = 0; i < marketplaces.length; i++) {
+            var mp = marketplaces[i];
             props.deleteProperty('API_REQUESTS_' + mp);
             props.deleteProperty('API_ERRORS_' + mp);
             props.deleteProperty('API_AVG_TIME_' + mp);
             props.deleteProperty('API_TIME_COUNT_' + mp);
             props.deleteProperty('API_TOTAL_TIME_' + mp);
-          });
+          }
         } else {
           // Очищаем статистику для конкретного маркетплейса
           var marketplace_upper = marketplace.toUpperCase();
