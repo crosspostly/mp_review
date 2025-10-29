@@ -1399,8 +1399,9 @@ function sendAnswer(store, feedbackId, text) {
 // ======================================================================
 
 /**
- * 🚀 УПРОЩЕННАЯ ФУНКЦИЯ WB: Получение отзывов по официальной документации
- * Использует простую пагинацию take/skip согласно WB API docs
+ * 🔥 ОКТЯБРЬ 2025: ИСПРАВЛЕНО для WB API v1 (v2 НЕ СУЩЕСТВУЕТ!)
+ * Получение отзывов по официальной документации WB v1 API
+ * Использует простую пагинацию take/skip с Unix timestamp для дат
  * @param {string} apiKey - WB API ключ
  * @param {boolean} includeAnswered - Включать ли отвеченные отзывы  
  * @param {Object} store - Настройки магазина для фильтрации по дате
@@ -1408,7 +1409,7 @@ function sendAnswer(store, feedbackId, text) {
  */
 function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
     const startTime = Date.now();
-    log(`[WB] 🚀 WB API v2 START (includeAnswered=${includeAnswered})`);
+    log(`[WB] 🔥 WB API v1 START (includeAnswered=${includeAnswered}) - ИСПРАВЛЕНО v2→v1!`);
     log(`[WB] 📦 Store: ${store?.name || 'null'}`);
     log(`[WB] 🔑 API Key length: ${apiKey?.length || 0} chars`);
     
@@ -1425,8 +1426,8 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
             pageCount++;
             const pageStartTime = Date.now();
             
-            // 🚀 ИСПРАВЛЕНИЕ: Используем v2 endpoint с встроенной фильтрацией
-            const url = buildWbApiV2Url(includeAnswered, skip, MAX_TAKE, store);
+            // 🔥 ОКТЯБРЬ 2025: ИСПРАВЛЕНО - используем v1 endpoint с Unix timestamp!
+            const url = buildWbApiV1Url(includeAnswered, skip, MAX_TAKE, store);
             
             log(`[WB Request #${pageCount}] 📤 GET ${url}`);
             log(`[WB Request #${pageCount}] 📄 Params: skip=${skip}, take=${MAX_TAKE}`);
@@ -1533,8 +1534,8 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
             const pageDuration = Date.now() - pageStartTime;
             log(`[WB Page #${pageCount}] ⏱️ Completed in ${pageDuration}ms (collected ${feedbacksWithText.length} feedbacks)`);
             
-            // Лимит по времени выполнения
-            Utilities.sleep(100); // Пауза между запросами
+            // 🔥 ОКТЯБРЬ 2025: ОБНОВЛЕНО rate limiting WB API - 333ms (3 req/sec)
+            Utilities.sleep(333); // 3 запроса в секунду согласно документации
         }
         
         const totalDuration = Date.now() - startTime;
@@ -1589,13 +1590,14 @@ function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
 }
 
 /**
- * Method 1: ID в URL - текущий подход из документации
- * Endpoint: POST /api/v1/feedbacks/{feedbackId}/answer
+ * 🔥 ОКТЯБРЬ 2025: Method 1: ID в URL - правильный v1 endpoint
+ * Endpoint: POST /api/v1/feedbacks/answer с ID в URL согласно документации
  */
 function attemptWbFeedbackAnswerMethod1(feedbackId, text, apiKey) {
-    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/${feedbackId}/answer`;
+    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/answer`;
     const payload = { 
-        text: text  // Только текст в payload, ID в URL
+        id: feedbackId,  // 🔥 ОКТЯБРЬ 2025: ID в теле запроса для v1 API
+        text: text       // Текст ответа
     };
     
     log(`[WB API Method 1] 🚀 URL: ${url}`);
@@ -2868,33 +2870,39 @@ function syncAllStoreTriggers() {
 }
 
 /**
- * 🚀 ИСПРАВЛЕНО: Построение URL для WB API v2
- * Использует встроенную фильтрацию по дате и рейтингу
- * НЕ использует URLSearchParams (недоступен в Google Apps Script)
+ * 🔥 ОКТЯБРЬ 2025: Правильное построение URL для WB API v1
+ * ❌ ИСПРАВЛЕНО: v2 endpoint НЕ СУЩЕСТВУЕТ для feedbacks!
+ * ✅ Используем ТОЛЬКО v1 endpoint с Unix timestamp для дат
  */
-function buildWbApiV2Url(includeAnswered, skip, take, store) {
-    const baseUrl = 'https://feedbacks-api.wildberries.ru/api/v2/feedbacks';
+function buildWbApiV1Url(includeAnswered, skip, take, store) {
+    const baseUrl = 'https://feedbacks-api.wildberries.ru/api/v1/feedbacks';
     const params = [];
     
-    // Обязательные параметры
+    // 🔥 ОБЯЗАТЕЛЬНЫЕ параметры (октябрь 2025)
     params.push(`isAnswered=${includeAnswered}`);
     params.push(`take=${take}`);
     params.push(`skip=${skip}`);
     params.push(`order=dateDesc`);
     
-    // 🚀 НОВОЕ: Используем встроенную фильтрацию по дате
+    // 🔥 ИСПРАВЛЕНИЕ: Дата в Unix timestamp (секунды, НЕ строка!)
     if (store?.settings?.startDate) {
-        params.push(`dateFrom=${encodeURIComponent(store.settings.startDate)}`);
-        log(`[WB URL] 📅 Фильтр по дате: ${store.settings.startDate}`);
+        try {
+            const startDate = new Date(store.settings.startDate);
+            const unixTimestamp = Math.floor(startDate.getTime() / 1000); // Конвертируем в секунды
+            params.push(`dateFrom=${unixTimestamp}`);
+            log(`[WB URL] 📅 Дата Unix timestamp: ${unixTimestamp} (${store.settings.startDate})`);
+        } catch (e) {
+            log(`[WB URL] ⚠️ Ошибка конвертации даты ${store.settings.startDate}: ${e.message}`);
+        }
     }
     
-    // 🚀 НОВОЕ: Используем встроенную фильтрацию по рейтингу
+    // 🚀 Фильтр по рейтингу (если есть)
     if (store?.settings?.minRating) {
         params.push(`valuation=${store.settings.minRating}`);
         log(`[WB URL] ⭐ Фильтр по рейтингу: ${store.settings.minRating}`);
     }
     
-    // 🚀 НОВОЕ: Фильтр по товару (если нужен)
+    // 🚀 Фильтр по товару (если нужен)
     if (store?.settings?.nmId) {
         params.push(`nmId=${store.settings.nmId}`);
         log(`[WB URL] 🛍️ Фильтр по товару: ${store.settings.nmId}`);
