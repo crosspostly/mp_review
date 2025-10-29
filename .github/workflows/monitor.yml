@@ -201,28 +201,55 @@ jobs:
         success_count=0
         total_count=4
         
+        echo "🔍 Проверка статусов jobs..."
+        echo "  repository-health: ${{ needs.repository-health.result }}"
+        echo "  activity-analysis: ${{ needs.activity-analysis.result }}"
+        echo "  test-health: ${{ needs.test-health.result }}"
+        echo "  documentation-health: ${{ needs.documentation-health.result }}"
+        echo ""
+        
         if [ "${{ needs.repository-health.result }}" = "success" ]; then
-          ((success_count++))
+          success_count=$((success_count + 1))
+          echo "✅ repository-health пройден"
+        else
+          echo "❌ repository-health неуспешен"
         fi
         
         if [ "${{ needs.activity-analysis.result }}" = "success" ]; then
-          ((success_count++))
+          success_count=$((success_count + 1))
+          echo "✅ activity-analysis пройден"
+        else
+          echo "❌ activity-analysis неуспешен"
         fi
         
         if [ "${{ needs.test-health.result }}" = "success" ]; then
-          ((success_count++))
+          success_count=$((success_count + 1))
+          echo "✅ test-health пройден"
+        else
+          echo "❌ test-health неуспешен"
         fi
         
         if [ "${{ needs.documentation-health.result }}" = "success" ]; then
-          ((success_count++))
+          success_count=$((success_count + 1))
+          echo "✅ documentation-health пройден"
+        else
+          echo "❌ documentation-health неуспешен"
         fi
         
-        success_rate=$((success_count * 100 / total_count))
+        echo ""
+        echo "📊 Подсчёт: $success_count из $total_count успешных"
+        
+        # Безопасное вычисление процента
+        if [ $total_count -gt 0 ]; then
+          success_rate=$((success_count * 100 / total_count))
+        else
+          success_rate=0
+        fi
         
         echo "📈 Общий статус: $success_rate%"
         echo ""
         
-        if [ $success_rate -eq 100 ]; then
+        if [ $success_count -eq $total_count ]; then
           echo "🎉 ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ УСПЕШНО!"
           echo "✅ Система в отличном состоянии"
           exit 0
