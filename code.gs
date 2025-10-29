@@ -142,6 +142,7 @@ function onOpen(e) {
   menu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
   menu.addItem('▶️ Отправить подготовленные ответы', 'sendPendingAnswers');
   menu.addSeparator();
+
   menu.addItem('📥 Собрать отзывы Ozon вручную', 'collectOzonReviewsAuto');
   menu.addItem('🤖 Обработать NEW отзывы Ozon (шаблоны)', 'processNewOzonReviews');
   menu.addItem('📤 Отправить PENDING ответы Ozon', 'sendPendingAnswersOzonOnly');
@@ -740,11 +741,55 @@ function toggleLogSheet() {
 
 function initialSetup() {
   log('Запуск первоначальной настройки...');
+  
+  // 🔧 Создание шаблонов и базовых настроек
   const templateSheet = createOrGetSheet(CONFIG.SHEETS.TEMPLATES, ['Шаблон ответа', 'Для оценки (4, 5, или 4-5)']);
   fillInitialTemplates();
   updateDevModeStatus();
+  
+  // 🔄 Настройка автоматических триггеров
+  log('Настройка автоматических триггеров...');
+  
+  try {
+    // Удаляем существующие триггеры
+    deleteAllTriggers();
+    
+    // Создаем новые триггеры с оптимальными интервалами
+    // 📥 Сбор отзывов каждые 30 минут (более частый сбор)
+    ScriptApp.newTrigger('processAllStores')
+      .timeBased()
+      .everyMinutes(30)
+      .create();
+    log('✅ Создан триггер обработки отзывов (каждые 30 минут)');
+    
+    // 📤 Отправка подготовленных ответов каждый час
+    ScriptApp.newTrigger('sendPendingAnswers')
+      .timeBased()
+      .everyHours(1)
+      .create();
+    log('✅ Создан триггер отправки ответов (каждый час)');
+    
+    log('🎯 Автоматические триггеры настроены успешно!');
+    
+  } catch (error) {
+    log(`❌ Ошибка настройки триггеров: ${error.message}`);
+  }
+  
   log('Первоначальная настройка успешно завершена.');
-  SpreadsheetApp.getUi().alert('✅ Настройка завершена', `Создан лист "${CONFIG.SHEETS.TEMPLATES}" и индикатор режима разработчика.`, SpreadsheetApp.getUi().ButtonSet.OK);
+  
+  // Обновленное сообщение пользователю
+  const setupMessage = `✅ Настройка завершена!
+
+Созданы:
+• Лист "${CONFIG.SHEETS.TEMPLATES}" с шаблонами ответов
+• Индикатор режима разработчика
+• Автоматические триггеры:
+  - Обработка отзывов: каждые 30 минут
+  - Отправка ответов: каждый час
+
+Система готова к работе!`;
+
+  SpreadsheetApp.getUi().alert('✅ Настройка завершена', setupMessage, SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 // ============ UI FUNCTIONS ============
@@ -1493,7 +1538,17 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
             const feedbacks = json.data?.feedbacks || [];
             const feedbacksWithText = feedbacks.filter(fb => fb.text && fb.text.trim() && fb.text.trim() !== '(без текста)');
             
+            // 🔥 ДОПОЛНИТЕЛЬНАЯ АНАЛИТИКА: Проверяем countUnanswered и другие счетчики
+            const countUnanswered = json.data?.countUnanswered || 0;
+            const countArchive = json.data?.countArchive || 0;
+            
             log(`[WB Response #${pageCount}] 📊 Feedbacks: ${feedbacks.length} total, ${feedbacksWithText.length} with text`);
+            log(`[WB Response #${pageCount}] 📈 Счетчики: неотвеченных=${countUnanswered}, архив=${countArchive}`);
+            
+            // Проверяем соответствие между счетчиками и данными
+            if (countUnanswered > 0 && feedbacks.length === 0 && !includeAnswered) {
+                log(`[WB Response #${pageCount}] 🤔 НЕСООТВЕТСТВИЕ: countUnanswered=${countUnanswered}, но feedbacks=0. Возможна проблема с фильтром дат!`);
+            }
             
             if (feedbacks.length === 0) {
                 log(`[WB Response #${pageCount}] ✅ Empty page - pagination complete`);
@@ -2801,6 +2856,8 @@ function deleteAllTriggers() {
     log(`Удалено ${deletedCount} триггеров автозапуска.`);
   }
 }
+
+
 
 // ============ INDIVIDUAL STORE TRIGGERS ============
 /**
