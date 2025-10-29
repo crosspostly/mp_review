@@ -1,154 +1,101 @@
 /**
  * ============================================================================
- * OZON: АВТОМАТИЧЕСКАЯ ОБРАБОТКА ОТЗЫВОВ (WORKFLOW)
+ * OZON: АВТОМАТИЧЕСКАЯ ОБРАБОТКА ОТЗЫВОВ (АРХИТЕКТУРА 2-Х ТРИГГЕРОВ)
  * ============================================================================
- * 
- * Полный автоматический workflow для Ozon:
- * 1. Подбор шаблонов для NEW отзывов
- * 2. Отправка PENDING ответов
- * 
- * ТРИГГЕР: Запускается каждый час через .everyHours(1)
- * ВРЕМЯ ВЫПОЛНЕНИЯ: Укладывается в 250 секунд
- * 
+ *
+ * Раздельная архитектура для максимальной надежности и производительности:
+ * 1. БЫСТРЫЙ ПОДБОРЩИК: Триггер раз в 15 минут. Находит все NEW отзывы
+ *    и подбирает им шаблоны. Работает только с таблицей, без API.
+ * 2. МЕДЛЕННЫЙ ОТПРАВЩИК: Триггер раз в час. Находит все PENDING ответы
+ *    и отправляет их в Ozon, соблюдая лимиты. Работает с API.
+ *
  * ============================================================================
  */
 
 /**
- * 🎯 ГЛАВНЫЙ WORKFLOW: Полная автоматизация Ozon
- * Триггер вызывает эту функцию каждый час
- */
-function processOzonWorkflow() {
-  const startTime = Date.now();
-  const maxExecutionTime = 240 * 1000; // 4 минуты (оставляем запас)
-  
-  log('='.repeat(70));
-  log('🎯 OZON WORKFLOW: ПОДБОР ШАБЛОНОВ + ОТПРАВКА - СТАРТ');
-  log('='.repeat(70));
-  
-  // ШАГ 1: Подбор шаблонов для NEW отзывов
-  log('📝 ШАГ 1/2: Подбор шаблонов для NEW отзывов...');
-  const templateResult = processNewOzonReviewsInternal();
-  
-  const step1Duration = Date.now() - startTime;
-  log(`✅ ШАГ 1 завершен за ${Math.round(step1Duration/1000)} сек`);
-  log(`   Подобрано шаблонов: ${templateResult.totalMatched}`);
-  
-  // Проверяем оставшееся время
-  const remainingTime = maxExecutionTime - step1Duration;
-  if (remainingTime < 30000) {
-    log(`⏱️ Недостаточно времени для отправки (${Math.round(remainingTime/1000)} сек). Завершаю.`);
-    log('='.repeat(70));
-    return;
-  }
-  
-  // ШАГ 2: Отправка PENDING ответов для Ozon магазинов
-  log('-'.repeat(70));
-  log('📤 ШАГ 2/2: Отправка подготовленных ответов...');
-  const sendResult = sendPendingAnswersOzonOnly();
-  
-  const totalDuration = Date.now() - startTime;
-  
-  log('='.repeat(70));
-  log('📊 ИТОГОВАЯ СТАТИСТИКА WORKFLOW:');
-  log(`   Шаблонов подобрано: ${templateResult.totalMatched}`);
-  log(`   Ответов отправлено: ${sendResult.totalSuccess}/${sendResult.totalSent}`);
-  log(`   Время выполнения: ${Math.round(totalDuration/1000)} сек`);
-  log('🎯 OZON WORKFLOW: ЗАВЕРШЕН');
-  log('='.repeat(70));
-}
-
-/**
- * 🎯 РУЧНОЙ ЗАПУСК: Только подбор шаблонов
- * Вызывается из меню для ручного подбора
+ * ----------------------------------------------------------------------------
+ * 🎯 ТРИГГЕР №1: БЫСТРЫЙ ПОДБОРЩИК ШАБЛОНОВ (запуск каждые 15 минут)
+ * ----------------------------------------------------------------------------
+ * Задача: максимально быстро обработать все новые отзывы во всех магазинах,
+ * не используя медленные API-запросы.
  */
 function processNewOzonReviews() {
   const startTime = Date.now();
-  
   log('='.repeat(70));
-  log('🎯 OZON: РУЧНОЙ ПОДБОР ШАБЛОНОВ - СТАРТ');
-  log('='.repeat(70));
+  log('🎯 БЫСТРЫЙ ПОДБОРЩИК: СТАРТ');
   
-  const result = processNewOzonReviewsInternal();
+  const allStores = getStores();
+  const ozonStores = allStores.filter(s => s.isActive && s.marketplace === 'Ozon');
+  const templates = getTemplates();
+  
+  if (ozonStores.length === 0 || templates.length === 0) {
+      log('⚠️ Нет активных магазинов Ozon или шаблонов для обработки. Завершаю.');
+      log('='.repeat(70));
+      return;
+  }
+  
+  let totalMatched = 0;
+
+  for (const store of ozonStores) {
+      const result = processNewOzonReviewsForStore(store, templates);
+      if(result.matched > 0) {
+        log(`  - ${store.name}: подобрано ${result.matched} шаблонов`);
+      }
+      totalMatched += result.matched;
+  }
   
   const totalDuration = Date.now() - startTime;
-  
-  log('='.repeat(70));
-  log('📊 ИТОГОВАЯ СТАТИСТИКА:');
-  log(`   Магазинов обработано: ${result.storesProcessed}`);
-  log(`   Отзывов обработано: ${result.totalProcessed}`);
-  log(`   Шаблонов подобрано: ${result.totalMatched}`);
-  log(`   Пропущено (нет шаблона): ${result.totalSkipped}`);
-  log(`   Время выполнения: ${Math.round(totalDuration/1000)} сек`);
-  log('🎯 OZON: РУЧНОЙ ПОДБОР ШАБЛОНОВ - ЗАВЕРШЕН');
+  log(`✅ БЫСТРЫЙ ПОДБОРЩИК: ЗАВЕРШЕН за ${totalDuration} мс. Всего подобрано: ${totalMatched}`);
   log('='.repeat(70));
 }
 
 /**
- * 🔧 ВНУТРЕННЯЯ ФУНКЦИЯ: Подбор шаблонов
- * Вызывается из workflow или вручную
+ * ----------------------------------------------------------------------------
+ * 🎯 ТРИГГЕР №2: МЕДЛЕННЫЙ ОТПРАВЩИК ОТВЕТОВ (запуск каждый час)
+ * ----------------------------------------------------------------------------
+ * Задача: методично отправить все подготовленные ответы ("PENDING")
+ * через API Ozon, соблюдая все лимиты и задержки.
  */
-function processNewOzonReviewsInternal() {
+function sendPendingAnswersOzonOnly() {
   const startTime = Date.now();
-  const maxExecutionTime = 200 * 1000; // 3.5 минуты максимум
+  log('='.repeat(70));
+  log('🎯 МЕДЛЕННЫЙ ОТПРАВЩИК: СТАРТ');
   
-  // Получаем активные магазины Ozon
   const allStores = getStores();
   const ozonStores = allStores.filter(s => s.isActive && s.marketplace === 'Ozon');
   
   if (ozonStores.length === 0) {
-    log('⚠️ Нет активных магазинов Ozon.');
-    return { storesProcessed: 0, totalProcessed: 0, totalMatched: 0, totalSkipped: 0 };
+    log('⚠️ Нет активных магазинов Ozon для отправки. Завершаю.');
+    log('='.repeat(70));
+    return;
   }
   
-  log(`📊 Найдено активных магазинов Ozon: ${ozonStores.length}`);
+  let totalSent = 0;
+  let totalSuccess = 0;
   
-  // Получаем шаблоны ответов
-  const templates = getTemplates();
-  if (templates.length === 0) {
-    log('❌ ОШИБКА: Нет шаблонов ответов. Обработка невозможна.');
-    return { storesProcessed: 0, totalProcessed: 0, totalMatched: 0, totalSkipped: 0 };
-  }
-  
-  log(`✅ Загружено шаблонов: ${templates.length}`);
-  
-  let totalProcessed = 0;
-  let totalMatched = 0;
-  let totalSkipped = 0;
-  let storesProcessed = 0;
-  
-  // Обрабатываем каждый магазин
   for (const store of ozonStores) {
-    const elapsedTime = Date.now() - startTime;
-    const remainingTime = maxExecutionTime - elapsedTime;
-    
-    if (remainingTime < 20000) {
-      log(`⏱️ ОСТАНОВКА: осталось ${Math.round(remainingTime/1000)} сек`);
-      log(`📊 Обработано магазинов: ${storesProcessed}/${ozonStores.length}`);
-      break;
+    const storeResult = sendPendingAnswersForStoreInternal(store);
+    if(storeResult.sentCount > 0) {
+        log(`  - ${store.name}: отправлено ${storeResult.successCount}/${storeResult.sentCount}`);
+        totalSent += storeResult.sentCount;
+        totalSuccess += storeResult.successCount;
     }
-    
-    log('-'.repeat(70));
-    log(`🏪 Обрабатываю магазин: ${store.name} (${storesProcessed + 1}/${ozonStores.length})`);
-    log(`⏱️ Времени осталось: ${Math.round(remainingTime/1000)} сек`);
-    
-    const storeStartTime = Date.now();
-    const result = processNewOzonReviewsForStore(store, templates);
-    const storeDuration = Date.now() - storeStartTime;
-    
-    totalProcessed += result.processed;
-    totalMatched += result.matched;
-    totalSkipped += result.skipped;
-    storesProcessed++;
-    
-    log(`✅ Магазин обработан за ${Math.round(storeDuration/1000)} сек`);
-    log(`   Обработано: ${result.processed}, подобрано: ${result.matched}, пропущено: ${result.skipped}`);
   }
   
-  return { storesProcessed, totalProcessed, totalMatched, totalSkipped };
+  const totalDuration = Date.now() - startTime;
+  log(`✅ МЕДЛЕННЫЙ ОТПРАВЩИК: ЗАВЕРШЕН за ${Math.round(totalDuration/1000)} сек. Всего отправлено: ${totalSuccess}/${totalSent}`);
+  log('='.repeat(70));
 }
 
 /**
- * 🔄 Обработка NEW отзывов для одного магазина
+ * ----------------------------------------------------------------------------
+ * ⚙️ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+ * ----------------------------------------------------------------------------
+ */
+
+/**
+ * 🔄 Обработка NEW отзывов для ОДНОГО магазина (вызывается БЫСТРЫМ ПОДБОРЩИКОМ)
+ * Оптимизирована для скорости: собирает все изменения и вносит их в таблицу одним махом.
  */
 function processNewOzonReviewsForStore(store, templates) {
   const sheetName = `Отзывы (${store.name})`;
@@ -156,127 +103,66 @@ function processNewOzonReviewsForStore(store, templates) {
   const sheet = ss.getSheetByName(sheetName);
   
   if (!sheet) {
-    log(`⚠️ Лист "${sheetName}" не найден. Пропускаю магазин.`);
-    return { processed: 0, matched: 0, skipped: 0 };
+    return { matched: 0 };
   }
   
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   
-  // Находим индексы колонок
-  const colIdx = {};
-  CONFIG.HEADERS.forEach((header, idx) => {
-    colIdx[header] = idx;
-  });
-  
-  const statusCol = colIdx['Статус'] + 1;
-  const answerCol = colIdx['Подобранный ответ'] + 1;
-  
-  let processed = 0;
+  const statusColIdx = headers.indexOf('Статус');
+  const answerColIdx = headers.indexOf('Подобранный ответ');
+  const ratingColIdx = headers.indexOf('Оценка');
+
+  if (statusColIdx === -1 || answerColIdx === -1 || ratingColIdx === -1) {
+      log(`     ❌ Ошибка в \"${sheetName}\": отсутствуют столбцы \"Статус\", \"Оценка\" или \"Подобранный ответ\".`);
+      return { matched: 0 };
+  }
+
   let matched = 0;
-  let skipped = 0;
-  
-  // Обрабатываем NEW отзывы
+  const changes = []; // Собираем изменения для пакетного обновления
+
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    const status = row[colIdx['Статус']];
+    const status = row[statusColIdx];
     
     if (status !== CONFIG.STATUS.NEW) continue;
     
-    processed++;
+    const rating = row[ratingColIdx];
     
-    const reviewId = row[colIdx['ID отзыва']];
-    const rating = row[colIdx['Оценка']];
-    
-    log(`   📝 NEW отзыв ID: ${reviewId} (рейтинг: ${rating})`);
-    
-    // Проверяем рейтинг
     if (!CONFIG.RESPOND_TO_RATINGS.includes(rating)) {
-      log(`      ⚠️ Рейтинг ${rating} не подходит для ответа`);
-      skipped++;
       continue;
     }
     
-    // Подбираем шаблон
     const template = selectRandomTemplate(templates, rating);
     
     if (!template) {
-      log(`      ❌ Нет шаблона для рейтинга ${rating}`);
-      const rowNumber = i + 1;
-      sheet.getRange(rowNumber, statusCol).setValue(CONFIG.STATUS.NO_TEMPLATE);
-      skipped++;
+      changes.push({row: i + 1, col: statusColIdx + 1, value: CONFIG.STATUS.NO_TEMPLATE});
       continue;
     }
     
-    // Записываем шаблон и меняем статус
-    const rowNumber = i + 1;
-    sheet.getRange(rowNumber, answerCol).setValue(template);
-    sheet.getRange(rowNumber, statusCol).setValue(CONFIG.STATUS.PENDING);
+    // Готовим изменения для статуса и ответа
+    changes.push({row: i + 1, col: answerColIdx + 1, value: template});
+    changes.push({row: i + 1, col: statusColIdx + 1, value: CONFIG.STATUS.PENDING});
     
-    log(`      ✅ Подобран шаблон, статус: NEW → PENDING`);
     matched++;
-    
-    Utilities.sleep(100);
   }
   
-  return { processed, matched, skipped };
+  if (changes.length > 0) {
+    // Применяем все изменения на листе за один раз
+    changes.forEach(c => sheet.getRange(c.row, c.col).setValue(c.value));
+    SpreadsheetApp.flush();
+  }
+
+  return { matched };
 }
 
-/**
- * 📤 Отправка PENDING ответов (только Ozon)
- */
-function sendPendingAnswersOzonOnly() {
-  log('--- 📤 ОТПРАВКА PENDING ОТВЕТОВ (ТОЛЬКО OZON) ---');
-  
-  const allStores = getStores();
-  const ozonStores = allStores.filter(s => s.isActive && s.marketplace === 'Ozon');
-  
-  if (ozonStores.length === 0) {
-    log('⚠️ Нет активных магазинов Ozon.');
-    return { totalSent: 0, totalSuccess: 0 };
-  }
-  
-  log(`📊 Найдено магазинов Ozon: ${ozonStores.length}`);
-  
-  let totalSent = 0;
-  let totalSuccess = 0;
-  const maxExecutionTime = 60 * 1000;
-  const startTime = Date.now();
-  
-  for (const store of ozonStores) {
-    const elapsedTime = Date.now() - startTime;
-    const remainingTime = maxExecutionTime - elapsedTime;
-    
-    if (remainingTime < 10000) {
-      log(`⏱️ ОСТАНОВКА отправки: осталось ${Math.round(remainingTime/1000)} сек`);
-      break;
-    }
-    
-    log(`--- 📤 Обрабатываю магазин: ${store.name} ---`);
-    const storeResult = sendPendingAnswersForStoreInternal(store);
-    
-    totalSent += storeResult.sentCount;
-    totalSuccess += storeResult.successCount;
-    
-    log(`--- ✅ Завершено для ${store.name}: ${storeResult.successCount}/${storeResult.sentCount} ---`);
-    
-    if (storeResult.sentCount > 0) {
-      Utilities.sleep(1000);
-    }
-  }
-  
-  log(`--- 📊 ОТПРАВКА ЗАВЕРШЕНА: успешно ${totalSuccess}/${totalSent} ---`);
-  
-  return { totalSent, totalSuccess };
-}
 
 /**
- * 📤 Внутренняя функция отправки для одного магазина
+ * 📤 Внутренняя функция отправки для ОДНОГО магазина (вызывается МЕДЛЕННЫМ ОТПРАВЩИКОМ)
  */
 function sendPendingAnswersForStoreInternal(store) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(`Отзывы (${store.name})`);
   if (!sheet) {
-    log(`[${store.name}] ⚠️ Лист не найден`);
     return { sentCount: 0, successCount: 0 };
   }
 
@@ -288,12 +174,11 @@ function sendPendingAnswersForStoreInternal(store) {
   const errorCol = headers.indexOf('Детали ошибки') + 1;
   const timeCol = headers.indexOf('Время отправки') + 1;
 
-  if (statusCol === 0) {
-    log(`[${store.name}] ❌ Не найден столбец "Статус"`);
+  if (statusCol === 0 || answerCol === 0 || idCol === 0) {
+    log(`     ❌ Ошибка в \"${sheet.getName()}\": отсутствуют необходимые столбцы.`);
     return { sentCount: 0, successCount: 0 };
   }
 
-  // Собираем PENDING ответы
   const pendingAnswers = [];
   for (let i = 1; i < data.length; i++) {
     if (data[i][statusCol - 1] === CONFIG.STATUS.PENDING) {
@@ -306,17 +191,13 @@ function sendPendingAnswersForStoreInternal(store) {
   }
 
   if (pendingAnswers.length === 0) {
-    log(`[${store.name}] 📭 Нет ответов для отправки`);
     return { sentCount: 0, successCount: 0 };
   }
 
-  log(`[${store.name}] 🚀 Найдено ${pendingAnswers.length} ответов для отправки`);
-
   let successCount = 0;
+  log(`  - ${store.name}: найдено ${pendingAnswers.length} ответов для отправки.`);
 
-  pendingAnswers.forEach((answer, index) => {
-    log(`[${store.name}] 📤 ${index + 1}/${pendingAnswers.length}: ID ${answer.feedbackId}`);
-    
+  pendingAnswers.forEach((answer) => {
     const result = sendAnswer(store, answer.feedbackId, answer.answerText);
     
     sheet.getRange(answer.rowIndex, statusCol).setValue(result.status);
@@ -325,12 +206,8 @@ function sendPendingAnswersForStoreInternal(store) {
     
     if (result.status === CONFIG.STATUS.SENT) {
       successCount++;
-      log(`[${store.name}] ✅ Успешно отправлен ID ${answer.feedbackId}`);
-    } else {
-      log(`[${store.name}] ❌ Ошибка ID ${answer.feedbackId}: ${result.error}`);
     }
     
-    // Rate limiting для Ozon
     Utilities.sleep(OZON_CONFIG.RATE_LIMITS.DELAY_BETWEEN_REQUESTS);
   });
 
@@ -339,85 +216,72 @@ function sendPendingAnswersForStoreInternal(store) {
 
 /**
  * ============================================================================
- * УПРАВЛЕНИЕ ТРИГГЕРАМИ
+ * 🚀 УПРАВЛЕНИЕ ТРИГГЕРАМИ
  * ============================================================================
  */
 
 /**
- * ✅ Создать часовой триггер для Ozon workflow
- * Использует .everyHours(1) - официально поддерживается Google Apps Script
+ * ✅ ГЛАВНАЯ ФУНКЦИЯ НАСТРОЙКИ: Создает правильные триггеры для Ozon
+ * Запустите эту функцию ОДИН РАЗ, чтобы настроить автоматизацию.
  */
-function createOzonTemplateMatchingTrigger() {
-  deleteOzonTemplateMatchingTrigger();
+function setupOzonTriggers() {
+  deleteAllOzonTriggers(); // Сначала удаляем все старые триггеры
   
-  // Создаем триггер через everyHours(1)
-  ScriptApp.newTrigger('processOzonWorkflow')
+  // 1. Создаем "Быстрого подборщика" (каждые 15 минут)
+  ScriptApp.newTrigger('processNewOzonReviews')
+    .timeBased()
+    .everyMinutes(15)
+    .create();
+  
+  // 2. Создаем "Медленного отправщика" (каждый час)
+  ScriptApp.newTrigger('sendPendingAnswersOzonOnly')
     .timeBased()
     .everyHours(1)
     .create();
   
-  log('✅ Триггер Ozon workflow создан (каждый час)');
-  SpreadsheetApp.getUi().alert(
-    '✅ Триггер создан',
-    'Автоматический Ozon workflow (подбор шаблонов + отправка) будет запускаться каждый час.',
-    SpreadsheetApp.getUi().ButtonSet.OK
-  );
+  const message = '✅ Автоматизация Ozon настроена! Создано 2 триггера: подборщик (15 мин) и отправщик (1 час).';
+  log(message);
+  SpreadsheetApp.getUi().alert(message);
 }
 
 /**
- * ❌ Удалить триггер Ozon workflow
+ * ❌ Удаляет ВСЕ триггеры, связанные с обработкой Ozon
  */
-function deleteOzonTemplateMatchingTrigger() {
+function deleteAllOzonTriggers() {
+  const ozonFunctions = ['processNewOzonReviews', 'sendPendingAnswersOzonOnly', 'processOzonWorkflow'];
   const triggers = ScriptApp.getProjectTriggers();
   let deletedCount = 0;
   
   triggers.forEach(trigger => {
-    if (trigger.getHandlerFunction() === 'processOzonWorkflow') {
+    if (ozonFunctions.includes(trigger.getHandlerFunction())) {
       ScriptApp.deleteTrigger(trigger);
       deletedCount++;
     }
   });
   
   if (deletedCount > 0) {
-    log(`🗑️ Удалено триггеров Ozon workflow: ${deletedCount}`);
-    SpreadsheetApp.getUi().alert(
-      '✅ Триггер удален',
-      `Удалено триггеров: ${deletedCount}`,
-      SpreadsheetApp.getUi().ButtonSet.OK
-    );
-  } else {
-    log('ℹ️ Триггеров Ozon workflow не найдено');
-    SpreadsheetApp.getUi().alert(
-      'ℹ️ Триггер не найден',
-      'Триггеры Ozon workflow не найдены.',
-      SpreadsheetApp.getUi().ButtonSet.OK
-    );
+    log(`🗑️ Удалено старых триггеров Ozon: ${deletedCount}`);
   }
 }
 
 /**
- * ℹ️ Проверить статус триггера
+ * ℹ️ Проверить статус триггеров Ozon
  */
-function checkOzonTemplateMatchingTriggerStatus() {
-  const triggers = ScriptApp.getProjectTriggers();
-  const matchingTriggers = triggers.filter(t => t.getHandlerFunction() === 'processOzonWorkflow');
+function checkOzonTriggersStatus() {
+  const ozonFunctions = ['processNewOzonReviews', 'sendPendingAnswersOzonOnly'];
+  const triggers = ScriptApp.getProjectTriggers().filter(t => ozonFunctions.includes(t.getHandlerFunction()));
   
-  if (matchingTriggers.length === 0) {
+  if (triggers.length < 2) {
     SpreadsheetApp.getUi().alert(
-      'ℹ️ Триггер НЕ активен',
-      'Триггер Ozon workflow НЕ активен.\n\nИспользуйте меню для создания триггера.',
+      '⚠️ Автоматизация Ozon настроена НЕПРАВИЛЬНО!',
+      `Найдено только ${triggers.length} из 2 необходимых триггеров. Запустите функцию \"setupOzonTriggers\" для исправления.`,
       SpreadsheetApp.getUi().ButtonSet.OK
     );
   } else {
-    const trigger = matchingTriggers[0];
-    const info = `Функция: ${trigger.getHandlerFunction()}\n` +
-                 `Тип: ${trigger.getEventType()}\n` +
-                 `Найдено триггеров: ${matchingTriggers.length}`;
-    
-    SpreadsheetApp.getUi().alert(
-      '✅ Триггер АКТИВЕН',
-      `Триггер Ozon workflow АКТИВЕН.\n\n${info}`,
-      SpreadsheetApp.getUi().ButtonSet.OK
-    );
+    let info = '✅ Автоматизация Ozon активна! Найдены 2 триггера:\n\n';
+    triggers.forEach(t => {
+      info += `- Функция: ${t.getHandlerFunction()}\n- Тип: ${t.getEventType()}\n\n`;
+    });
+    SpreadsheetApp.getUi().alert('✅ Триггеры в порядке', info, SpreadsheetApp.getUi().ButtonSet.OK);
   }
 }
