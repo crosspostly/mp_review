@@ -2766,22 +2766,10 @@ function buildWbApiV2Url(includeAnswered, skip, take, store) {
     params.append('skip', skip);
     params.append('order', 'dateDesc');
     
-    // 🚀 НОВОЕ: Используем встроенную фильтрацию по дате
+    // Фильтр по дате
     if (store?.settings?.startDate) {
         params.append('dateFrom', store.settings.startDate);
         log(`[WB] 📅 Фильтр по дате: ${store.settings.startDate}`);
-    }
-    
-    // 🚀 НОВОЕ: Используем встроенную фильтрацию по рейтингу
-    if (store?.settings?.minRating) {
-        params.append('valuation', store.settings.minRating);
-        log(`[WB] ⭐ Фильтр по рейтингу: ${store.settings.minRating}`);
-    }
-    
-    // 🚀 НОВОЕ: Фильтр по товару (если нужен)
-    if (store?.settings?.nmId) {
-        params.append('nmId', store.settings.nmId);
-        log(`[WB] 🛍️ Фильтр по товару: ${store.settings.nmId}`);
     }
     
     return `${baseUrl}?${params.toString()}`;
