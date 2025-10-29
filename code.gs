@@ -1400,49 +1400,103 @@ function sendAnswer(store, feedbackId, text) {
  * @returns {Array} Массив всех подходящих отзывов
  */
 function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
-    log(`[WB] 🚀 WB API v2 (includeAnswered=${includeAnswered})`);
-    log(`[WB] Store: ${store?.name || 'null'}`);
+    const startTime = Date.now();
+    log(`[WB] 🚀 WB API v2 START (includeAnswered=${includeAnswered})`);
+    log(`[WB] 📦 Store: ${store?.name || 'null'}`);
+    log(`[WB] 🔑 API Key length: ${apiKey?.length || 0} chars`);
     
     const MAX_TAKE = 5000; // Максимум по документации WB API
     const MAX_SKIP = 199990; // Максимум по документации WB API
     let allFeedbacks = [];
     let skip = 0;
     let hasMoreData = true;
+    let pageCount = 0;
+    let totalRequestTime = 0;
     
     try {
         while (hasMoreData && skip <= MAX_SKIP) {
+            pageCount++;
+            const pageStartTime = Date.now();
+            
             // 🚀 ИСПРАВЛЕНИЕ: Используем v2 endpoint с встроенной фильтрацией
             const url = buildWbApiV2Url(includeAnswered, skip, MAX_TAKE, store);
             
-            log(`[WB] 📄 Страница: skip=${skip}, take=${MAX_TAKE}`);
+            log(`[WB Request #${pageCount}] 📤 GET ${url}`);
+            log(`[WB Request #${pageCount}] 📄 Params: skip=${skip}, take=${MAX_TAKE}`);
+            log(`[WB Request #${pageCount}] ⏱️ Requesting...`);
             
+            const requestStartTime = Date.now();
             const response = UrlFetchApp.fetch(url, { 
                 method: 'GET', 
                 headers: { 'Authorization': apiKey }, 
                 muteHttpExceptions: true 
             });
+            const requestDuration = Date.now() - requestStartTime;
+            totalRequestTime += requestDuration;
             
             const responseCode = response.getResponseCode();
+            const responseBody = response.getContentText();
+            const responseSize = responseBody.length;
+            
+            log(`[WB Response #${pageCount}] 📥 HTTP ${responseCode} (${requestDuration}ms, ${responseSize} bytes)`);
             
             if (responseCode !== 200) {
-                const responseBody = response.getContentText();
-                log(`[WB] ❌ ОШИБКА: Код ${responseCode}. Тело: ${responseBody.substring(0, 200)}`);
+                log(`[WB Response #${pageCount}] ❌ ERROR: HTTP ${responseCode}`);
+                log(`[WB Response #${pageCount}] 📝 Body preview: ${responseBody.substring(0, 300)}...`);
+                
+                // Enhanced error diagnostics
+                if (responseCode === 401) {
+                    log(`[WB Response #${pageCount}] 🔎 401 Unauthorized - Invalid API key`);
+                } else if (responseCode === 403) {
+                    log(`[WB Response #${pageCount}] 🔎 403 Forbidden - API key lacks permissions`);
+                } else if (responseCode === 404) {
+                    log(`[WB Response #${pageCount}] 🔎 404 Not Found - Check endpoint URL`);
+                } else if (responseCode === 429) {
+                    log(`[WB Response #${pageCount}] 🔎 429 Rate Limited - Too many requests`);
+                } else if (responseCode >= 500) {
+                    log(`[WB Response #${pageCount}] 🔎 ${responseCode} Server Error - WB API issues`);
+                }
                 break;
             }
             
-            const json = JSON.parse(response.getContentText());
+            let json;
+            try {
+                json = JSON.parse(responseBody);
+                log(`[WB Response #${pageCount}] ✅ Valid JSON parsed`);
+                
+                // Log response structure in dev mode
+                if (isDevMode()) {
+                    log(`[WB Response #${pageCount} DEBUG] JSON keys: ${Object.keys(json).join(', ')}`);
+                    if (json.data) {
+                        log(`[WB Response #${pageCount} DEBUG] data keys: ${Object.keys(json.data).join(', ')}`);
+                    }
+                }
+            } catch (parseError) {
+                log(`[WB Response #${pageCount}] ❌ JSON PARSE ERROR: ${parseError.message}`);
+                log(`[WB Response #${pageCount}] 📝 Raw body: ${responseBody.substring(0, 500)}`);
+                break;
+            }
+            
             if (json.error) {
-                log(`[WB] ❌ API ОШИБКА: ${json.errorText}`);
+                log(`[WB Response #${pageCount}] ❌ API ERROR: ${json.errorText || JSON.stringify(json.error)}`);
                 break;
             }
             
             const feedbacks = json.data?.feedbacks || [];
-            log(`[WB] 📊 Получено ${feedbacks.length} отзывов на странице skip=${skip}`);
+            const feedbacksWithText = feedbacks.filter(fb => fb.text && fb.text.trim() && fb.text.trim() !== '(без текста)');
+            
+            log(`[WB Response #${pageCount}] 📊 Feedbacks: ${feedbacks.length} total, ${feedbacksWithText.length} with text`);
             
             if (feedbacks.length === 0) {
-                log(`[WB] ✅ Пустая страница - завершаем пагинацию`);
+                log(`[WB Response #${pageCount}] ✅ Empty page - pagination complete`);
                 hasMoreData = false;
                 break;
+            }
+            
+            // Log sample feedback in dev mode
+            if (isDevMode() && feedbacks.length > 0) {
+                const sample = feedbacks[0];
+                log(`[WB Response #${pageCount} DEBUG] Sample feedback: ID=${sample.id}, rating=${sample.rating}, hasText=${!!sample.text}`);
             }
             
             // Обрабатываем отзывы (убираем пустые)
@@ -1469,11 +1523,19 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
             skip += MAX_TAKE;
             hasMoreData = (feedbacks.length === MAX_TAKE); // Если получили полную страницу, возможно есть еще
             
+            const pageDuration = Date.now() - pageStartTime;
+            log(`[WB Page #${pageCount}] ⏱️ Completed in ${pageDuration}ms (collected ${feedbacksWithText.length} feedbacks)`);
+            
             // Лимит по времени выполнения
             Utilities.sleep(100); // Пауза между запросами
         }
         
-        log(`[WB] ✅ ЗАВЕРШЕНО: ${allFeedbacks.length} отзывов получено простой пагинацией`);
+        const totalDuration = Date.now() - startTime;
+        const avgRequestTime = pageCount > 0 ? Math.round(totalRequestTime / pageCount) : 0;
+        
+        log(`[WB] ✅ ЗАВЕРШЕНО: ${allFeedbacks.length} отзывов получено за ${pageCount} запросов`);
+        log(`[WB] ⏱️ Общее время: ${totalDuration}ms (среднее время запроса: ${avgRequestTime}ms)`);
+        log(`[WB] 📊 Статистика: ${Math.round(allFeedbacks.length / (totalDuration / 1000) * 60)} отзывов/минуту`);
         
         // Фильтрация по дате если есть
         if (store && store.settings && store.settings.startDate) {
@@ -1487,6 +1549,8 @@ function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
         
     } catch (e) {
         log(`[WB] ⛔ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
+        log(`[WB] 🔍 Stack trace: ${e.stack}`);
+        log(`[WB] 📊 Частичный результат: ${allFeedbacks.length} отзывов собрано до ошибки`);
         return allFeedbacks; // Возвращаем что успели получить
     }
 }
@@ -2746,36 +2810,39 @@ function syncAllStoreTriggers() {
 }
 
 /**
- * 🚀 НОВАЯ ФУНКЦИЯ: Построение URL для WB API v2
+ * 🚀 ИСПРАВЛЕНО: Построение URL для WB API v2
  * Использует встроенную фильтрацию по дате и рейтингу
+ * НЕ использует URLSearchParams (недоступен в Google Apps Script)
  */
 function buildWbApiV2Url(includeAnswered, skip, take, store) {
     const baseUrl = 'https://feedbacks-api.wildberries.ru/api/v2/feedbacks';
-    const params = new URLSearchParams();
+    const params = [];
     
     // Обязательные параметры
-    params.append('isAnswered', includeAnswered);
-    params.append('take', take);
-    params.append('skip', skip);
-    params.append('order', 'dateDesc');
+    params.push(`isAnswered=${includeAnswered}`);
+    params.push(`take=${take}`);
+    params.push(`skip=${skip}`);
+    params.push(`order=dateDesc`);
     
     // 🚀 НОВОЕ: Используем встроенную фильтрацию по дате
     if (store?.settings?.startDate) {
-        params.append('dateFrom', store.settings.startDate);
-        log(`[WB] 📅 Фильтр по дате: ${store.settings.startDate}`);
+        params.push(`dateFrom=${encodeURIComponent(store.settings.startDate)}`);
+        log(`[WB URL] 📅 Фильтр по дате: ${store.settings.startDate}`);
     }
     
     // 🚀 НОВОЕ: Используем встроенную фильтрацию по рейтингу
     if (store?.settings?.minRating) {
-        params.append('valuation', store.settings.minRating);
-        log(`[WB] ⭐ Фильтр по рейтингу: ${store.settings.minRating}`);
+        params.push(`valuation=${store.settings.minRating}`);
+        log(`[WB URL] ⭐ Фильтр по рейтингу: ${store.settings.minRating}`);
     }
     
     // 🚀 НОВОЕ: Фильтр по товару (если нужен)
     if (store?.settings?.nmId) {
-        params.append('nmId', store.settings.nmId);
-        log(`[WB] 🛍️ Фильтр по товару: ${store.settings.nmId}`);
+        params.push(`nmId=${store.settings.nmId}`);
+        log(`[WB URL] 🛍️ Фильтр по товару: ${store.settings.nmId}`);
     }
     
-    return `${baseUrl}?${params.toString()}`;
+    const fullUrl = `${baseUrl}?${params.join('&')}`;
+    log(`[WB URL] 🔗 Constructed URL: ${fullUrl}`);
+    return fullUrl;
 }
