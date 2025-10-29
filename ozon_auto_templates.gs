@@ -186,7 +186,7 @@ function processNewOzonReviewsForStore(store, templates) {
     processed++;
     
     const reviewId = row[colIdx['ID отзыва']];
-    const rating = row[colIdx['Рейтинг']];
+    const rating = row[colIdx['Оценка']];
     
     log(`   📝 NEW отзыв ID: ${reviewId} (рейтинг: ${rating})`);
     
