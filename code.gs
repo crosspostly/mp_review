@@ -141,10 +141,9 @@ function onOpen(e) {
   menu.addSeparator();
   menu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
   menu.addItem('▶️ Отправить подготовленные ответы', 'sendPendingAnswers');
+  menu.addSeparator();
   menu.addItem('📥 Собрать отзывы Ozon вручную', 'collectOzonReviewsAuto');
-  menu.addItem('🧪 Тест WB: ответ на отзыв', 'testWbFeedbackAnswerById');
-  menu.addItem('🧪 Тест Ozon: получение отзывов', 'testOzonFeedbackPagination');
-  menu.addItem('🗑️ Удалить отзыв по ID', 'manuallyDeleteReviewById');
+  menu.addItem('🤖 Обработать NEW отзывы Ozon (шаблоны)', 'processNewOzonReviews');
   menu.addSeparator();
   const devMenu = ui.createMenu('🛠️ Режим разработчика');
   devMenu.addItem('Включить', 'enableDevMode');
