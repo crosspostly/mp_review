@@ -424,10 +424,11 @@ function removeDuplicates(reviews, existingIds) {
 function getExistingReviewIds(store) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(store.name);
+    const sheetName = `Отзывы (${store.name})`;
+    const sheet = ss.getSheetByName(sheetName);
     
     if (!sheet) {
-      log(`[${store.name}] Лист не найден`);
+      log(`[${store.name}] Лист "${sheetName}" не найден`);
       return [];
     }
     
@@ -462,10 +463,11 @@ function getExistingReviewIds(store) {
 function writeToSheet(store, reviews) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(store.name);
+    const sheetName = `Отзывы (${store.name})`;
+    const sheet = ss.getSheetByName(sheetName);
     
     if (!sheet) {
-      log(`[${store.name}] ❌ Лист не найден для записи`);
+      log(`[${store.name}] ❌ Лист "${sheetName}" не найден для записи`);
       return;
     }
     
