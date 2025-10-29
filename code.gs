@@ -140,6 +140,7 @@ function onOpen(e) {
   menu.addSeparator();
   menu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
   menu.addItem('▶️ Отправить подготовленные ответы', 'sendPendingAnswers');
+  menu.addItem('📥 Собрать отзывы Ozon вручную', 'collectOzonReviewsAuto');
   menu.addItem('🧪 Тест WB: ответ на отзыв', 'testWbFeedbackAnswerById');
   menu.addItem('🧪 Тест Ozon: получение отзывов', 'testOzonFeedbackPagination');
   menu.addItem('🗑️ Удалить отзыв по ID', 'manuallyDeleteReviewById');
@@ -2785,15 +2786,3 @@ function buildWbApiV2Url(includeAnswered, skip, take, store) {
     
     return `${baseUrl}?${params.toString()}`;
 }
-
-// --- ВСТАВКА В ФУНКЦИЮ saveStore ---
-// Найдите конец функции saveStore (до return getStores();) и добавьте:
-if (store.isActive) {
-  ensureStoreTrigger(store);
-} else {
-  deleteStoreTrigger(store.id);
-}
-
-// --- ВСТАВКА В ФУНКЦИЮ deleteStore ---
-// Перед удалением из массива:
-deleteStoreTrigger(storeId);
