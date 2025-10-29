@@ -144,6 +144,14 @@ function onOpen(e) {
   menu.addSeparator();
   menu.addItem('📥 Собрать отзывы Ozon вручную', 'collectOzonReviewsAuto');
   menu.addItem('🤖 Обработать NEW отзывы Ozon (шаблоны)', 'processNewOzonReviews');
+  menu.addItem('📤 Отправить PENDING ответы Ozon', 'sendPendingAnswersOzonOnly');
+  menu.addSeparator();
+  
+  const ozonMenu = ui.createMenu('🎯 Автоматизация Ozon');
+  ozonMenu.addItem('✅ Настроить триггеры Ozon (2 автомата)', 'setupOzonTriggers');
+  ozonMenu.addItem('ℹ️ Проверить статус триггеров Ozon', 'checkOzonTriggersStatus');
+  ozonMenu.addItem('❌ Удалить все триггеры Ozon', 'deleteAllOzonTriggers');
+  menu.addSubMenu(ozonMenu);
   menu.addSeparator();
   const devMenu = ui.createMenu('🛠️ Режим разработчика');
   devMenu.addItem('Включить', 'enableDevMode');
@@ -1953,20 +1961,71 @@ function sendOzonFeedbackAnswer(feedbackId, text, clientId, apiKey) {
     const url = 'https://api-seller.ozon.ru/v1/review/comment/create';
     const payload = { review_id: feedbackId, text: text, mark_review_as_processed: true };
     
+    // 🚀 УЛУЧШЕННОЕ ЛОГИРОВАНИЕ: Запрос
+    log(`[Ozon API] 📤 Отправка ответа для отзыва ${feedbackId}`);
+    log(`[Ozon API] 🔗 URL: ${url}`);
+    log(`[Ozon API] 📝 Текст ответа: "${text}" (${text.length} символов)`);
+    log(`[Ozon API] 🔑 Client-Id: ${clientId.substring(0, 8)}...`);
+    
+    const startTime = Date.now();
     const response = UrlFetchApp.fetch(url, {
         method: 'POST', 
-        headers: { 'Client-Id': clientId, 'Api-Key': apiKey },
-        contentType: 'application/json', 
+        headers: { 
+            'Client-Id': clientId, 
+            'Api-Key': apiKey,
+            'Content-Type': 'application/json'
+        },
         payload: JSON.stringify(payload),
         muteHttpExceptions: true
     });
+    const requestDuration = Date.now() - startTime;
     
     const code = response.getResponseCode();
     const responseBody = response.getContentText();
     
-    // Include detailed API response for debugging
+    // 🚀 УЛУЧШЕННОЕ ЛОГИРОВАНИЕ: Ответ
+    log(`[Ozon API] 📥 Ответ получен: HTTP ${code} (${requestDuration}ms)`);
+    log(`[Ozon API] 📋 Размер ответа: ${responseBody.length} символов`);
+    
+    if (code === 200) {
+        log(`[Ozon API] ✅ УСПЕХ: Ответ отправлен для отзыва ${feedbackId}`);
+        
+        // Пытаемся распарсить ответ для дополнительной информации
+        try {
+            const responseJson = JSON.parse(responseBody);
+            if (responseJson.result && responseJson.result.comment_id) {
+                log(`[Ozon API] 💬 ID созданного комментария: ${responseJson.result.comment_id}`);
+            }
+            log(`[Ozon API] 📄 Полный ответ: ${responseBody}`);
+        } catch (e) {
+            log(`[Ozon API] 📄 Ответ (не JSON): ${responseBody}`);
+        }
+    } else {
+        log(`[Ozon API] ❌ ОШИБКА: HTTP ${code} для отзыва ${feedbackId}`);
+        log(`[Ozon API] 📋 Тело ошибки: ${responseBody}`);
+        
+        // Детальная диагностика ошибок
+        if (code === 400) {
+            log(`[Ozon API] 🔍 400 Bad Request - проверьте корректность review_id или текста ответа`);
+        } else if (code === 401) {
+            log(`[Ozon API] 🔍 401 Unauthorized - проверьте Client-Id и Api-Key`);
+        } else if (code === 403) {
+            log(`[Ozon API] 🔍 403 Forbidden - нет прав на создание комментариев`);
+        } else if (code === 404) {
+            log(`[Ozon API] 🔍 404 Not Found - отзыв с ID ${feedbackId} не найден`);
+        } else if (code === 409) {
+            log(`[Ozon API] 🔍 409 Conflict - возможно, ответ уже был отправлен на этот отзыв`);
+        } else if (code === 422) {
+            log(`[Ozon API] 🔍 422 Unprocessable Entity - некорректные данные запроса`);
+        } else if (code === 429) {
+            log(`[Ozon API] 🔍 429 Too Many Requests - превышен лимит запросов`);
+        } else if (code >= 500) {
+            log(`[Ozon API] 🔍 ${code} Server Error - временные проблемы на стороне Ozon`);
+        }
+    }
+    
     const success = code === 200;
-    const errorMessage = success ? '' : `Код ответа: ${code}. Тело: ${responseBody}`;
+    const errorMessage = success ? '' : `HTTP ${code}: ${responseBody}`;
     
     return [success, errorMessage, responseBody];
 }
@@ -2844,4 +2903,141 @@ function buildWbApiV2Url(includeAnswered, skip, take, store) {
     const fullUrl = `${baseUrl}?${params.join('&')}`;
     log(`[WB URL] 🔗 Constructed URL: ${fullUrl}`);
     return fullUrl;
+}
+
+// ============ OZON TRIGGER MANAGEMENT FUNCTIONS ============
+
+/**
+ * ✅ Настроить триггеры Ozon (2 автомата)
+ * Создает триггер для автоматического Ozon workflow
+ */
+function setupOzonTriggers() {
+  try {
+    log('🎯 Настройка триггеров Ozon...');
+    
+    // Удаляем старые триггеры Ozon
+    deleteAllOzonTriggers();
+    
+    // Создаем новый триггер для Ozon workflow (запускается каждый час)
+    ScriptApp.newTrigger('processOzonWorkflow')
+      .timeBased()
+      .everyHours(1)
+      .create();
+    
+    const message = '✅ Триггер Ozon настроен!\n\nАвтоматический процесс будет:\n• Подбирать шаблоны для NEW отзывов\n• Отправлять PENDING ответы\n\nЗапуск: каждый час';
+    log('✅ Триггер Ozon workflow создан (каждый час)');
+    
+    SpreadsheetApp.getUi().alert(
+      '✅ Триггеры Ozon настроены',
+      message,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+  } catch (error) {
+    log(`❌ Ошибка настройки триггеров Ozon: ${error.message}`);
+    SpreadsheetApp.getUi().alert(
+      '❌ Ошибка',
+      `Не удалось настроить триггеры Ozon: ${error.message}`,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+  }
+}
+
+/**
+ * ℹ️ Проверить статус триггеров Ozon
+ */
+function checkOzonTriggersStatus() {
+  try {
+    const triggers = ScriptApp.getProjectTriggers();
+    const ozonTriggers = triggers.filter(t => 
+      t.getHandlerFunction() === 'processOzonWorkflow'
+    );
+    
+    if (ozonTriggers.length === 0) {
+      SpreadsheetApp.getUi().alert(
+        'ℹ️ Триггеры НЕ активны',
+        'Триггеры Ozon НЕ активны.\n\nДля настройки автоматизации используйте:\n"✅ Настроить триггеры Ozon (2 автомата)"',
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+    } else {
+      const trigger = ozonTriggers[0];
+      let triggerType = 'неизвестно';
+      
+      try {
+        // Определяем тип триггера
+        const eventType = trigger.getEventType();
+        if (eventType === ScriptApp.EventType.CLOCK) {
+          triggerType = 'по времени (каждый час)';
+        }
+      } catch (e) {
+        triggerType = 'временной триггер';
+      }
+      
+      const info = `✅ ТРИГГЕРЫ OZON АКТИВНЫ\n\n` +
+                   `Функция: processOzonWorkflow\n` +
+                   `Тип: ${triggerType}\n` +
+                   `Найдено: ${ozonTriggers.length} триггер(ов)\n\n` +
+                   `Автоматизация работает:\n` +
+                   `• Подбор шаблонов для NEW отзывов\n` +
+                   `• Отправка PENDING ответов\n` +
+                   `• Запуск каждый час`;
+      
+      SpreadsheetApp.getUi().alert(
+        '✅ Триггеры АКТИВНЫ',
+        info,
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+    }
+  } catch (error) {
+    log(`❌ Ошибка проверки статуса триггеров Ozon: ${error.message}`);
+    SpreadsheetApp.getUi().alert(
+      '❌ Ошибка',
+      `Не удалось проверить статус триггеров: ${error.message}`,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+  }
+}
+
+/**
+ * ❌ Удалить все триггеры Ozon
+ */
+function deleteAllOzonTriggers() {
+  try {
+    const triggers = ScriptApp.getProjectTriggers();
+    const ozonFunctions = [
+      'processOzonWorkflow',
+      'processNewOzonReviews', 
+      'sendPendingAnswersOzonOnly',
+      'collectOzonReviewsAuto'
+    ];
+    
+    let deletedCount = 0;
+    
+    triggers.forEach(trigger => {
+      const functionName = trigger.getHandlerFunction();
+      if (ozonFunctions.includes(functionName)) {
+        ScriptApp.deleteTrigger(trigger);
+        deletedCount++;
+        log(`🗑️ Удален триггер: ${functionName}`);
+      }
+    });
+    
+    const message = deletedCount > 0 
+      ? `✅ Удалено триггеров Ozon: ${deletedCount}\n\nАвтоматизация Ozon остановлена.`
+      : 'ℹ️ Триггеры Ozon не найдены\n\nАвтоматизация уже была отключена.';
+    
+    log(`🗑️ Удалено триггеров Ozon: ${deletedCount}`);
+    
+    SpreadsheetApp.getUi().alert(
+      deletedCount > 0 ? '✅ Триггеры удалены' : 'ℹ️ Триггеры не найдены',
+      message,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+  } catch (error) {
+    log(`❌ Ошибка удаления триггеров Ozon: ${error.message}`);
+    SpreadsheetApp.getUi().alert(
+      '❌ Ошибка',
+      `Не удалось удалить триггеры Ozon: ${error.message}`,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+  }
 }
