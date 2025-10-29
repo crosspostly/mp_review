@@ -1634,19 +1634,11 @@ function sendWbApiRequest(url, payload, apiKey, methodName) {
  * @returns {Array} Array of normalized feedback objects
  */
 function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = null) {
-    log(`[Ozon] 🚀 ЗАПУСК ИСПРАВЛЕННОЙ пагинации для получения отзывов (includeAnswered=${includeAnswered})`);
+    log(`[Ozon] 🚀 ЗАПУСК пагинации для получения отзывов (includeAnswered=${includeAnswered})`);
     
     try {
-        // 🚀 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Используем адаптивную пагинацию из ozon_functions.gs
-        const hasDateFilter = store && store.settings && store.settings.startDate;
-        
-        if (hasDateFilter) {
-            log(`[Ozon] ⚡ Выбрана АДАПТИВНАЯ пагинация (есть дата фильтра: ${store.settings.startDate})`);
-            return getOzonFeedbacksWithAdaptivePagination(clientId, apiKey, includeAnswered, store);
-        } else {
-            log(`[Ozon] 📊 Выбрана СТАНДАРТНАЯ пагинация (нет даты фильтра)`);
-            return getOzonFeedbacksWithStandardPagination(clientId, apiKey, includeAnswered, store);
-        }
+        // Используем правильную пагинацию через last_id
+        return getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered, store);
     } catch (e) {
         log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.message}`);
         log(`[Ozon] Stack trace: ${e.stack}`);
