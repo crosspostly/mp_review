@@ -19,13 +19,16 @@ const CONFIG = {
   MIN_REVIEW_TEXT_LENGTH: 3, // Минимальная длина текста отзыва для обработки
   HEADERS: ['№', 'ID отзыва', 'Дата отзыва', 'Артикул', 'Название товара', 'Ссылка', 'Оценка', 'Текст отзыва', 'Подобранный ответ', 'Статус', 'Детали ошибки', 'Время отправки'],
   STATUS: {
-    NEW: 'Новый',
-    PENDING: 'Готово к отправке',
-    SENT: 'Отправлено',
-    ERROR: 'Ошибка'
+    NEW: 'NEW',                     // Новый отзыв (еще не подобран шаблон)
+    PENDING: 'Готово к отправке',   // Шаблон подобран, готов к отправке
+    SENT: 'Отправлено',             // Ответ успешно отправлен
+    ERROR: 'Ошибка',                // Ошибка при отправке
+    MANUAL: 'Ручной ответ',         // Отвечено вручную
+    SKIPPED_RATING: 'Пропущено (рейтинг)',
+    SKIPPED_PROCESSED: 'Пропущено (уже обработан)',
+    SKIPPED_EMPTY: 'Пропущено (пустой отзыв)',
+    NO_TEMPLATE: 'Нет шаблона'      // Не найден подходящий шаблон
   },
-  // Управление обогащением названий товаров (Ozon)
-  ENRICH_PRODUCT_NAMES: false,
   // 🚀 NEW: Настройки для системы памяти прогресса
   PROGRESS: {
     MAX_EXECUTION_TIME: 5.5 * 60 * 1000, // 5.5 минут (с запасом до 6-минутного лимита)
@@ -38,10 +41,10 @@ const CONFIG = {
 const WB_CONFIG = {
   MARKETPLACE_NAME: 'Wildberries',
   MARKETPLACE_CODE: 'WB',
-  API_BASE_URL: 'https://feedbacks-api.wildberries.ru/api',
+  API_BASE_URL: 'https://feedbacks-api.wildberries.ru/api/v1',
   ENDPOINTS: {
-    GET_FEEDBACKS: '/v1/feedbacks',
-    SEND_ANSWER: '/v1/feedbacks'  // {id} будет добавлен динамически
+    GET_FEEDBACKS: '/feedbacks',
+    SEND_ANSWER: '/feedbacks'  // {id} будет добавлен динамически
   },
   API_LIMITS: {
     MAX_TAKE: 1000,          // Консервативный увеличенный лимит (протестирован)
@@ -131,47 +134,43 @@ const OZON_CONFIG = {
 
 // ============ MENU CREATION ============
 function onOpen(e) {
-  try {
-    const ui = SpreadsheetApp.getUi();
-    const menu = ui.createMenu('🤖 Автоответы');
-    menu.addItem('⚙️ Первоначальная настройка', 'initialSetup');
-    menu.addItem('🏪 Управление магазинами', 'showStoreManagerSidebar');
-    menu.addSeparator();
-    menu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
-    menu.addItem('▶️ Отправить подготовленные ответы', 'sendPendingAnswers');
-    menu.addSeparator();
-    const devMenu = ui.createMenu('🛠️ Режим разработчика');
-    devMenu.addItem('Включить', 'enableDevMode');
-    devMenu.addItem('Выключить', 'disableDevMode');
-    menu.addSubMenu(devMenu);
-    
-    const triggerSubMenu = ui.createMenu('🔄 Управление автозапуском');
-    triggerSubMenu.addItem('🚀 Установить финальную схему', 'setupFinalSchemaTriggers');
-    triggerSubMenu.addSeparator();
-    triggerSubMenu.addItem('Установить автозапуск (5 мин)', 'createTrigger5Min');
-    triggerSubMenu.addItem('Установить автозапуск (30 мин)', 'createTrigger30Min');
-    triggerSubMenu.addItem('Установить автозапуск (1 час)', 'createTrigger1Hour');
-    triggerSubMenu.addSeparator();
-    triggerSubMenu.addItem('❌ Удалить все триггеры автозапуска', 'deleteAllTriggers');
-    menu.addSubMenu(triggerSubMenu);
-    
-    menu.addSeparator();
-    menu.addItem('🐞 Показать/Скрыть лог отладки', 'toggleLogSheet');
-    menu.addToUi();
-    
-    // Обновляем индикатор режима разработчика; настройка триггеров выполняется вручную из меню
-    updateDevModeStatus();
-    log('[onOpen] ✅ Меню создано');
-  } catch (error) {
-    log(`[onOpen] ❌ Ошибка создания меню: ${error.message}`, 'ERROR', 'SYSTEM');
-    // Показываем простое меню в случае ошибки
-    const ui = SpreadsheetApp.getUi();
-    const simpleMenu = ui.createMenu('🤖 Автоответы');
-    simpleMenu.addItem('⚙️ Первоначальная настройка', 'initialSetup');
-    simpleMenu.addItem('🏪 Управление магазинами', 'showStoreManagerSidebar');
-    simpleMenu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
-    simpleMenu.addToUi();
-  }
+  const ui = SpreadsheetApp.getUi();
+  const menu = ui.createMenu('🤖 Автоответы');
+  menu.addItem('⚙️ Первоначальная настройка', 'initialSetup');
+  menu.addItem('🏪 Управление магазинами', 'showStoreManagerSidebar');
+  menu.addSeparator();
+  menu.addItem('▶️ Запустить обработку сейчас', 'processAllStores');
+  menu.addItem('▶️ Отправить подготовленные ответы', 'sendPendingAnswers');
+  menu.addSeparator();
+
+  menu.addItem('📥 Собрать отзывы Ozon вручную', 'collectOzonReviewsAuto');
+  menu.addItem('🤖 Обработать NEW отзывы Ozon (шаблоны)', 'processNewOzonReviews');
+  menu.addItem('📤 Отправить PENDING ответы Ozon', 'sendPendingAnswersOzonOnly');
+  menu.addSeparator();
+  
+  const ozonMenu = ui.createMenu('🎯 Автоматизация Ozon');
+  ozonMenu.addItem('✅ Настроить триггеры Ozon (2 автомата)', 'setupOzonTriggers');
+  ozonMenu.addItem('ℹ️ Проверить статус триггеров Ozon', 'checkOzonTriggersStatus');
+  ozonMenu.addItem('❌ Удалить все триггеры Ozon', 'deleteAllOzonTriggers');
+  menu.addSubMenu(ozonMenu);
+  menu.addSeparator();
+  const devMenu = ui.createMenu('🛠️ Режим разработчика');
+  devMenu.addItem('Включить', 'enableDevMode');
+  devMenu.addItem('Выключить', 'disableDevMode');
+  menu.addSubMenu(devMenu);
+  
+  const triggerSubMenu = ui.createMenu('🔄 Управление автозапуском');
+  triggerSubMenu.addItem('Установить автозапуск (5 мин)', 'createTrigger5Min');
+  triggerSubMenu.addItem('Установить автозапуск (30 мин)', 'createTrigger30Min');
+  triggerSubMenu.addItem('Установить автозапуск (1 час)', 'createTrigger1Hour');
+  triggerSubMenu.addSeparator();
+  triggerSubMenu.addItem('❌ Удалить все триггеры автозапуска', 'deleteAllTriggers');
+  menu.addSubMenu(triggerSubMenu);
+  
+  menu.addSeparator();
+  menu.addItem('🐞 Показать/Скрыть лог отладки', 'toggleLogSheet');
+  menu.addToUi();
+  updateDevModeStatus();
 }
 
 // ============ DEV MODE ============
@@ -382,6 +381,9 @@ function getDateRange(days = 30) {
         dateTo: today.toISOString().split('T')[0]       // YYYY-MM-DD
     };
 }
+
+// ============ WB - ПРОСТАЯ ПАГИНАЦИЯ ============
+// 🚀 ВСЕ СЛОЖНЫЕ ФУНКЦИИ УДАЛЕНЫ! Остается только простая версия в getWbFeedbacks() ниже
 
 // ============ HELPER FUNCTIONS FOR API TESTING ============
 function testWbContentApiAccess(apiKey) {
@@ -739,11 +741,55 @@ function toggleLogSheet() {
 
 function initialSetup() {
   log('Запуск первоначальной настройки...');
+  
+  // 🔧 Создание шаблонов и базовых настроек
   const templateSheet = createOrGetSheet(CONFIG.SHEETS.TEMPLATES, ['Шаблон ответа', 'Для оценки (4, 5, или 4-5)']);
   fillInitialTemplates();
   updateDevModeStatus();
+  
+  // 🔄 Настройка автоматических триггеров
+  log('Настройка автоматических триггеров...');
+  
+  try {
+    // Удаляем существующие триггеры
+    deleteAllTriggers();
+    
+    // Создаем новые триггеры с оптимальными интервалами
+    // 📥 Сбор отзывов каждые 30 минут (более частый сбор)
+    ScriptApp.newTrigger('processAllStores')
+      .timeBased()
+      .everyMinutes(30)
+      .create();
+    log('✅ Создан триггер обработки отзывов (каждые 30 минут)');
+    
+    // 📤 Отправка подготовленных ответов каждый час
+    ScriptApp.newTrigger('sendPendingAnswers')
+      .timeBased()
+      .everyHours(1)
+      .create();
+    log('✅ Создан триггер отправки ответов (каждый час)');
+    
+    log('🎯 Автоматические триггеры настроены успешно!');
+    
+  } catch (error) {
+    log(`❌ Ошибка настройки триггеров: ${error.message}`);
+  }
+  
   log('Первоначальная настройка успешно завершена.');
-  SpreadsheetApp.getUi().alert('✅ Настройка завершена', `Создан лист "${CONFIG.SHEETS.TEMPLATES}" и индикатор режима разработчика.`, SpreadsheetApp.getUi().ButtonSet.OK);
+  
+  // Обновленное сообщение пользователю
+  const setupMessage = `✅ Настройка завершена!
+
+Созданы:
+• Лист "${CONFIG.SHEETS.TEMPLATES}" с шаблонами ответов
+• Индикатор режима разработчика
+• Автоматические триггеры:
+  - Обработка отзывов: каждые 30 минут
+  - Отправка ответов: каждый час
+
+Система готова к работе!`;
+
+  SpreadsheetApp.getUi().alert('✅ Настройка завершена', setupMessage, SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 // ============ UI FUNCTIONS ============
@@ -994,6 +1040,7 @@ function filterFeedbacksByAnswer(feedbacks, store) {
   
   return filteredFeedbacks;
 }
+
 // ============ BATCH PROCESSING FUNCTIONS ============
 
 /**
@@ -1018,20 +1065,20 @@ function processFeedbackBatch(feedbacks, templates, store, devMode) {
       '', // № - будет заполнен автоматически при добавлении в лист
       feedback.id, 
       new Date(feedback.createdDate), 
-      feedback.product?.id || 'Не указано', 
-      feedback.product?.name || 'Не указано', 
-      feedback.product?.url || '', 
+      feedback.product.id, 
+      feedback.product.name, 
+      feedback.product.url, 
       feedback.rating, 
       feedback.text
     ];
     
     // Проверка рейтинга
     if (!CONFIG.RESPOND_TO_RATINGS.includes(feedback.rating)) {
-      rowData.push('', CONFIG.STATUS.ERROR, `Рейтинг ${feedback.rating} не входит в список для ответа.`, '');
+      rowData.push('', CONFIG.STATUS.SKIPPED_RATING, `Рейтинг ${feedback.rating} не входит в список для ответа.`, '');
       results.push({
         rowData: rowData,
         logMessage: `[${store.name}] Пропущен отзыв ID: ${feedback.id} (рейтинг ${feedback.rating}). Дата: ${new Date(feedback.createdDate).toLocaleDateString('ru-RU')}`,
-        status: CONFIG.STATUS.ERROR
+        status: CONFIG.STATUS.SKIPPED_RATING
       });
       skippedByRating++;
       return;
@@ -1040,11 +1087,11 @@ function processFeedbackBatch(feedbacks, templates, store, devMode) {
     // Подбор шаблона
     const template = selectRandomTemplate(templates, feedback.rating);
     if (!template) {
-      rowData.push('', CONFIG.STATUS.ERROR, `Не найден подходящий шаблон для рейтинга ${feedback.rating}.`, '');
+      rowData.push('', CONFIG.STATUS.NO_TEMPLATE, `Не найден подходящий шаблон для рейтинга ${feedback.rating}.`, '');
       results.push({
         rowData: rowData,
         logMessage: `[${store.name}] Нет шаблона для отзыва ID: ${feedback.id} (рейтинг ${feedback.rating}). Дата: ${new Date(feedback.createdDate).toLocaleDateString('ru-RU')}`,
-        status: CONFIG.STATUS.ERROR
+        status: CONFIG.STATUS.NO_TEMPLATE
       });
       noTemplateCount++;
       return;
@@ -1088,41 +1135,13 @@ function processFeedbackBatch(feedbacks, templates, store, devMode) {
 // ============ CORE PROCESSING LOGIC ============
 
 /**
- * Получение текущего времени в формате МСК
- * @returns {string} Время в формате ДД.ММ.ГГГГ ЧЧ:ММ:СС
- */
-function getMskTime() {
-  return new Date().toLocaleString('ru-RU', { 
-    timeZone: 'Europe/Moscow', 
-    year: 'numeric', 
-    month: '2-digit', 
-    day: '2-digit', 
-    hour: '2-digit', 
-    minute: '2-digit', 
-    second: '2-digit',
-    hour12: false 
-  });
-}
-
-/**
- * Debug logging function
- * @param {string} message - Debug message
- * @param {string} category - Debug category
- */
-function logDebug(message, category = 'DEBUG') {
-  if (isDevMode()) {
-    log(`[${category}] ${message}`);
-  }
-}
-
-/**
  * Main function to process new feedback for all active stores.
  */
 function processAllStores() {
   const devMode = isDevMode();
   log(`--- ЗАПУСК ОБРАБОТКИ (${devMode ? 'РЕЖИМ РАЗРАБОТЧИКА' : 'БОЕВОЙ РЕЖИМ'}) ---`);
   const allStores = getStores();
-  const activeStores = allStores.filter(store => store && store.isActive);
+  const activeStores = allStores.filter(store => store.isActive);
   if (activeStores.length === 0) {
     log('Нет активных магазинов для обработки. Завершаю работу.');
     return;
@@ -1135,9 +1154,9 @@ function processAllStores() {
   const startTime = Date.now();
   
   // Группируем магазины по платформам для оптимальной обработки
-  const wbStores = activeStores.filter(s => s && s.marketplace === 'Wildberries');
-  const ozonStores = activeStores.filter(s => s && s.marketplace === 'Ozon');
-  const otherStores = activeStores.filter(s => s && s.marketplace !== 'Wildberries' && s.marketplace !== 'Ozon');
+  const wbStores = activeStores.filter(s => s.marketplace === 'Wildberries');
+  const ozonStores = activeStores.filter(s => s.marketplace === 'Ozon');
+  const otherStores = activeStores.filter(s => s.marketplace !== 'Wildberries' && s.marketplace !== 'Ozon');
   
   log(`📊 Распределение: WB=${wbStores.length}, Ozon=${ozonStores.length}, Другие=${otherStores.length}`);
   
@@ -1146,12 +1165,6 @@ function processAllStores() {
   const allStoresToProcess = [...wbStores, ...ozonStores, ...otherStores]; // WB и Ozon в приоритете
   
   for (const store of allStoresToProcess) {
-    // Проверяем, что store определен
-    if (!store) {
-      log(`⚠️ Пропущен неопределенный магазин в списке обработки`);
-      continue;
-    }
-    
     // Проверяем оставшееся время перед каждым магазином
     const elapsedTime = Date.now() - startTime;
     const remainingTime = maxExecutionTime - elapsedTime;
@@ -1268,12 +1281,6 @@ function sendPendingAnswers() {
   const startTime = Date.now();
   
   for (const store of allStores) {
-    // Проверяем, что store определен
-    if (!store) {
-      log(`⚠️ Пропущен неопределенный магазин в списке отправки`);
-      continue;
-    }
-    
     // Проверяем оставшееся время
     const elapsedTime = Date.now() - startTime;
     const remainingTime = maxExecutionTime - elapsedTime;
@@ -1415,410 +1422,18 @@ function sendAnswer(store, feedbackId, text) {
     } else if (store.marketplace === OZON_CONFIG.MARKETPLACE_NAME) {
       [success, message, apiResponse] = sendOzonFeedbackAnswer(feedbackId, text, store.credentials.clientId, store.credentials.apiKey);
     } else {
-      return { status: CONFIG.STATUS.ERROR, error: 'Неизвестный маркетплейс', timestamp: getMskTime(), apiResponse: '' };
+      return { status: CONFIG.STATUS.ERROR, error: 'Неизвестный маркетплейс', timestamp: '', apiResponse: '' };
     }
     
     if (success) {
-      return { status: CONFIG.STATUS.SENT, error: '', timestamp: getMskTime(), apiResponse: apiResponse || 'OK' };
+      return { status: CONFIG.STATUS.SENT, error: '', timestamp: new Date(), apiResponse: apiResponse || 'OK' };
     } else {
-      return { status: CONFIG.STATUS.ERROR, error: message, timestamp: getMskTime(), apiResponse: apiResponse || message };
+      return { status: CONFIG.STATUS.ERROR, error: message, timestamp: new Date(), apiResponse: apiResponse || message };
     }
   } catch (e) {
     log(`КРИТИЧЕСКАЯ ОШИБКА при отправке ответа для ID ${feedbackId}: ${e.stack}`);
-    return { status: CONFIG.STATUS.ERROR, error: e.message, timestamp: getMskTime(), apiResponse: e.message };
+    return { status: CONFIG.STATUS.ERROR, error: e.message, timestamp: new Date(), apiResponse: e.message };
   }
-}
-
-// ======================================================================
-// ======================== WILDBERRIES API ============================
-// ======================================================================
-// ВАЖНО: Этот раздел содержит всю логику работы с API Wildberries.
-// Изменения в других разделах не должны затрагивать эти функции.
-// ======================================================================
-
-/**
- * 🚀 УПРОЩЕННАЯ ФУНКЦИЯ WB: Получение отзывов по официальной документации
- * Использует простую пагинацию take/skip согласно WB API docs
- * @param {string} apiKey - WB API ключ
- * @param {boolean} includeAnswered - Включать ли отвеченные отзывы  
- * @param {Object} store - Настройки магазина для фильтрации по дате
- * @returns {Array} Массив всех подходящих отзывов
- */
-function getWbFeedbacks(apiKey, includeAnswered = false, store = null) {
-    log(`[WB] 🚀 WB API v1 (includeAnswered=${includeAnswered})`);
-    log(`[WB] Store: ${store?.name || 'null'}`);
-    
-    const MAX_TAKE = 5000; // Максимум по документации WB API
-    const MAX_SKIP = 199990; // Максимум по документации WB API
-    let allFeedbacks = [];
-    let skip = 0;
-    let hasMoreData = true;
-    
-    try {
-        while (hasMoreData && skip <= MAX_SKIP) {
-            // 🚀 ИСПРАВЛЕНИЕ: Используем v1 endpoint с встроенной фильтрацией
-            const url = buildWbApiV1Url(includeAnswered, skip, MAX_TAKE, store);
-            
-            log(`[WB] 📄 Страница: skip=${skip}, take=${MAX_TAKE}`);
-            
-            const response = UrlFetchApp.fetch(url, { 
-                method: 'GET', 
-                headers: { 'Authorization': apiKey }, 
-                muteHttpExceptions: true 
-            });
-            
-            const responseCode = response.getResponseCode();
-            
-            if (responseCode !== 200) {
-                const responseBody = response.getContentText();
-                const fullUrl = buildWbApiV1Url(includeAnswered, skip, MAX_TAKE, store);
-                
-                // 🚀 ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ПРИ ОШИБКЕ
-                log(`[WB] ❌ ОШИБКА: Код ${responseCode}`);
-                log(`[WB] 📤 URL запроса: ${fullUrl}`);
-                log(`[WB] 📤 Параметры: skip=${skip}, take=${MAX_TAKE}, includeAnswered=${includeAnswered}`);
-                log(`[WB] 📥 Полное тело ответа: ${responseBody}`);
-                
-                // Дополнительная диагностика в зависимости от кода
-                if (responseCode === 404) {
-                    log(`[WB] 🔎 404 Not Found: Проверьте правильность endpoint URL. Возможно API изменился.`);
-                } else if (responseCode === 401) {
-                    log(`[WB] 🔎 401 Unauthorized: Проверьте API ключ и его права доступа.`);
-                } else if (responseCode === 403) {
-                    log(`[WB] 🔎 403 Forbidden: API ключ не имеет доступа к этому ресурсу.`);
-                } else if (responseCode === 429) {
-                    log(`[WB] 🔎 429 Too Many Requests: Превышен лимит запросов API.`);
-                } else if (responseCode >= 500) {
-                    log(`[WB] 🔎 ${responseCode} Server Error: Временные проблемы на стороне сервера WB.`);
-                }
-                
-                // Fallback на v1 при некорректности пути/версии
-                if (responseCode === 404 || responseCode === 405 || /path not found|openapi/i.test(responseBody)) {
-                    log(`[WB] 🔁 FALLBACK: Переключаюсь на v1 endpoint для совместимости`);
-                    return getWbFeedbacksV1(apiKey, includeAnswered, store);
-                }
-                break;
-            }
-            
-            const json = JSON.parse(response.getContentText());
-            if (json.error) {
-                log(`[WB] ❌ API ОШИБКА: ${json.errorText}`);
-                break;
-            }
-            
-            const feedbacks = json.data?.feedbacks || [];
-            log(`[WB] 📊 Получено ${feedbacks.length} отзывов на странице skip=${skip}`);
-            
-            if (feedbacks.length === 0) {
-                log(`[WB] ✅ Пустая страница - завершаем пагинацию`);
-                hasMoreData = false;
-                break;
-            }
-            
-            // Обрабатываем отзывы (убираем пустые)
-            feedbacks.forEach(fb => {
-                const hasText = fb.text && fb.text.trim() && fb.text.trim() !== '(без текста)';
-                if (!hasText) return;
-                
-                allFeedbacks.push({
-                    id: fb.id,
-                    createdDate: fb.createdDate,
-                    rating: fb.rating || fb.productValuation || 0,
-                    text: fb.text,
-                    user: 'N/A',
-                    hasAnswer: !!(fb.answer && fb.answer.text),
-                    product: {
-                        id: fb.productDetails?.nmId,
-                        name: fb.productDetails?.productName || 'Не указано',
-                        url: `https://www.wildberries.ru/catalog/${fb.productDetails?.nmId}/detail.aspx`
-                    }
-                });
-            });
-            
-            // Переходим к следующей странице
-            skip += MAX_TAKE;
-            hasMoreData = (feedbacks.length === MAX_TAKE); // Если получили полную страницу, возможно есть еще
-            
-            // Лимит по времени выполнения
-            Utilities.sleep(100); // Пауза между запросами
-        }
-        
-        log(`[WB] ✅ ЗАВЕРШЕНО: ${allFeedbacks.length} отзывов получено простой пагинацией`);
-        
-        // Фильтрация по дате если есть
-        if (store && store.settings && store.settings.startDate) {
-            const startDate = new Date(store.settings.startDate);
-            const filtered = allFeedbacks.filter(fb => new Date(fb.createdDate) >= startDate);
-            log(`[WB] 🗓️ Фильтр по дате ${store.settings.startDate}: осталось ${filtered.length} из ${allFeedbacks.length}`);
-            return filtered;
-        }
-        
-        return allFeedbacks;
-        
-    } catch (e) {
-        log(`[WB] ⛔ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
-        return allFeedbacks; // Возвращаем что успели получить
-    }
-}
-
-/**
- * Fallback: Получение отзывов WB API v1 (без dateFrom/dateTo)
- * С ДЕТАЛЬНЫМ ЛОГИРОВАНИЕМ для диагностики
- */
-function getWbFeedbacksV1(apiKey, includeAnswered = false, store = null) {
-    log(`[WB V1] 🚀 Fallback WB API v1 (includeAnswered=${includeAnswered})`);
-    log(`[WB V1] Store: ${store?.name || 'null'}`);
-    
-    const MAX_TAKE = 1000; // Консервативный лимит для v1
-    const MAX_SKIP = 199000;
-    let allFeedbacks = [];
-    let skip = 0;
-    let page = 0;
-    
-    try {
-        while (skip <= MAX_SKIP) {
-            page++;
-            const url = buildWbApiV1Url(includeAnswered, skip, MAX_TAKE);
-            
-            // 📤 ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ЗАПРОСА
-            log(`[WB V1] 📄 Страница ${page}: skip=${skip}, take=${MAX_TAKE}`);
-            log(`[WB V1] 📤 URL запроса: ${url}`);
-            log(`[WB V1] 📤 Параметры: skip=${skip}, take=${MAX_TAKE}, isAnswered=${includeAnswered}`);
-            
-            const response = UrlFetchApp.fetch(url, {
-                method: 'GET',
-                headers: { 'Authorization': apiKey },
-                muteHttpExceptions: true
-            });
-            
-            const code = response.getResponseCode();
-            const body = response.getContentText();
-            
-            // 📥 ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ОТВЕТА
-            log(`[WB V1] 📥 HTTP ${code}`);
-            
-            if (code !== 200) {
-                log(`[WB V1] ❌ ОШИБКА: Код ${code}`);
-                log(`[WB V1] 📥 Полное тело ответа: ${body.substring(0, 500)}`);
-                
-                // 🔍 Специальная диагностика для каждого кода ошибки
-                if (code === 404) log(`[WB V1] 🔎 404 Not Found: Проверьте правильность endpoint URL. Возможно API изменился.`);
-                if (code === 401) log(`[WB V1] 🔎 401 Unauthorized: Проверьте API ключ`);
-                if (code === 403) log(`[WB V1] 🔎 403 Forbidden: API ключ не имеет прав доступа`);
-                if (code === 429) log(`[WB V1] 🔎 429 Too Many Requests: Превышен лимит запросов (макс 3 запроса/сек)`);
-                if (code >= 500) log(`[WB V1] 🔎 ${code} Server Error: Временные проблемы на стороне WB`);
-                
-                break;
-            }
-            
-            log(`[WB V1] 📥 Размер ответа: ${body.length} байт`);
-            const json = JSON.parse(body);
-            let feedbacks = [];
-            if (json?.data?.feedbacks && Array.isArray(json.data.feedbacks)) {
-                feedbacks = json.data.feedbacks;
-            } else if (Array.isArray(json?.feedbacks)) {
-                feedbacks = json.feedbacks;
-            } else if (Array.isArray(json?.data)) {
-                feedbacks = json.data;
-            }
-            log(`[WB V1] 📊 Получено ${feedbacks.length} отзывов`);
-            if (feedbacks.length === 0) break;
-            feedbacks.forEach(fb => {
-                const hasText = fb.text && fb.text.trim() && fb.text.trim() !== '(без текста)';
-                if (!hasText) return;
-                const pd = fb.productDetails || {};
-                allFeedbacks.push({
-                    id: fb.id,
-                    createdDate: fb.createdDate,
-                    rating: fb.rating || fb.productValuation || 0,
-                    text: fb.text,
-                    user: 'N/A',
-                    hasAnswer: !!(fb.answer && fb.answer.text),
-                    product: {
-                        id: pd.nmId || pd.nmid || pd.nmID,
-                        name: pd.productName || 'Не указано',
-                        url: pd.nmId ? `https://www.wildberries.ru/catalog/${pd.nmId}/detail.aspx` : ''
-                    }
-                });
-            });
-            skip += MAX_TAKE;
-            Utilities.sleep(200);
-        }
-        log(`[WB V1] ✅ ЗАВЕРШЕНО: ${allFeedbacks.length} отзывов`);
-        return allFeedbacks;
-    } catch (e) {
-        log(`[WB V1] ⛔ КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`);
-        return allFeedbacks;
-    }
-}
-
-/**
- * 🚀 УЛУЧШЕННАЯ ФУНКЦИЯ: Построение URL для WB API v1
- * Использует Unix timestamps и улучшенную обработку дат
- * @param {string} baseUrl - Базовый URL API
- * @param {string} dateFromStr - Дата начала в формате YYYY-MM-DD
- * @param {Array} params - Массив параметров запроса
- * @returns {string} Полный URL с параметрами
- */
-function buildWbApiV1Url(baseUrl, dateFromStr, params = []) {
-  // Улучшенная обработка даты с дополнительными проверками
-  if (dateFromStr) {
-    try {
-      let dateObj = new Date(dateFromStr);
-      
-      // УЛУЧШЕНИЕ: если дата не парсится, пробуем вручную
-      if (isNaN(dateObj.getTime())) {
-        const parts = dateFromStr.split('-');
-        if (parts.length === 3) {
-          dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-        }
-      }
-      
-      // УЛУЧШЕНИЕ: проверка что дата валидна перед добавлением
-      if (!isNaN(dateObj.getTime())) {
-        const unixTimestamp = Math.floor(dateObj.getTime() / 1000);
-        params.push(`dateFrom=${unixTimestamp}`);
-        logDebug(`📅 Дата преобразована: ${dateFromStr} → Unix ${unixTimestamp}`, 'WB-API-V1');
-      } else {
-        logWarning(`⚠️ Некорректная дата: ${dateFromStr}`, 'WB-API-V1');
-      }
-    } catch (e) {
-      logWarning(`⚠️ Ошибка парсинга даты: ${dateFromStr} (${e.message})`, 'WB-API-V1');
-    }
-  }
-  
-  return `${baseUrl}?${params.join('&')}`;
-}
-
-function sendWbFeedbackAnswer(feedbackId, text, apiKey) {
-    log(`[WB API] 🎯 НАЧАЛО отправки ответа для ID ${feedbackId}`);
-    log(`[WB API] 📝 Текст ответа: "${text}" (длина: ${text.length} символов)`);
-    log(`[WB API] 🔑 API ключ: ${apiKey.substring(0, 15)}... (длина: ${apiKey.length})`);
-    
-    // 🔥 НОВАЯ СТРАТЕГИЯ: Пробуем ОБА endpoint'а последовательно
-    // Вариант 1: ID в URL (текущий подход)
-    const result1 = attemptWbFeedbackAnswerMethod1(feedbackId, text, apiKey);
-    if (result1[0]) {
-        log(`[WB API] ✅ УСПЕХ с Method 1 (ID в URL)!`);
-        return result1;
-    }
-    
-    log(`[WB API] ⚠️ Method 1 не сработал, пробуем Method 2...`);
-    
-    // Вариант 2: ID в теле запроса (альтернативный подход)
-    const result2 = attemptWbFeedbackAnswerMethod2(feedbackId, text, apiKey);
-    if (result2[0]) {
-        log(`[WB API] ✅ УСПЕХ с Method 2 (ID в теле)!`);
-        return result2;
-    }
-    
-    log(`[WB API] ❌ ОБА метода не сработали. Возвращаем результат последней попытки.`);
-    return result2;
-}
-
-/**
- * Method 1: ID в URL - ПРАВИЛЬНЫЙ подход из документации августа 2025
- * Endpoint: PATCH /api/v1/feedbacks/{feedbackId} (НЕ POST!)
- * Документация: https://openapi.wildberries.ru/#tag/Otzyvy/paths/~1api~1v1~1feedbacks~1%7Bid%7D/patch
- */
-function attemptWbFeedbackAnswerMethod1(feedbackId, text, apiKey) {
-    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/${feedbackId}`;
-    const payload = { 
-        text: text  // Только текст в payload, ID в URL
-    };
-    
-    log(`[WB API Method 1] 🚀 URL: ${url}`);
-    log(`[WB API Method 1] 📝 Payload: ${JSON.stringify(payload)}`);
-    log(`[WB API Method 1] ℹ️ Метод: PATCH (исправлено с POST)`);    
-    return sendWbApiRequest(url, payload, apiKey, "Method 1 (PATCH)", 'PATCH');
-}
-
-/**
- * Method 2: ID в теле запроса - запасной вариант (deprecated)
- * Endpoint: POST /api/v1/feedbacks/answer
- * ⚠️ DEPRECATED: Используется только как fallback если PATCH не работает
- */
-function attemptWbFeedbackAnswerMethod2(feedbackId, text, apiKey) {
-    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedbacks/answer`;
-    const payload = { 
-        id: feedbackId,  // ID в теле запроса
-        text: text       // Текст также в теле
-    };
-    
-    log(`[WB API Method 2] 🚀 URL: ${url}`);
-    log(`[WB API Method 2] 📝 Payload: ${JSON.stringify(payload)}`);
-    log(`[WB API Method 2] ⚠️ Метод: POST (deprecated, используется как fallback)`);
-    
-    return sendWbApiRequest(url, payload, apiKey, "Method 2 (POST fallback)", 'POST');
-}
-
-/**
- * Универсальная функция для отправки WB API запроса
- * @param {string} url - URL для запроса
- * @param {Object} payload - Тело запроса
- * @param {string} apiKey - API ключ
- * @param {string} methodName - Название метода для логирования
- * @param {string} httpMethod - HTTP метод (PATCH или POST)
- * @returns {Array} [success, errorMessage, responseBody]
- */
-function sendWbApiRequest(url, payload, apiKey, methodName, httpMethod = 'PATCH') {
-    try {
-        log(`[WB ${methodName}] 📤 Отправка ${httpMethod} запроса...`);
-        
-        const response = UrlFetchApp.fetch(url, {
-            method: httpMethod,  // ✅ ИСПРАВЛЕНО: теперь используется правильный HTTP метод
-            headers: { 
-                'Authorization': apiKey,
-                'Content-Type': 'application/json'
-            },
-            payload: JSON.stringify(payload),
-            muteHttpExceptions: true
-        });
-        
-        const code = response.getResponseCode();
-        const responseBody = response.getContentText();
-        const responseHeaders = response.getAllHeaders();
-        
-        // 🔍 ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ каждого запроса
-        log(`[WB ${methodName}] 📥 Код ответа: ${code}`);
-        log(`[WB ${methodName}] 📥 Тело ответа: "${responseBody}"`);
-        
-        if (isDevMode()) {
-            log(`[WB ${methodName} DEBUG] 📋 Заголовки запроса: Authorization: ${apiKey.substring(0, 20)}..., Content-Type: application/json`);
-            log(`[WB ${methodName} DEBUG] 📋 Заголовки ответа: ${JSON.stringify(responseHeaders, null, 2)}`);
-        }
-        
-        // 🎯 Анализ кодов ответа
-        const success = (code === 200 || code === 201 || code === 204);
-        let errorMessage = '';
-        
-        if (success) {
-            log(`[WB ${methodName}] ✅ УСПЕХ: Код ${code}`);
-            if (code === 200) log(`[WB ${methodName}] ℹ️ 200 OK - Ответ отправлен и сервер вернул данные`);
-            if (code === 201) log(`[WB ${methodName}] ℹ️ 201 Created - Ответ успешно создан`);
-            if (code === 204) log(`[WB ${methodName}] ℹ️ 204 No Content - Операция успешна, данных не возвращено`);
-        } else {
-            errorMessage = `${methodName}: Код ${code}. Ответ: ${responseBody}`;
-            log(`[WB ${methodName}] ❌ НЕУДАЧА: ${errorMessage}`);
-            
-            // 🔍 Специальная диагностика типичных ошибок
-            if (code === 400) log(`[WB ${methodName}] 🔎 400 Bad Request - Проверьте формат запроса и данные`);
-            if (code === 401) log(`[WB ${methodName}] 🔎 401 Unauthorized - Проверьте API ключ`);
-            if (code === 403) log(`[WB ${methodName}] 🔎 403 Forbidden - API ключ не имеет прав или отзыв уже отвечен`);
-            if (code === 404) log(`[WB ${methodName}] 🔎 404 Not Found - Отзыв не найден или endpoint неверный`);
-            if (code === 422) log(`[WB ${methodName}] 🔎 422 Unprocessable Entity - Проверьте данные (длина текста, статус отзыва)`);
-            if (code === 429) log(`[WB ${methodName}] 🔎 429 Too Many Requests - Превышен лимит запросов (max 3/сек)`);
-            if (code >= 500) log(`[WB ${methodName}] 🔎 ${code} Server Error - Временные проблемы на стороне WB`);
-        }
-        
-        return [success, errorMessage, responseBody];
-        
-    } catch (e) {
-        const criticalError = `${methodName} КРИТИЧЕСКАЯ ОШИБКА: ${e.message}`;
-        log(`[WB ${methodName}] ⛔ ${criticalError}`);
-        log(`[WB ${methodName}] 🔍 Stack trace: ${e.stack}`);
-        return [false, criticalError, e.message];
-    }
 }
 
 // ======================================================================
@@ -1838,10 +1453,11 @@ function sendWbApiRequest(url, payload, apiKey, methodName, httpMethod = 'PATCH'
  * @returns {Array} Array of normalized feedback objects
  */
 function getOzonFeedbacks(clientId, apiKey, includeAnswered = false, store = null) {
-    log(`[Ozon] 🚀 ЗАПУСК получения отзывов через composer API (includeAnswered=${includeAnswered})`);
+    log(`[Ozon] 🚀 ЗАПУСК пагинации для получения отзывов (includeAnswered=${includeAnswered})`);
+    
     try {
-        const reviews = getOzonFeedbacksFixed(clientId, apiKey, includeAnswered, store);
-        return reviews;
+        // Используем правильную пагинацию через last_id
+        return getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered, store);
     } catch (e) {
         log(`[Ozon] КРИТИЧЕСКАЯ ОШИБКА в главной функции: ${e.message}`);
         log(`[Ozon] Stack trace: ${e.stack}`);
@@ -2069,10 +1685,11 @@ function getOzonFeedbacksWithProperPagination(clientId, apiKey, includeAnswered,
     // ✅ ФИНАЛЬНАЯ СОРТИРОВКА (новые отзывы первыми)
     allReviews.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
     
-    // 🔕 Обогащение названиями товаров временно отключено
-    if (CONFIG.ENRICH_PRODUCT_NAMES && allReviews.length > 0 && store && store.credentials) {
+    // ✅ ОБОГАЩЕНИЕ НАЗВАНИЯМИ ТОВАРОВ
+    if (allReviews.length > 0 && store && store.credentials) {
         const offerIds = allReviews.map(review => review.product.id).filter(id => id);
         const productNames = getOzonProductNames(offerIds, store.credentials.clientId, store.credentials.apiKey);
+        
         if (Object.keys(productNames).length > 0) {
             allReviews.forEach(review => {
                 if (productNames[review.product.id]) {
@@ -2091,20 +1708,71 @@ function sendOzonFeedbackAnswer(feedbackId, text, clientId, apiKey) {
     const url = 'https://api-seller.ozon.ru/v1/review/comment/create';
     const payload = { review_id: feedbackId, text: text, mark_review_as_processed: true };
     
+    // 🚀 УЛУЧШЕННОЕ ЛОГИРОВАНИЕ: Запрос
+    log(`[Ozon API] 📤 Отправка ответа для отзыва ${feedbackId}`);
+    log(`[Ozon API] 🔗 URL: ${url}`);
+    log(`[Ozon API] 📝 Текст ответа: "${text}" (${text.length} символов)`);
+    log(`[Ozon API] 🔑 Client-Id: ${clientId.substring(0, 8)}...`);
+    
+    const startTime = Date.now();
     const response = UrlFetchApp.fetch(url, {
         method: 'POST', 
-        headers: { 'Client-Id': clientId, 'Api-Key': apiKey },
-        contentType: 'application/json', 
+        headers: { 
+            'Client-Id': clientId, 
+            'Api-Key': apiKey,
+            'Content-Type': 'application/json'
+        },
         payload: JSON.stringify(payload),
         muteHttpExceptions: true
     });
+    const requestDuration = Date.now() - startTime;
     
     const code = response.getResponseCode();
     const responseBody = response.getContentText();
     
-    // Include detailed API response for debugging
+    // 🚀 УЛУЧШЕННОЕ ЛОГИРОВАНИЕ: Ответ
+    log(`[Ozon API] 📥 Ответ получен: HTTP ${code} (${requestDuration}ms)`);
+    log(`[Ozon API] 📋 Размер ответа: ${responseBody.length} символов`);
+    
+    if (code === 200) {
+        log(`[Ozon API] ✅ УСПЕХ: Ответ отправлен для отзыва ${feedbackId}`);
+        
+        // Пытаемся распарсить ответ для дополнительной информации
+        try {
+            const responseJson = JSON.parse(responseBody);
+            if (responseJson.result && responseJson.result.comment_id) {
+                log(`[Ozon API] 💬 ID созданного комментария: ${responseJson.result.comment_id}`);
+            }
+            log(`[Ozon API] 📄 Полный ответ: ${responseBody}`);
+        } catch (e) {
+            log(`[Ozon API] 📄 Ответ (не JSON): ${responseBody}`);
+        }
+    } else {
+        log(`[Ozon API] ❌ ОШИБКА: HTTP ${code} для отзыва ${feedbackId}`);
+        log(`[Ozon API] 📋 Тело ошибки: ${responseBody}`);
+        
+        // Детальная диагностика ошибок
+        if (code === 400) {
+            log(`[Ozon API] 🔍 400 Bad Request - проверьте корректность review_id или текста ответа`);
+        } else if (code === 401) {
+            log(`[Ozon API] 🔍 401 Unauthorized - проверьте Client-Id и Api-Key`);
+        } else if (code === 403) {
+            log(`[Ozon API] 🔍 403 Forbidden - нет прав на создание комментариев`);
+        } else if (code === 404) {
+            log(`[Ozon API] 🔍 404 Not Found - отзыв с ID ${feedbackId} не найден`);
+        } else if (code === 409) {
+            log(`[Ozon API] 🔍 409 Conflict - возможно, ответ уже был отправлен на этот отзыв`);
+        } else if (code === 422) {
+            log(`[Ozon API] 🔍 422 Unprocessable Entity - некорректные данные запроса`);
+        } else if (code === 429) {
+            log(`[Ozon API] 🔍 429 Too Many Requests - превышен лимит запросов`);
+        } else if (code >= 500) {
+            log(`[Ozon API] 🔍 ${code} Server Error - временные проблемы на стороне Ozon`);
+        }
+    }
+    
     const success = code === 200;
-    const errorMessage = success ? '' : `Код ответа: ${code}. Тело: ${responseBody}`;
+    const errorMessage = success ? '' : `HTTP ${code}: ${responseBody}`;
     
     return [success, errorMessage, responseBody];
 }
@@ -2168,7 +1836,7 @@ function getStores() {
   const storesJson = PropertiesService.getUserProperties().getProperty(CONFIG.PROPERTIES_KEY);
   if (!storesJson) return [];
   const stores = JSON.parse(storesJson);
-  return stores.filter(store => store && store.id).map(store => {
+  return stores.map(store => {
       if (typeof store.isActive === 'undefined') store.isActive = true;
       // Ensure settings object exists for backward compatibility
       if (!store.settings) store.settings = {};
@@ -2208,8 +1876,9 @@ function saveStore(store) {
       shouldResetProgress = true;
     }
     
-    if (typeof oldSortOldestFirst !== 'undefined' && oldSortOldestFirst !== newSortOldestFirst) {
+    if (oldSortOldestFirst !== newSortOldestFirst) {
       log(`[${store.name}] 📊 ИЗМЕНЕНА настройка сортировки: sortOldestFirst ${oldSortOldestFirst} → ${newSortOldestFirst}`);
+      // Сортировка не влияет на пагинацию, но обнуляем для чистоты
       shouldResetProgress = true;
     }
     
@@ -2228,17 +1897,11 @@ function saveStore(store) {
   
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
   createOrGetSheet(`Отзывы (${store.name})`, CONFIG.HEADERS);
-  
-  // Триггерами управляем централизованно через меню (без дублирования по магазинам)
-  
   return getStores();
 }
 
 function deleteStore(storeId) {
   log(`Удаление магазина с ID: ${storeId}`);
-  
-  // Индивидуальные триггеры не используем; единый триггер не трогаем здесь
-  
   let stores = getStores();
   stores = stores.filter(s => s.id !== storeId);
   PropertiesService.getUserProperties().setProperty(CONFIG.PROPERTIES_KEY, JSON.stringify(stores));
@@ -2326,11 +1989,6 @@ function manuallyDeleteReviewById() {
   let foundAndDeleted = false;
 
   stores.forEach(store => {
-    if (!store) {
-      log(`⚠️ Пропущен неопределенный магазин при удалении отзыва`);
-      return;
-    }
-    
     const sheetName = `Отзывы (${store.name})`;
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
     if (sheet && sheet.getLastRow() > 1) {
@@ -2351,6 +2009,443 @@ function manuallyDeleteReviewById() {
   } else {
     ui.alert('Не найдено', `Отзыв с ID "${feedbackId}" не найден.`);
   }
+}
+
+// ============ WB TESTING FUNCTIONS ============
+/**
+ * Функция для тестирования отправки ответа на конкретный отзыв WB
+ * Позволяет протестировать оба endpoint'а без влияния на производственные данные
+ */
+function testWbFeedbackAnswerById() {
+  const ui = SpreadsheetApp.getUi();
+  
+  // Получаем список активных WB магазинов
+  const stores = getStores().filter(s => s.isActive && s.marketplace === 'Wildberries');
+  if (stores.length === 0) {
+    ui.alert('❌ Ошибка', 'Не найдено активных магазинов Wildberries для тестирования.', ui.ButtonSet.OK);
+    return;
+  }
+  
+  // Выбираем магазин (пока берем первый)
+  const store = stores[0];
+  log(`[WB TEST] 🧪 Начало тестирования для магазина: ${store.name}`);
+  
+  // Запрашиваем ID отзыва
+  const feedbackIdResponse = ui.prompt('🧪 Тест WB API', 
+    'Введите ID отзыва Wildberries для тестирования:', ui.ButtonSet.OK_CANCEL);
+  
+  if (feedbackIdResponse.getSelectedButton() !== ui.Button.OK || !feedbackIdResponse.getResponseText().trim()) {
+    log('[WB TEST] ❌ Тестирование отменено пользователем.');
+    return;
+  }
+  
+  const feedbackId = feedbackIdResponse.getResponseText().trim();
+  log(`[WB TEST] 🎯 ID отзыва для тестирования: ${feedbackId}`);
+  
+  // Запрашиваем текст ответа
+  const answerTextResponse = ui.prompt('🧪 Тест WB API', 
+    'Введите текст ответа для тестирования (2-5000 символов):', ui.ButtonSet.OK_CANCEL);
+    
+  if (answerTextResponse.getSelectedButton() !== ui.Button.OK || !answerTextResponse.getResponseText().trim()) {
+    log('[WB TEST] ❌ Тестирование отменено пользователем.');
+    return;
+  }
+  
+  const answerText = answerTextResponse.getResponseText().trim();
+  
+  // Валидация текста ответа
+  if (answerText.length < 2) {
+    ui.alert('❌ Ошибка валидации', 'Текст ответа слишком короткий (минимум 2 символа).', ui.ButtonSet.OK);
+    return;
+  }
+  if (answerText.length > 5000) {
+    ui.alert('❌ Ошибка валидации', 'Текст ответа слишком длинный (максимум 5000 символов).', ui.ButtonSet.OK);
+    return;
+  }
+  
+  log(`[WB TEST] 📝 Текст ответа: "${answerText}" (${answerText.length} символов)`);
+  
+  // Предупреждение пользователя
+  const confirmResponse = ui.alert('⚠️ ВНИМАНИЕ', 
+    `Вы собираетесь отправить РЕАЛЬНЫЙ ответ на отзыв ${feedbackId} в магазине "${store.name}"!\n\nТекст: "${answerText}"\n\nЭто действие нельзя отменить. Продолжить?`, 
+    ui.ButtonSet.YES_NO);
+    
+  if (confirmResponse !== ui.Button.YES) {
+    log('[WB TEST] ❌ Тестирование отменено пользователем на этапе подтверждения.');
+    return;
+  }
+  
+  // Включаем режим разработчика на время теста для более подробных логов
+  const wasDevMode = isDevMode();
+  if (!wasDevMode) {
+    log('[WB TEST] 🛠️ Временно включаем Dev Mode для детального логирования...');
+    setDevMode('true');
+  }
+  
+  try {
+    log('[WB TEST] 🚀 ЗАПУСК ТЕСТИРОВАНИЯ отправки ответа...');
+    
+    // Используем обновленную функцию с двумя вариантами endpoint'ов
+    const result = sendWbFeedbackAnswer(feedbackId, answerText, store.credentials.apiKey);
+    const [success, errorMessage, responseBody] = result;
+    
+    log(`[WB TEST] 📊 РЕЗУЛЬТАТ ТЕСТА:`);
+    log(`[WB TEST] ✅ Успех: ${success ? 'ДА' : 'НЕТ'}`);
+    log(`[WB TEST] 📝 Сообщение об ошибке: ${errorMessage || 'отсутствует'}`);
+    log(`[WB TEST] 📋 Ответ сервера: ${responseBody || 'пустой'}`);
+    
+    // Показываем результат пользователю
+    if (success) {
+      ui.alert('✅ УСПЕХ', 
+        `Ответ успешно отправлен!\n\nОтзыв ID: ${feedbackId}\nОтвет сервера: ${responseBody}`, 
+        ui.ButtonSet.OK);
+    } else {
+      ui.alert('❌ ОШИБКА', 
+        `Не удалось отправить ответ.\n\nОшибка: ${errorMessage}\nОтвет сервера: ${responseBody}\n\nПодробности в логе отладки.`, 
+        ui.ButtonSet.OK);
+    }
+    
+  } catch (e) {
+    log(`[WB TEST] ⛔ КРИТИЧЕСКАЯ ОШИБКА в тесте: ${e.message}`);
+    log(`[WB TEST] 🔍 Stack trace: ${e.stack}`);
+    ui.alert('⛔ КРИТИЧЕСКАЯ ОШИБКА', 
+      `Произошла критическая ошибка:\n\n${e.message}\n\nПодробности в логе отладки.`, 
+      ui.ButtonSet.OK);
+  } finally {
+    // Восстанавливаем предыдущий режим разработчика
+    if (!wasDevMode) {
+      log('[WB TEST] 🛠️ Восстанавливаем предыдущий режим разработчика...');
+      setDevMode('false');
+    }
+    
+    log('[WB TEST] 🏁 Тестирование завершено. Подробные логи в листе "🐞 Лог отладки".');
+  }
+}
+
+/**
+ * Функция для проверки статуса конкретного отзыва WB
+ * Помогает диагностировать, почему отзыв не может получить ответ
+ */
+function checkWbFeedbackStatus(feedbackId, apiKey) {
+  try {
+    log(`[WB Check] 🔍 Проверка статуса отзыва ${feedbackId}...`);
+    
+    const url = `https://feedbacks-api.wildberries.ru/api/v1/feedback?id=${feedbackId}`;
+    
+    const response = UrlFetchApp.fetch(url, {
+      method: 'GET',
+      headers: { 'Authorization': apiKey },
+      muteHttpExceptions: true
+    });
+    
+    const code = response.getResponseCode();
+    const responseBody = response.getContentText();
+    
+    log(`[WB Check] 📥 Код ответа: ${code}`);
+    log(`[WB Check] 📋 Тело ответа: ${responseBody}`);
+    
+    if (code === 200) {
+      try {
+        const feedback = JSON.parse(responseBody);
+        const hasAnswer = feedback.answer && feedback.answer.text;
+        const createdDate = feedback.createdDate;
+        const rating = feedback.rating;
+        
+        log(`[WB Check] ✅ Отзыв найден:`);
+        log(`[WB Check] 📅 Дата: ${createdDate}`);
+        log(`[WB Check] ⭐ Рейтинг: ${rating}`);
+        log(`[WB Check] 💬 Имеет ответ: ${hasAnswer ? 'ДА' : 'НЕТ'}`);
+        if (hasAnswer) {
+          log(`[WB Check] 📝 Текст ответа: "${feedback.answer.text}"`);
+        }
+        
+        return { exists: true, hasAnswer, feedback };
+      } catch (e) {
+        log(`[WB Check] ❌ Ошибка парсинга JSON: ${e.message}`);
+        return { exists: false, error: 'JSON parse error' };
+      }
+    } else {
+      log(`[WB Check] ❌ Отзыв не найден или ошибка API: ${code}`);
+      return { exists: false, error: `HTTP ${code}: ${responseBody}` };
+    }
+  } catch (e) {
+    log(`[WB Check] ⛔ Критическая ошибка: ${e.message}`);
+    return { exists: false, error: e.message };
+  }
+}
+
+// ============ OZON TESTING FUNCTIONS ============
+/**
+ * Функция для тестирования новой пагинации Ozon API
+ * Показывает, как работает правильный last_id пагинация и сколько отзывов можно получить
+ */
+function testOzonFeedbackPagination() {
+  const ui = SpreadsheetApp.getUi();
+  
+  // Получаем список активных Ozon магазинов
+  const stores = getStores().filter(s => s.isActive && s.marketplace === 'Ozon');
+  if (stores.length === 0) {
+    ui.alert('❌ Ошибка', 'Не найдено активных магазинов Ozon для тестирования.', ui.ButtonSet.OK);
+    return;
+  }
+  
+  // Выбираем магазин (пока берем первый)
+  const store = stores[0];
+  log(`[Ozon TEST] 🧪 Начало тестирования пагинации для магазина: ${store.name}`);
+  
+  // Выбираем режим тестирования
+  const testModeResponse = ui.alert('🧪 Тест Ozon API', 
+    'Выберите режим тестирования:\n\n' +
+    'ДА = Получить ВСЕ отзывы (отвеченные + неотвеченные)\n' +
+    'НЕТ = Получить только неотвеченные отзывы\n' +
+    'ОТМЕНА = Выход', 
+    ui.ButtonSet.YES_NO_CANCEL);
+  
+  if (testModeResponse === ui.Button.CANCEL) {
+    log('[Ozon TEST] ❌ Тестирование отменено пользователем.');
+    return;
+  }
+  
+  const includeAnswered = (testModeResponse === ui.Button.YES);
+  log(`[Ozon TEST] 🎯 Режим тестирования: ${includeAnswered ? 'ВСЕ отзывы' : 'только неотвеченные'}`);
+  
+  // Выбираем лимит страниц для тестирования
+  const pageLimitResponse = ui.prompt('🧪 Тест Ozon API', 
+    'Сколько страниц максимум запросить?\n(1 страница = до 100 отзывов)\n\nРекомендуется:\n• Для быстрого теста: 1-3\n• Для полноценной проверки: 5-10\n• Для получения ВСЕХ данных: 100', 
+    ui.ButtonSet.OK_CANCEL);
+    
+  if (pageLimitResponse.getSelectedButton() !== ui.Button.OK) {
+    log('[Ozon TEST] ❌ Тестирование отменено пользователем.');
+    return;
+  }
+  
+  let maxPages;
+  try {
+    maxPages = parseInt(pageLimitResponse.getResponseText().trim()) || 3;
+    if (maxPages < 1) maxPages = 1;
+    if (maxPages > 100) maxPages = 100;
+  } catch (e) {
+    maxPages = 3;
+  }
+  
+  log(`[Ozon TEST] 📊 Лимит страниц для тестирования: ${maxPages}`);
+  
+  // Включаем режим разработчика на время теста для более подробных логов
+  const wasDevMode = isDevMode();
+  if (!wasDevMode) {
+    log('[Ozon TEST] 🛠️ Временно включаем Dev Mode для детального логирования...');
+    setDevMode('true');
+  }
+  
+  try {
+    log('[Ozon TEST] 🚀 ЗАПУСК ТЕСТИРОВАНИЯ пагинации Ozon...');
+    const startTime = new Date();
+    
+    // Используем улучшенную функцию с правильной пагинацией
+    // Временно ограничиваем количество страниц для теста
+    const originalMaxPages = 100;
+    // Создаем тестовую версию функции с ограниченным числом страниц
+    const testResult = testOzonFeedbacksWithLimitedPages(
+      store.credentials.clientId, 
+      store.credentials.apiKey, 
+      includeAnswered, 
+      store, 
+      maxPages
+    );
+    
+    const endTime = new Date();
+    const duration = Math.round((endTime - startTime) / 1000);
+    
+    log(`[Ozon TEST] 📊 РЕЗУЛЬТАТ ТЕСТА:`);
+    log(`[Ozon TEST] ✅ Получено отзывов: ${testResult.length}`);
+    log(`[Ozon TEST] ⏱️ Время выполнения: ${duration} секунд`);
+    log(`[Ozon TEST] 📄 Страниц обработано: ${testResult.pagesProcessed || 'неизвестно'}`);
+    log(`[Ozon TEST] 🔄 Использована пагинация: ${testResult.usedPagination ? 'ДА (last_id)' : 'НЕТ'}`);
+    
+    // Показываем детали первых нескольких отзывов
+    if (testResult.length > 0) {
+      log(`[Ozon TEST] 📝 Примеры отзывов (первые 3):`);
+      testResult.slice(0, 3).forEach((review, index) => {
+        log(`[Ozon TEST] ${index + 1}. ID: ${review.id}, Дата: ${review.createdDate}, Рейтинг: ${review.rating}, Текст: "${review.text.substring(0, 50)}..."`);
+      });
+    }
+    
+    // Показываем результат пользователю
+    const resultMessage = 
+      `✅ УСПЕШНО ПРОТЕСТИРОВАНО!\n\n` +
+      `📊 Получено отзывов: ${testResult.length}\n` +
+      `⏱️ Время: ${duration} сек\n` +
+      `📄 Страниц: ${testResult.pagesProcessed || 'N/A'}\n` +
+      `🔄 Пагинация: ${testResult.usedPagination ? 'last_id (ПРАВИЛЬНО!)' : 'НЕ ИСПОЛЬЗОВАНА'}\n\n` +
+      `${testResult.length > 0 ? 'Первый отзыв:\n' + testResult[0].text.substring(0, 100) + '...' : 'Отзывы не найдены'}\n\n` +
+      `Подробные логи в "🐞 Лог отладки"`;
+      
+    ui.alert('🎉 ТЕСТ OZON ПАГИНАЦИИ ЗАВЕРШЕН', resultMessage, ui.ButtonSet.OK);
+    
+  } catch (e) {
+    log(`[Ozon TEST] ⛔ КРИТИЧЕСКАЯ ОШИБКА в тесте: ${e.message}`);
+    log(`[Ozon TEST] 🔍 Stack trace: ${e.stack}`);
+    ui.alert('⛔ КРИТИЧЕСКАЯ ОШИБКА', 
+      `Произошла критическая ошибка:\n\n${e.message}\n\nПодробности в логе отладки.`, 
+      ui.ButtonSet.OK);
+  } finally {
+    // Восстанавливаем предыдущий режим разработчика
+    if (!wasDevMode) {
+      log('[Ozon TEST] 🛠️ Восстанавливаем предыдущий режим разработчика...');
+      setDevMode('false');
+    }
+    
+    log('[Ozon TEST] 🏁 Тестирование завершено. Подробные логи в листе "🐞 Лог отладки".');
+  }
+}
+
+/**
+ * Тестовая версия функции получения отзывов с ограниченным числом страниц
+ * Используется только для тестирования, чтобы не нагружать API
+ */
+function testOzonFeedbacksWithLimitedPages(clientId, apiKey, includeAnswered, store, maxPages) {
+  log(`[Ozon TEST] 🎯 Тест пагинации с лимитом ${maxPages} страниц...`);
+  
+  const url = 'https://api-seller.ozon.ru/v1/review/list';
+  
+  let allReviews = [];
+  let lastId = "";
+  let hasNext = true;
+  let pageNumber = 1;
+  const limit = OZON_CONFIG.API_LIMITS.MAX_LIMIT; // 100
+  
+  // Базовая структура запроса (копируем из основной функции)
+  let basePayload = {
+    filter: {
+      has_text: true,
+    },
+    sort: {
+      type: 'CREATED_AT',
+      order: 'DESC'
+    },
+    limit: limit
+  };
+  
+  // Настройка фильтра по статусу ответов
+  if (includeAnswered) {
+    basePayload.filter.status = ['PENDING', 'PROCESSED', 'MODERATED', 'NEW'];
+  } else {
+    basePayload.filter.has_answer = false;
+    basePayload.filter.status = ['PENDING', 'MODERATED', 'NEW'];
+  }
+
+  // Фильтр по дате из настроек магазина
+  if (store && store.settings && store.settings.startDate) {
+    const startDate = store.settings.startDate;
+    const today = new Date().toISOString().split('T')[0];
+    
+    basePayload.filter.date_from = formatDateForOzon(startDate);
+    basePayload.filter.date_to = formatDateForOzon(today);
+    
+    log(`[Ozon TEST] 🗓️ Применен фильтр дат: ${startDate} - ${today}`);
+  }
+  
+  // Главный цикл пагинации (ограниченный)
+  while (hasNext && pageNumber <= maxPages) {
+    log(`[Ozon TEST] 📄 Тест страницы ${pageNumber}/${maxPages} (last_id: "${lastId}")...`);
+    
+    const payload = {
+      ...basePayload,
+      last_id: lastId
+    };
+    
+    try {
+      const response = UrlFetchApp.fetch(url, {
+        method: 'POST',
+        headers: { 
+          'Client-Id': clientId, 
+          'Api-Key': apiKey,
+          'Content-Type': 'application/json'
+        },
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+      
+      const responseCode = response.getResponseCode();
+      const responseBody = response.getContentText();
+      
+      log(`[Ozon TEST] 🌐 Страница ${pageNumber}: код ${responseCode}, размер ${responseBody.length} символов`);
+      
+      if (responseCode !== 200) {
+        log(`[Ozon TEST] ❌ ОШИБКА на странице ${pageNumber}: Код ${responseCode}`);
+        break;
+      }
+      
+      const json = JSON.parse(responseBody);
+      
+      // Обработка структуры ответа
+      let reviews = [];
+      let resultData = null;
+      
+      if (json.result) {
+        resultData = json.result;
+        reviews = json.result.reviews || [];
+      } else if (json.reviews) {
+        reviews = json.reviews;
+      } else if (json.data && json.data.reviews) {
+        resultData = json.data;
+        reviews = json.data.reviews;
+      }
+      
+      log(`[Ozon TEST] 📄 Страница ${pageNumber}: получено ${reviews.length} отзывов`);
+      
+      // Обрабатываем отзывы
+      const processedReviews = reviews.map(fb => ({
+        id: fb.id, 
+        createdDate: fb.published_at || fb.created_at, 
+        rating: fb.rating,
+        text: fb.text || '(без текста)', 
+        user: 'Аноним',
+        product: { 
+          id: fb.sku || fb.offer_id,
+          name: 'Не указано',
+          url: `https://www.ozon.ru/product/${fb.sku || fb.offer_id}`
+        }
+      }));
+      
+      allReviews = allReviews.concat(processedReviews);
+      
+      // Проверяем пагинацию
+      if (resultData) {
+        hasNext = resultData.has_next || false;
+        lastId = resultData.last_id || "";
+        log(`[Ozon TEST] 📋 has_next: ${hasNext}, last_id: "${lastId}"`);
+      } else {
+        hasNext = (reviews.length === limit);
+        log(`[Ozon TEST] ⚠️ Нет информации о пагинации. Предполагаем has_next = ${hasNext}`);
+      }
+      
+      // Если получили меньше записей чем лимит - последняя страница
+      if (reviews.length < limit) {
+        log(`[Ozon TEST] ✅ Последняя страница ${pageNumber}: ${reviews.length} < ${limit}`);
+        hasNext = false;
+      }
+      
+      pageNumber++;
+      
+      // Rate limiting для теста (быстрее чем в продакшне)
+      Utilities.sleep(50);
+      
+    } catch (e) {
+      log(`[Ozon TEST] ❌ ОШИБКА на странице ${pageNumber}: ${e.message}`);
+      break;
+    }
+  }
+  
+  // Сортируем результаты
+  allReviews.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
+  
+  // Добавляем метаинформацию о тестировании
+  allReviews.pagesProcessed = pageNumber - 1;
+  allReviews.usedPagination = (pageNumber > 1);
+  
+  log(`[Ozon TEST] 🎯 Тест завершен: ${allReviews.length} отзывов за ${allReviews.pagesProcessed} страниц`);
+  return allReviews;
 }
 
 // ============ ADVANCED PROCESSING FUNCTIONS ============
@@ -2402,12 +2497,6 @@ function processStoresWithTimeControl(stores, devMode) {
   let processedCount = 0;
   
   for (const store of stores) {
-    // Проверяем, что store определен
-    if (!store) {
-      log(`⚠️ Пропущен неопределенный магазин в списке обработки`);
-      continue;
-    }
-    
     const elapsedTime = Date.now() - startTime;
     const remainingTime = maxExecutionTime - elapsedTime;
     
@@ -2458,49 +2547,32 @@ function deleteAllTriggers() {
   }
 }
 
-// ============ UNIFIED TRIGGER MANAGEMENT ============
-/**
- * Создает единый триггер на processAllStores с заданным интервалом в минутах.
- * Удаляет дубликаты и старые триггеры на эту же функцию.
- */
-function setupUnifiedProcessTrigger(intervalMinutes) {
-  try {
-    const valid = [5, 10, 15, 30, 60];
-    const minutes = valid.includes(intervalMinutes) ? intervalMinutes : 60;
 
-    // Удаляем все существующие триггеры processAllStores
-    const triggers = ScriptApp.getProjectTriggers();
-    let removed = 0;
-    triggers.forEach(t => {
-      if (t.getHandlerFunction() === 'processAllStores') {
-        ScriptApp.deleteTrigger(t);
-        removed++;
-      }
-    });
-
-    // Создаем один новый триггер
-    ScriptApp.newTrigger('processAllStores').timeBased().everyMinutes(minutes).create();
-    log(`[Trigger] ✅ Создан единый триггер processAllStores каждые ${minutes} мин (удалено старых: ${removed}).`);
-  } catch (e) {
-    log(`[Trigger] ❌ Ошибка настройки единого триггера: ${e.message}`, 'ERROR', 'TRIGGER');
-  }
-}
 
 // ============ INDIVIDUAL STORE TRIGGERS ============
 /**
  * Создаёт или обновляет индивидуальный триггер для магазина
  * @param {Object} store - объект магазина
- * @param {number} intervalMinutes - интервал в минутах (по умолчанию 30)
+ * @param {number} intervalMinutes - интервал в минутах (по умолчанию 240)
  */
-function ensureStoreTrigger(store, intervalMinutes = 30) {
+function ensureStoreTrigger(store, intervalMinutes = 240) {
   if (!store || !store.id) {
     log(`[Trigger] ❌ Нет данных магазина для создания триггера`);
     return false;
   }
-  // Вместо множества индивидуальных триггеров используем единый триггер
-  setupUnifiedProcessTrigger(intervalMinutes);
-  log(`[Trigger] ℹ️ Для магазина "${store.name}" используется единый триггер processAllStores (каждые ${intervalMinutes} мин).`);
-  return true;
+  const functionName = `processStore_${store.id}`;
+  try {
+    deleteStoreTrigger(store.id); // Удаляем старый прежде
+    ScriptApp.newTrigger(functionName)
+      .timeBased()
+      .everyMinutes(intervalMinutes)
+      .create();
+    log(`[Trigger] ✅ Триггер создан для "${store.name}" (${functionName}) каждые ${intervalMinutes} минут.`);
+    return true;
+  } catch (e) {
+    log(`[Trigger] ❌ Ошибка создания триггера для "${store.name}": ${e.message}`);
+    return false;
+  }
 }
 /**
  * Удаляет индивидуальный триггер для магазина
@@ -2508,24 +2580,14 @@ function ensureStoreTrigger(store, intervalMinutes = 30) {
  */
 function deleteStoreTrigger(storeId) {
   try {
-    // Получаем магазин по ID
-    const stores = getStores();
-    const store = stores.find(s => s.id === storeId);
-    
-    if (store && store.triggerId) {
-      // Удаляем триггер по ID
-      const triggers = ScriptApp.getProjectTriggers();
-      const trigger = triggers.find(t => t.getUniqueId() === store.triggerId);
-      if (trigger) {
-        ScriptApp.deleteTrigger(trigger);
-        log(`[Trigger] 🗑️ Удалён триггер для магазина ${store.name} (ID: ${store.triggerId})`);
+    const triggers = ScriptApp.getProjectTriggers();
+    const fn = `processStore_${storeId}`;
+    triggers.forEach(trig => {
+      if (trig.getHandlerFunction() === fn) {
+        ScriptApp.deleteTrigger(trig);
       }
-      
-      // Очищаем triggerId из магазина
-      delete store.triggerId;
-      saveStore(store);
-    }
-    
+    });
+    log(`[Trigger] 🗑️ Удалён триггер ${fn}`);
     return true;
   } catch(e) {
     log(`[Trigger] ❌ Ошибка удаления триггера для ${storeId}: ${e.message}`);
@@ -2536,87 +2598,158 @@ function deleteStoreTrigger(storeId) {
  * Синхронизирует индивидуальные триггеры: создаёт для активных, удаляет для неактивных магазинов
  */
 function syncAllStoreTriggers() {
+  const stores = getStores();
+  const active = stores.filter(s=>s.isActive);
+  active.forEach(store => ensureStoreTrigger(store));
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(trig => {
+    const fn = trig.getHandlerFunction();
+    if (fn.startsWith('processStore_')) {
+      const storeId = fn.substring('processStore_'.length);
+      const store = stores.find(s=>s.id===storeId);
+      if (!store || !store.isActive) {
+        ScriptApp.deleteTrigger(trig);
+        log(`[Trigger] 🗑️ Автоматически удалён триггер для неактивного/удалённого магазина: ${storeId}`);
+      }
+    }
+  });
+  log(`[Trigger] 🔄 Синхронизация индивидуальных триггеров завершена.`);
+}
+
+
+// ============ OZON TRIGGER MANAGEMENT FUNCTIONS ============
+
+/**
+ * ✅ Настроить триггеры Ozon (2 автомата)
+ * Создает триггер для автоматического Ozon workflow
+ */
+function setupOzonTriggers() {
   try {
-    // Поддерживаем один общий триггер на процессинг
-    setupUnifiedProcessTrigger(60);
-    log(`[Trigger] 🔄 Синхронизация: подтвержден единый триггер processAllStores (60 мин).`);
-    return { created: 1, deleted: 0 };
+    log('🎯 Настройка триггеров Ozon...');
+    
+    // Удаляем старые триггеры Ozon
+    deleteAllOzonTriggers();
+    
+    // Создаем новый триггер для Ozon workflow (запускается каждый час)
+    ScriptApp.newTrigger('processOzonWorkflow')
+      .timeBased()
+      .everyHours(1)
+      .create();
+    
+    const message = '✅ Триггер Ozon настроен!\n\nАвтоматический процесс будет:\n• Подбирать шаблоны для NEW отзывов\n• Отправлять PENDING ответы\n\nЗапуск: каждый час';
+    log('✅ Триггер Ozon workflow создан (каждый час)');
+    
+    SpreadsheetApp.getUi().alert(
+      '✅ Триггеры Ozon настроены',
+      message,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
   } catch (error) {
-    log(`[Trigger] ❌ Ошибка синхронизации триггеров: ${error.message}`, 'ERROR', 'TRIGGER');
-    return { created: 0, deleted: 0 };
+    log(`❌ Ошибка настройки триггеров Ozon: ${error.message}`);
+    SpreadsheetApp.getUi().alert(
+      '❌ Ошибка',
+      `Не удалось настроить триггеры Ozon: ${error.message}`,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
   }
 }
 
 /**
- * 🚀 НОВАЯ ФУНКЦИЯ: Построение URL для WB API v1
- * Использует встроенную фильтрацию по дате и рейтингу
+ * ℹ️ Проверить статус триггеров Ozon
  */
-function buildWbApiV1Url(includeAnswered, skip, take, store) {
-    const baseUrl = 'https://feedbacks-api.wildberries.ru/api/v1/feedbacks';
-    const params = [];
+function checkOzonTriggersStatus() {
+  try {
+    const triggers = ScriptApp.getProjectTriggers();
+    const ozonTriggers = triggers.filter(t => 
+      t.getHandlerFunction() === 'processOzonWorkflow'
+    );
     
-    // Обязательные параметры
-    params.push(`isAnswered=${includeAnswered}`);
-    params.push(`take=${take}`);
-    params.push(`skip=${skip}`);
-    params.push(`order=dateDesc`);
-    
-    // 🚀 ИСПРАВЛЕНО: WB API требует Unix timestamp, не ISO строки
-    if (store?.settings?.startDate) {
-        const startTimestamp = Math.floor(new Date(store.settings.startDate).getTime() / 1000);
-        params.push(`dateFrom=${startTimestamp}`);
-        log(`[WB] 📅 Фильтр по дате: ${store.settings.startDate} (${startTimestamp})`);
+    if (ozonTriggers.length === 0) {
+      SpreadsheetApp.getUi().alert(
+        'ℹ️ Триггеры НЕ активны',
+        'Триггеры Ozon НЕ активны.\n\nДля настройки автоматизации используйте:\n"✅ Настроить триггеры Ozon (2 автомата)"',
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+    } else {
+      const trigger = ozonTriggers[0];
+      let triggerType = 'неизвестно';
+      
+      try {
+        // Определяем тип триггера
+        const eventType = trigger.getEventType();
+        if (eventType === ScriptApp.EventType.CLOCK) {
+          triggerType = 'по времени (каждый час)';
+        }
+      } catch (e) {
+        triggerType = 'временной триггер';
+      }
+      
+      const info = `✅ ТРИГГЕРЫ OZON АКТИВНЫ\n\n` +
+                   `Функция: processOzonWorkflow\n` +
+                   `Тип: ${triggerType}\n` +
+                   `Найдено: ${ozonTriggers.length} триггер(ов)\n\n` +
+                   `Автоматизация работает:\n` +
+                   `• Подбор шаблонов для NEW отзывов\n` +
+                   `• Отправка PENDING ответов\n` +
+                   `• Запуск каждый час`;
+      
+      SpreadsheetApp.getUi().alert(
+        '✅ Триггеры АКТИВНЫ',
+        info,
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
     }
-    // Добавляем верхнюю границу по дате (сегодня), чтобы ограничить интервал
-    const todayTimestamp = Math.floor(Date.now() / 1000);
-    params.push(`dateTo=${todayTimestamp}`);
-    
-    // 🚀 НОВОЕ: Используем встроенную фильтрацию по рейтингу
-    if (store?.settings?.minRating) {
-        params.push(`valuation=${store.settings.minRating}`);
-        log(`[WB] ⭐ Фильтр по рейтингу: ${store.settings.minRating}`);
-    }
-    
-    // 🚀 НОВОЕ: Фильтр по товару (если нужен)
-    if (store?.settings?.nmId) {
-        params.push(`nmId=${store.settings.nmId}`);
-        log(`[WB] 🛍️ Фильтр по товару: ${store.settings.nmId}`);
-    }
-    
-    return `${baseUrl}?${params.join('&')}`;
+  } catch (error) {
+    log(`❌ Ошибка проверки статуса триггеров Ozon: ${error.message}`);
+    SpreadsheetApp.getUi().alert(
+      '❌ Ошибка',
+      `Не удалось проверить статус триггеров: ${error.message}`,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+  }
 }
 
-// ============ ДИНАМИЧЕСКИЕ ФУНКЦИИ ДЛЯ ТРИГГЕРОВ ============
-
 /**
- * Динамически создаваемая функция для обработки конкретного магазина
- * Эта функция создается для каждого магазина при создании триггера
- * @param {string} storeId - ID магазина
+ * ❌ Удалить все триггеры Ozon
  */
-function processStore_(storeId) {
+function deleteAllOzonTriggers() {
   try {
-    log(`[Trigger] 🚀 Запуск обработки магазина: ${storeId}`);
+    const triggers = ScriptApp.getProjectTriggers();
+    const ozonFunctions = [
+      'processOzonWorkflow',
+      'processNewOzonReviews', 
+      'sendPendingAnswersOzonOnly',
+      'collectOzonReviewsAuto'
+    ];
     
-    // Получаем магазин по ID
-    const stores = getStores();
-    const store = stores.find(s => s.id === storeId);
+    let deletedCount = 0;
     
-    if (!store) {
-      log(`[Trigger] ❌ Магазин с ID ${storeId} не найден`, 'ERROR', 'TRIGGER');
-      return;
-    }
+    triggers.forEach(trigger => {
+      const functionName = trigger.getHandlerFunction();
+      if (ozonFunctions.includes(functionName)) {
+        ScriptApp.deleteTrigger(trigger);
+        deletedCount++;
+        log(`🗑️ Удален триггер: ${functionName}`);
+      }
+    });
     
-    if (!store.isActive) {
-      log(`[Trigger] ⏸️ Магазин ${storeId} неактивен, пропускаем`, 'INFO', 'TRIGGER');
-      return;
-    }
+    const message = deletedCount > 0 
+      ? `✅ Удалено триггеров Ozon: ${deletedCount}\n\nАвтоматизация Ozon остановлена.`
+      : 'ℹ️ Триггеры Ozon не найдены\n\nАвтоматизация уже была отключена.';
     
-    // Запускаем обработку магазина
-    processSingleStore(store, false);
+    log(`🗑️ Удалено триггеров Ozon: ${deletedCount}`);
     
-    log(`[Trigger] ✅ Обработка магазина ${store.name} завершена`);
-    
+    SpreadsheetApp.getUi().alert(
+      deletedCount > 0 ? '✅ Триггеры удалены' : 'ℹ️ Триггеры не найдены',
+      message,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
   } catch (error) {
-    log(`[Trigger] ❌ Ошибка обработки магазина ${storeId}: ${error.message}`, 'ERROR', 'TRIGGER');
+    log(`❌ Ошибка удаления триггеров Ozon: ${error.message}`);
+    SpreadsheetApp.getUi().alert(
+      '❌ Ошибка',
+      `Не удалось удалить триггеры Ozon: ${error.message}`,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
   }
 }
